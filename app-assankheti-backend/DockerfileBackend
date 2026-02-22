@@ -1,0 +1,26 @@
+#Use the official Python 3.11 slim image as the base. It's small, 
+#includes Python runtime, and is a good balance between size and compatibility.
+FROM python:3.11-slim
+
+#Set the working directory in the container to /app
+WORKDIR /app
+
+#Copy the requirements file into the container at /app directory 
+#structure COPY source destination
+COPY requirements.txt .
+
+#Install the dependencies from requirements.txt
+#--no-cache-dir avoids storing package caches in the image, keeping the image smaller.
+RUN pip install --no-cache-dir -r requirements.txt
+
+#Copy the entire src directory from the host to the container at /app/src
+COPY ./src ./src
+
+#Set PYTHONPATH so Python can find the app module
+ENV PYTHONPATH=/app/src
+
+#Expose port 8000 to allow communication to/from the container
+EXPOSE 8000
+
+#Command to run the application using Uvicorn ASGI server
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -1,0 +1,22 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Accept build-time API_URL
+ARG API_URL=http://localhost:8000
+ENV API_URL=${API_URL}
+
+# Copy package files first for better layer caching
+COPY package.json package-lock.json* ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the source
+COPY . .
+
+# Expose the Expo web dev server port
+EXPOSE 8081
+
+# Start Expo in web mode — 'lan' binds to all interfaces inside the container
+CMD ["npx", "expo", "start", "--web", "--host", "lan", "--port", "8081"]

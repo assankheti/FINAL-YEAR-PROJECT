@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+*.pyo
+env/
+venv/
+.git
+.DS_Store
+node_modules/
+.env
+.env.local
+.env.*.local

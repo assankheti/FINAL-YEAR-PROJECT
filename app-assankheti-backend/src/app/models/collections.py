@@ -1,0 +1,7 @@
+TERMS_COLLECTION = "terms_settings"
+LANGUAGEVOICE_COLLECTION = "language_settings"
+CHARACTER_COLLECTION = "character_settings"
+FINAL_SETTINGS_COLLECTION = "user_settings"
+AUTH_COLLECTION = "auth_credentials"
+MOBILE_DEVICES_COLLECTION = "mobile_devices"
+CROP_SELECTION_COLLECTION = "crop_selections"
