@@ -9,12 +9,14 @@ export default function FarmerDashboardPage() {
   const textLanguage = coerceAppLanguage(params?.textLanguage, ctxTextLanguage);
   const voiceLanguage = coerceAppLanguage(params?.voiceLanguage, ctxVoiceLanguage);
   const tab = (params?.tab as string) ?? 'home';
+  const selectedCrop = (params?.selectedCrop as string) ?? undefined;
 
   return (
     <FarmerDashboard
       textLanguage={textLanguage}
       voiceLanguage={voiceLanguage}
       initialTab={(tab as any) ?? 'home'}
+      selectedCrop={selectedCrop}
     />
   );
 }

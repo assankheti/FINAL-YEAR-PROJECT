@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import GreenHeader from '@/components/GreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -49,7 +49,14 @@ const soilTypes = [
 
 export default function SmartBudgetForm() {
   const router = useRouter();
-  const [crop, setCrop] = useState('Select Crop');
+  const params = useLocalSearchParams();
+  
+  // Get the selected crop from route params and capitalize it
+  const selectedCropFromParams = params.selectedCrop 
+    ? (params.selectedCrop as string).charAt(0).toUpperCase() + (params.selectedCrop as string).slice(1)
+    : 'Select Crop';
+  
+  const [crop, setCrop] = useState(selectedCropFromParams);
   const [soilType, setSoilType] = useState('Select Soil Type');
   const [fertilizer, setFertilizer] = useState('Select Fertilizer');
   const [pesticide, setPesticide] = useState('Select Pesticide');
@@ -60,6 +67,20 @@ export default function SmartBudgetForm() {
   const [open, setOpen] = useState<string | null>(null);
 
   const [result, setResult] = useState<any>(null);
+
+  // Update crop state when params change
+  React.useEffect(() => {
+    if (params.selectedCrop) {
+      const capitalizedCrop = (params.selectedCrop as string).charAt(0).toUpperCase() + (params.selectedCrop as string).slice(1);
+      if (cropOptions[capitalizedCrop]) {
+        setCrop(capitalizedCrop);
+        // Reset dependent dropdowns when crop changes
+        setFertilizer('Select Fertilizer');
+        setPesticide('Select Pesticide');
+        setSeed('Select Seed');
+      }
+    }
+  }, [params.selectedCrop]);
 
   const renderDropdown = (
     label: string,
@@ -123,13 +144,13 @@ export default function SmartBudgetForm() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
 
-      {/* Crop Type */}
-      {renderDropdown('Crop Type', crop, Object.keys(cropOptions), 'crop', (val) => {
-        setCrop(val);
-        setFertilizer('Select Fertilizer');
-        setPesticide('Select Pesticide');
-        setSeed('Select Seed');
-      })}
+      {/* Crop Type - Read Only */}
+      <View style={{ marginBottom: 12 }}>
+        <Text style={styles.label}>Crop Type</Text>
+        <View style={[styles.dropdown, { backgroundColor: '#f0f0f0' }]}>
+          <Text style={styles.dropdownText}>{crop}</Text>
+        </View>
+      </View>
 
       {/* Soil Type */}
       {renderDropdown('Soil Type', soilType, soilTypes, 'soil', setSoilType)}

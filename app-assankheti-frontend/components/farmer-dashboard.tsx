@@ -24,10 +24,11 @@ type Props = {
   textLanguage?: 'urdu' | 'english';
   voiceLanguage?: 'urdu' | 'english';
   initialTab?: Tab;
+  selectedCrop?: string;
 };
 type Tab = 'home' | 'shop' | 'chat' | 'profile';
 
-export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'english', initialTab = 'home' }: Props) {
+export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'english', initialTab = 'home', selectedCrop }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const { width } = useWindowDimensions();
@@ -88,7 +89,7 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
           onPress: () =>
             router.push({
               pathname: '/smart-budget',
-              params: { textLanguage, voiceLanguage },
+              params: { textLanguage, voiceLanguage, ...(selectedCrop && { selectedCrop }) },
             }),
         },
 
