@@ -18,6 +18,27 @@ type CropData = {
   seeds: string[];
 };
 
+type FertilizerData = {
+  _id: string;
+  name: string;
+  price: number;
+  scraped_at: string;
+};
+
+type PesticideData = {
+  _id: string;
+  name: string;
+  price: number;
+  scraped_at: string;
+};
+
+type SeedData = {
+  _id: string;
+  name: string;
+  price: number;
+  scraped_at: string;
+};
+
 // Crop-dependent options
 const cropOptions: Record<string, CropData> = {
   Wheat: {
@@ -68,8 +89,20 @@ export default function SmartBudgetForm() {
 
   const [result, setResult] = useState<any>(null);
 
+  // Fertilizer data from API
+  const [availableFertilizers, setAvailableFertilizers] = useState<FertilizerData[]>([]);
+  const [loadingFertilizers, setLoadingFertilizers] = useState(true);
+
+  // Pesticide data from API
+  const [availablePesticides, setAvailablePesticides] = useState<PesticideData[]>([]);
+  const [loadingPesticides, setLoadingPesticides] = useState(true);
+
+  // Seed data from API
+  const [availableSeeds, setAvailableSeeds] = useState<SeedData[]>([]);
+  const [loadingSeeds, setLoadingSeeds] = useState(true);
+
   // Update crop state when params change
-  React.useEffect(() => {
+  useEffect(() => {
     if (params.selectedCrop) {
       const capitalizedCrop = (params.selectedCrop as string).charAt(0).toUpperCase() + (params.selectedCrop as string).slice(1);
       if (cropOptions[capitalizedCrop]) {
@@ -81,6 +114,76 @@ export default function SmartBudgetForm() {
       }
     }
   }, [params.selectedCrop]);
+
+  // Fetch fertilizers from API
+  useEffect(() => {
+    const fetchFertilizers = async () => {
+      try {
+        setLoadingFertilizers(true);
+        const response = await fetch('http://localhost:8000/api/v1/fertilizer/all?limit=100');
+        const data = await response.json();
+
+        if (data.status === 'success') {
+          setAvailableFertilizers(data.data);
+        } else {
+          console.error('Failed to fetch fertilizers:', data);
+        }
+      }
+      catch (error) {
+        console.error('Error fetching fertilizers:', error);
+      } finally {
+        setLoadingFertilizers(false);
+      }
+    };
+
+    fetchFertilizers();
+  }, []);
+
+  // Fetch pesticides from API
+  useEffect(() => {
+    const fetchPesticides = async () => {
+      try {
+        setLoadingPesticides(true);
+        const response = await fetch('http://localhost:8000/api/v1/pesticide/all?limit=100');
+        const data = await response.json();
+
+        if (data.status === 'success') {
+          setAvailablePesticides(data.data);
+        } else {
+          console.error('Failed to fetch pesticides:', data);
+        }
+      } catch (error) {
+        console.error('Error fetching pesticides:', error);
+      } finally {
+        setLoadingPesticides(false);
+      }
+    };
+
+    fetchPesticides();
+  }, []);
+
+  // Fetch seeds from API
+  useEffect(() => {
+    const fetchSeeds = async () => {
+      try {
+        setLoadingSeeds(true);
+        const response = await fetch('http://localhost:8000/api/v1/seed/all?limit=100');
+        const data = await response.json();
+
+        if (data.status === 'success') {
+          setAvailableSeeds(data.data);
+        } else {
+          console.error('Failed to fetch seeds:', data);
+        }
+      } catch (error) {
+        console.error('Error fetching seeds:', error);
+      } finally {
+        setLoadingSeeds(false);
+      }
+    };
+
+    fetchSeeds();
+  }, []);
 
   const renderDropdown = (
     label: string,
@@ -127,16 +230,43 @@ export default function SmartBudgetForm() {
     if (soilType === 'Saline Soil') soilFactor = 1.2;
     if (soilType === 'Loamy Soil') soilFactor = 0.9;
 
-    const totalCost = areaNum * 5000 * soilFactor + otherNum;
+    // Find selected fertilizer price
+    const selectedFertilizerData = availableFertilizers.find(f => f.name === fertilizer);
+    const fertilizerPrice = selectedFertilizerData ? selectedFertilizerData.price : 0;
+
+    // Find selected pesticide price
+    const selectedPesticideData = availablePesticides.find(p => p.name === pesticide);
+    const pesticidePrice = selectedPesticideData ? selectedPesticideData.price : 0;
+
+    // Find selected seed price
+    const selectedSeedData = availableSeeds.find(s => s.name === seed);
+    const seedPrice = selectedSeedData ? selectedSeedData.price : 0;
+
+    // Calculate costs (assuming 1 unit per acre for now)
+    const fertilizerCost = areaNum * fertilizerPrice;
+    const pesticideCost = areaNum * pesticidePrice;
+    const seedCost = areaNum * seedPrice;
+
+    const totalCost = (areaNum * 5000 * soilFactor) + fertilizerCost + pesticideCost + seedCost + otherNum;
     const expectedRevenue = areaNum * 10000;
     const profit = expectedRevenue - totalCost;
 
-    setResult({ totalCost, expectedRevenue, profit });
+    setResult({
+      totalCost,
+      expectedRevenue,
+      profit,
+      fertilizerCost,
+      pesticideCost,
+      seedCost,
+      fertilizerPrice: selectedFertilizerData ? selectedFertilizerData.price : 0,
+      pesticidePrice: selectedPesticideData ? selectedPesticideData.price : 0,
+      seedPrice: selectedSeedData ? selectedSeedData.price : 0
+    });
   };
 
-  const fertilizers = cropOptions[crop]?.fertilizers || [];
-  const pesticides = cropOptions[crop]?.pesticides || [];
-  const seeds = cropOptions[crop]?.seeds || [];
+  const fertilizers = availableFertilizers.map(f => f.name);
+  const pesticides = availablePesticides.map(p => p.name);
+  const seeds = availableSeeds.map(s => s.name);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -144,64 +274,181 @@ export default function SmartBudgetForm() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
 
-      {/* Crop Type - Read Only */}
-      <View style={{ marginBottom: 12 }}>
-        <Text style={styles.label}>Crop Type</Text>
-        <View style={[styles.dropdown, { backgroundColor: '#f0f0f0' }]}>
-          <Text style={styles.dropdownText}>{crop}</Text>
-        </View>
-      </View>
-
-      {/* Soil Type */}
-      {renderDropdown('Soil Type', soilType, soilTypes, 'soil', setSoilType)}
-
-      {/* Land Area */}
-      <View style={{ marginBottom: 12 }}>
-        <Text style={styles.label}>Land Area (acre)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter area in acres"
-          keyboardType="numeric"
-          value={area}
-          onChangeText={setArea}
-        />
-      </View>
-
-      {/* Fertilizer */}
-      {renderDropdown('Fertilizer', fertilizer, fertilizers, 'fertilizer', setFertilizer)}
-
-      {/* Pesticide */}
-      {renderDropdown('Pesticide', pesticide, pesticides, 'pesticide', setPesticide)}
-
-      {/* Seed */}
-      {renderDropdown('Seed', seed, seeds, 'seed', setSeed)}
-
-      {/* Other Expenses */}
-      <View style={{ marginBottom: 12 }}>
-        <Text style={styles.label}>Other Expenses (Rs)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Any other cost"
-          keyboardType="numeric"
-          value={otherCosts}
-          onChangeText={setOtherCosts}
-        />
-      </View>
-
-      {/* Calculate */}
-      <TouchableOpacity style={styles.button} onPress={calculateBudget}>
-        <Feather name="command" size={18} color="#fff" />
-        <Text style={styles.buttonText}> Calculate Budget</Text>
-      </TouchableOpacity>
-
-      {/* Result */}
-      {result && (
-        <View style={styles.resultCard}>
-          <Text style={styles.resultTitle}>📊 Estimated Result</Text>
-          <View style={styles.row}>
-            <Text>Total Cost:</Text>
-            <Text style={styles.cost}>Rs {result.totalCost}</Text>
+        {/* Crop Type - Read Only */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Crop Type</Text>
+          <View style={[styles.dropdown, { backgroundColor: '#f0f0f0' }]}>
+            <Text style={styles.dropdownText}>{crop}</Text>
           </View>
+        </View>
+
+        {/* Soil Type */}
+        {renderDropdown('Soil Type', soilType, soilTypes, 'soil', setSoilType)}
+
+        {/* Land Area */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Land Area (acre)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter area in acres"
+            keyboardType="numeric"
+            value={area}
+            onChangeText={setArea}
+          />
+        </View>
+
+        {/* Fertilizer */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Fertilizer</Text>
+
+          <TouchableOpacity
+            style={styles.dropdown}
+            onPress={() => setOpen(open === 'fertilizer' ? null : 'fertilizer')}
+            disabled={loadingFertilizers}
+          >
+            <Text style={[styles.dropdownText, loadingFertilizers && { color: '#9ca3af' }]}>
+              {loadingFertilizers ? 'Loading fertilizers...' : fertilizer}
+            </Text>
+            <Feather name="chevron-down" size={18} color={loadingFertilizers ? "#9ca3af" : "#2f6f5f"} />
+          </TouchableOpacity>
+
+          {open === 'fertilizer' && !loadingFertilizers && (
+            <View style={styles.dropdownList}>
+              {fertilizers.map((item) => (
+                <TouchableOpacity
+                  key={item}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setFertilizer(item);
+                    setOpen(null);
+                  }}
+                >
+                  <Text>{item}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Pesticide */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Pesticide</Text>
+
+          <TouchableOpacity
+            style={styles.dropdown}
+            onPress={() => setOpen(open === 'pesticide' ? null : 'pesticide')}
+            disabled={loadingPesticides}
+          >
+            <Text style={[styles.dropdownText, loadingPesticides && { color: '#9ca3af' }]}>
+              {loadingPesticides ? 'Loading pesticides...' : pesticide}
+            </Text>
+            <Feather name="chevron-down" size={18} color={loadingPesticides ? "#9ca3af" : "#2f6f5f"} />
+          </TouchableOpacity>
+
+          {open === 'pesticide' && !loadingPesticides && (
+            <View style={styles.dropdownList}>
+              {pesticides.map((item) => (
+                <TouchableOpacity
+                  key={item}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setPesticide(item);
+                    setOpen(null);
+                  }}
+                >
+                  <Text>{item}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Seed */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Seed</Text>
+
+          <TouchableOpacity
+            style={styles.dropdown}
+            onPress={() => setOpen(open === 'seed' ? null : 'seed')}
+            disabled={loadingSeeds}
+          >
+            <Text style={[styles.dropdownText, loadingSeeds && { color: '#9ca3af' }]}>
+              {loadingSeeds ? 'Loading seeds...' : seed}
+            </Text>
+            <Feather name="chevron-down" size={18} color={loadingSeeds ? "#9ca3af" : "#2f6f5f"} />
+          </TouchableOpacity>
+
+          {open === 'seed' && !loadingSeeds && (
+            <View style={styles.dropdownList}>
+              {seeds.map((item) => (
+                <TouchableOpacity
+                  key={item}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSeed(item);
+                    setOpen(null);
+                  }}
+                >
+                  <Text>{item}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Other Expenses */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Other Expenses (Rs)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Any other cost"
+            keyboardType="numeric"
+            value={otherCosts}
+            onChangeText={setOtherCosts}
+          />
+        </View>
+
+        {/* Calculate */}
+        <TouchableOpacity style={styles.button} onPress={calculateBudget}>
+          <Feather name="command" size={18} color="#fff" />
+          <Text style={styles.buttonText}> Calculate Budget</Text>
+        </TouchableOpacity>
+
+        {/* Result */}
+        {result && (
+          <View style={styles.resultCard}>
+            <Text style={styles.resultTitle}>📊 Estimated Result</Text>
+
+            {result.fertilizerPrice > 0 && (
+              <View style={styles.row}>
+                <Text>Fertilizer ({fertilizer}):</Text>
+                <Text style={styles.cost}>Rs {result.fertilizerCost} ({result.fertilizerPrice}/unit)</Text>
+              </View>
+            )}
+
+            {result.pesticidePrice > 0 && (
+              <View style={styles.row}>
+                <Text>Pesticide ({pesticide}):</Text>
+                <Text style={styles.cost}>Rs {result.pesticideCost} ({result.pesticidePrice}/unit)</Text>
+              </View>
+            )}
+
+            {result.seedPrice > 0 && (
+              <View style={styles.row}>
+                <Text>Seed ({seed}):</Text>
+                <Text style={styles.cost}>Rs {result.seedCost} ({result.seedPrice}/unit)</Text>
+              </View>
+            )}
+
+            <View style={styles.row}>
+              <Text>Other Costs:</Text>
+              <Text style={styles.cost}>Rs {parseFloat(otherCosts) || 0}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text>Total Cost:</Text>
+              <Text style={styles.cost}>Rs {result.totalCost}</Text>
+            </View>
           <View style={styles.row}>
             <Text>Expected Revenue:</Text>
             <Text style={styles.revenue}>Rs {result.expectedRevenue}</Text>
