@@ -242,13 +242,31 @@ export default function SmartBudgetForm() {
     const selectedSeedData = availableSeeds.find(s => s.name === seed);
     const seedPrice = selectedSeedData ? selectedSeedData.price : 0;
 
-    // Calculate costs (assuming 1 unit per acre for now)
-    const fertilizerCost = areaNum * fertilizerPrice;
-    const pesticideCost = areaNum * pesticidePrice;
-    const seedCost = areaNum * seedPrice;
+    // Realistic usage values per acre
+    const fertilizerBagsPerAcre = 1;
+    const pesticideUnitsPerAcre = 0.5;
+    const seedUnitsPerAcre = 1;
 
-    const totalCost = (areaNum * 5000 * soilFactor) + fertilizerCost + pesticideCost + seedCost + otherNum;
-    const expectedRevenue = areaNum * 10000;
+    // Calculate costs with realistic usage
+    const fertilizerCost = areaNum * fertilizerPrice * fertilizerBagsPerAcre;
+    const pesticideCost = areaNum * pesticidePrice * pesticideUnitsPerAcre;
+    const seedCost = areaNum * seedPrice * seedUnitsPerAcre;
+
+    // Base farming cost calculation
+    const baseCost = areaNum * 3500 * soilFactor;
+
+    // Calculate total cost
+    const totalCost = baseCost + fertilizerCost + pesticideCost + seedCost + otherNum;
+
+    // Crop-based revenue calculation
+    const cropRevenueMap: Record<string, number> = {
+      'Wheat': 150000,
+      'Rice': 180000,
+      'Potato': 300000,
+    };
+    const revenuePerAcre = cropRevenueMap[crop] || 120000;
+    const expectedRevenue = areaNum * revenuePerAcre;
+
     const profit = expectedRevenue - totalCost;
 
     setResult({
@@ -264,9 +282,10 @@ export default function SmartBudgetForm() {
     });
   };
 
-  const fertilizers = availableFertilizers.map(f => f.name);
-  const pesticides = availablePesticides.map(p => p.name);
-  const seeds = availableSeeds.map(s => s.name);
+  // options derived directly from API data so we can show prices
+  const fertilizerOptions = availableFertilizers; // FertilizerData[]
+  const pesticideOptions = availablePesticides;   // PesticideData[]
+  const seedOptions = availableSeeds;             // SeedData[]
 
   return (
     <SafeAreaView style={styles.container}>
@@ -307,23 +326,27 @@ export default function SmartBudgetForm() {
             disabled={loadingFertilizers}
           >
             <Text style={[styles.dropdownText, loadingFertilizers && { color: '#9ca3af' }]}>
-              {loadingFertilizers ? 'Loading fertilizers...' : fertilizer}
+              {loadingFertilizers
+                ? 'Loading fertilizers...'
+                : fertilizer
+                    ? `${fertilizer} - Rs ${fertilizerOptions.find(f=>f.name===fertilizer)?.price ?? ''}`
+                    : 'Select Fertilizer'}
             </Text>
             <Feather name="chevron-down" size={18} color={loadingFertilizers ? "#9ca3af" : "#2f6f5f"} />
           </TouchableOpacity>
 
           {open === 'fertilizer' && !loadingFertilizers && (
             <View style={styles.dropdownList}>
-              {fertilizers.map((item) => (
+              {fertilizerOptions.map((item) => (
                 <TouchableOpacity
-                  key={item}
+                  key={item.name}
                   style={styles.dropdownItem}
                   onPress={() => {
-                    setFertilizer(item);
+                    setFertilizer(item.name);
                     setOpen(null);
                   }}
                 >
-                  <Text>{item}</Text>
+                  <Text>{`${item.name} - Rs ${item.price}`}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -340,23 +363,27 @@ export default function SmartBudgetForm() {
             disabled={loadingPesticides}
           >
             <Text style={[styles.dropdownText, loadingPesticides && { color: '#9ca3af' }]}>
-              {loadingPesticides ? 'Loading pesticides...' : pesticide}
+              {loadingPesticides
+                ? 'Loading pesticides...'
+                : pesticide
+                    ? `${pesticide} - Rs ${pesticideOptions.find(p=>p.name===pesticide)?.price ?? ''}`
+                    : 'Select Pesticide'}
             </Text>
             <Feather name="chevron-down" size={18} color={loadingPesticides ? "#9ca3af" : "#2f6f5f"} />
           </TouchableOpacity>
 
           {open === 'pesticide' && !loadingPesticides && (
             <View style={styles.dropdownList}>
-              {pesticides.map((item) => (
+              {pesticideOptions.map((item) => (
                 <TouchableOpacity
-                  key={item}
+                  key={item.name}
                   style={styles.dropdownItem}
                   onPress={() => {
-                    setPesticide(item);
+                    setPesticide(item.name);
                     setOpen(null);
                   }}
                 >
-                  <Text>{item}</Text>
+                  <Text>{`${item.name} - Rs ${item.price}`}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -373,23 +400,27 @@ export default function SmartBudgetForm() {
             disabled={loadingSeeds}
           >
             <Text style={[styles.dropdownText, loadingSeeds && { color: '#9ca3af' }]}>
-              {loadingSeeds ? 'Loading seeds...' : seed}
+              {loadingSeeds
+                ? 'Loading seeds...'
+                : seed
+                    ? `${seed} - Rs ${seedOptions.find(s=>s.name===seed)?.price ?? ''}`
+                    : 'Select Seed'}
             </Text>
             <Feather name="chevron-down" size={18} color={loadingSeeds ? "#9ca3af" : "#2f6f5f"} />
           </TouchableOpacity>
 
           {open === 'seed' && !loadingSeeds && (
             <View style={styles.dropdownList}>
-              {seeds.map((item) => (
+              {seedOptions.map((item) => (
                 <TouchableOpacity
-                  key={item}
+                  key={item.name}
                   style={styles.dropdownItem}
                   onPress={() => {
-                    setSeed(item);
+                    setSeed(item.name);
                     setOpen(null);
                   }}
                 >
-                  <Text>{item}</Text>
+                  <Text>{`${item.name} - Rs ${item.price}`}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -455,7 +486,9 @@ export default function SmartBudgetForm() {
           </View>
           <View style={styles.row}>
             <Text>Profit:</Text>
-            <Text style={styles.profit}>Rs {result.profit}</Text>
+            <Text style={[styles.profit, { color: result.profit >= 0 ? '#065f46' : '#b91c1c' }]}>
+              Rs {result.profit.toFixed(0)}
+            </Text>
           </View>
         </View>
       )}
