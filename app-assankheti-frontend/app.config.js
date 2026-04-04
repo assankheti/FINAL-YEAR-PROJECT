@@ -22,6 +22,7 @@ export default {
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
+      usesCleartextTraffic: true,
     },
     web: {
       output: 'static',

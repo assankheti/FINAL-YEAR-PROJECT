@@ -1,0 +1,21 @@
+# Environment variables
+.env
+
+# Auto-generated status/setup files
+BACKEND_RUNNING.md
+BOTH_SERVERS_RUNNING.md
+SETUP_COMPLETE.md
+START_HERE.md
+DEVELOPMENT_SETUP.md
+QUICK_START.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
