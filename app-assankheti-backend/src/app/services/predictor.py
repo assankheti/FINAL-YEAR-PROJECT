@@ -34,6 +34,38 @@ class_names = [
     "Tungro",
 ]
 
+
+KNOWN_DISEASES = {
+    "bacterial leaf blight": "Bacterial Leaf Blight",
+    "brown spot": "Brown Spot",
+    "leaf blast": "Leaf Blast",
+    "leaf scald": "Leaf scald",
+    "narrow brown leaf spot": "Narrow Brown Leaf Spot",
+    "rice hispa": "Rice Hispa",
+    "sheath blight": "Sheath Blight",
+    "tungro": "Tungro",
+}
+
+
+def normalize_disease_label(label: str | None) -> str:
+    raw = (label or "").strip().strip('"').strip("'")
+    normalized = raw.lower()
+
+    # Empty model output should be explicit
+    if not raw:
+        return "Not identifiable"
+
+    # Healthy / no disease outputs
+    if normalized in {"healthy", "healthy rice leaf", "no disease", "none", "null"}:
+        return "Healthy"
+
+    # Known disease classes
+    if normalized in KNOWN_DISEASES:
+        return KNOWN_DISEASES[normalized]
+
+    # Anything outside our supported list
+    return "Not identifiable"
+
 def predict_hugging_face(img_bytes):
     url = "https://assankheti-assankhetimodel.hf.space/predict"
     files = {"file": ("image.jpg", img_bytes, "image/jpeg")}
@@ -96,7 +128,7 @@ def predict(img_bytes):
         if confidence <= 1:
             confidence = confidence * 100
         return {
-            "disease": result.get("disease", "Unknown"),
+            "disease": normalize_disease_label(result.get("disease")),
             "confidence": round(confidence, 2),
             "model_type": "online",
             "model_name": "roboflow"
@@ -115,16 +147,16 @@ def predict(img_bytes):
     # Convert confidence to 0-100 range
     confidence_percent = confidence * 100 if confidence <= 1 else confidence
     
-    if confidence >= 0.85:
+    if confidence >= 0.70:
         return {
-            "disease": class_names[class_idx], 
+            "disease": normalize_disease_label(class_names[class_idx]), 
             "confidence": round(confidence_percent, 2),
             "model_type": "offline",
             "model_name": "local_tflite"
         }
     else:
         return {
-            "disease": "no disease", 
+            "disease": "Healthy",
             "confidence": round(confidence_percent, 2),
             "model_type": "offline",
             "model_name": "local_tflite"

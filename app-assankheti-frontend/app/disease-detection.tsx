@@ -12,13 +12,16 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import GreenHeader from '@/components/GreenHeader';
 import { useRouter } from 'expo-router';
+import { getOrCreateMobileId } from '@/lib/deviceId';
 
 const API_URL = "http://localhost:8000/api/v1/disease/predict_disease";
 
 export default function DiseaseDetection() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const [image, setImage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -115,9 +118,16 @@ export default function DiseaseDetection() {
 
   // Helper function to perform the upload
   const performUpload = async (blob: Blob) => {
+    const mobileId = await getOrCreateMobileId();
+    const selectedCrop = typeof params?.selectedCrop === 'string' ? params.selectedCrop : undefined;
+
     // Create FormData
     const formData = new FormData();
     formData.append('file', blob, 'leaf.jpg');
+    formData.append('mobile_id', mobileId);
+    if (selectedCrop) {
+      formData.append('crop_name', selectedCrop);
+    }
 
     console.log('📤 Sending request to:', API_URL);
     const uploadResponse = await fetch(API_URL, {
@@ -222,7 +232,7 @@ export default function DiseaseDetection() {
             <Text style={styles.resultTitle}>🌱 Disease Detected</Text>
 
             <Text style={styles.resultText}>
-              {String(result.disease)}
+              {String(result?.disease ?? '').trim() || 'Healthy'}
             </Text>
 
             <Text style={styles.confidence}>
@@ -239,6 +249,14 @@ export default function DiseaseDetection() {
           <Text style={styles.footerSub}>
             Our AI identifies crop diseases & suggests treatments
           </Text>
+          {result && (
+            <TouchableOpacity 
+              style={styles.backBtn}
+              onPress={() => router.back()}
+            >
+              <Text style={styles.backBtnText}>← Back to Dashboard</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -386,6 +404,19 @@ const styles = StyleSheet.create({
   footerSub: {
     fontSize: 12,
     color: '#4b7c6d',
+  },
+  backBtn: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#2f6f5f',
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  backBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   backButtonInline: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(31,77,63,0.08)' },
