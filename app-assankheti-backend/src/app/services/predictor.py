@@ -78,7 +78,12 @@ def predict(img_bytes):
     # try:
     #     result = predict_hugging_face(img_bytes)
     #     print("[INFO] Using HUGGING FACE model")
-    #     return result
+    #     return {
+    #         "disease": result.get("disease", "Unknown"),
+    #         "confidence": round(float(result.get("confidence", 0)) * 100, 2),
+    #         "model_type": "online",
+    #         "model_name": "hugging_face"
+    #     }
     # except Exception as e:
     #     print(f"[WARNING] Hugging Face failed: {e}")
 
@@ -86,7 +91,16 @@ def predict(img_bytes):
     try:
         result = predict_roboflow(img_bytes)
         print("[INFO] Using ROBOFLOW model")
-        return result
+        confidence = float(result.get("confidence", 0))
+        # Roboflow returns confidence as 0-1, convert to 0-100
+        if confidence <= 1:
+            confidence = confidence * 100
+        return {
+            "disease": result.get("disease", "Unknown"),
+            "confidence": round(confidence, 2),
+            "model_type": "online",
+            "model_name": "roboflow"
+        }
     except Exception as e:
         print(f"[WARNING] Roboflow failed: {e}")
     
@@ -98,7 +112,20 @@ def predict(img_bytes):
     output_data = interpreter.get_tensor(output_details[0]['index'])
     class_idx = int(np.argmax(output_data))
     confidence = float(np.max(output_data))
+    # Convert confidence to 0-100 range
+    confidence_percent = confidence * 100 if confidence <= 1 else confidence
+    
     if confidence >= 0.85:
-        return {"disease": class_names[class_idx], "confidence": confidence}
+        return {
+            "disease": class_names[class_idx], 
+            "confidence": round(confidence_percent, 2),
+            "model_type": "offline",
+            "model_name": "local_tflite"
+        }
     else:
-        return {"disease": "no disease", "confidence": confidence}
+        return {
+            "disease": "no disease", 
+            "confidence": round(confidence_percent, 2),
+            "model_type": "offline",
+            "model_name": "local_tflite"
+        }
