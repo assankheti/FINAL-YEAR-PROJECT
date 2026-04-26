@@ -1,233 +1,540 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
+  StyleSheet,
   Dimensions,
   TouchableOpacity,
+  ActivityIndicator,
+  Platform,
   useWindowDimensions,
+  Animated
 } from 'react-native';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
+
+import { LineChart, BarChart, MapView, Marker } from '@/lib/native-charts';
 
 type Crop = {
   name: string;
-  percentage: number;
   weatherScore: number;
+  soilScore: number;
   areaScore: number;
   marketScore: number;
+  pestRiskScore: number;
+  totalScore: number;
 };
 
-const cropData: Crop[] = [
-  { name: 'Rice', percentage: 78, weatherScore: 90, areaScore: 70, marketScore: 70 },
-  { name: 'Sugarcane', percentage: 65, weatherScore: 75, areaScore: 60, marketScore: 65 },
-  { name: 'Wheat', percentage: 52, weatherScore: 50, areaScore: 60, marketScore: 50 },
-  { name: 'Corn', percentage: 45, weatherScore: 40, areaScore: 50, marketScore: 45 },
-];
+const initialCrops = ['Rice', 'Wheat', 'Corn', 'Sugarcane', 'Potato'];
 
-export default function CropRecommendations(): JSX.Element {
+export default function SmartCropRecommendation() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const horizontalPadding = Math.max(16, Math.round(width * 0.06));
-  const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
-  // Find best crop
-  const bestPercentage = Math.max(...cropData.map(c => c.percentage));
+  const fadeAnim = useState(new Animated.Value(0))[0];
+  const scaleAnim = useState(new Animated.Value(0.8))[0];
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+
+  // navigation helper with fallback
+  const handleBack = () => {
+    // navigate back to farmer dashboard explicitly
+    router.replace('/farmer-dashboard');
+  };
+
+  // custom bar graph renderer (works on web/mobile without external lib)
+  const renderBarGraph = (tempData: number[]) => {
+    const maxVal = Math.max(...tempData, 1);
+    return (
+      <View style={styles.barGraphContainer}>
+        {tempData.map((val, idx) => (
+          <View key={idx} style={[styles.bar, { height: (val / maxVal) * 150 + 20 }]} />
+        ))}
+      </View>
+    );
+  };
+  const [region, setRegion] = useState<any>(null);
+  const [crops, setCrops] = useState<Crop[]>([]);
+  const [weatherForecast, setWeatherForecast] = useState<any[]>([]);
+  const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
+  const [soilType, setSoilType] = useState('Detecting...');
+  const [loading, setLoading] = useState(true);
+  const [mapLoading, setMapLoading] = useState(true);
+  
+  // Helper: Simulate seasonal pest risk
+  const simulatePestRisk = (crop: string, month: number) => {
+    const riskMap: Record<string, number[]> = {
+      Rice: [20, 25, 40, 50, 60, 70, 65, 55, 40, 30, 25, 20],
+      Wheat: [30, 40, 50, 60, 70, 65, 50, 40, 35, 25, 20, 15],
+      Corn: [15, 25, 35, 45, 50, 55, 50, 45, 35, 25, 20, 15],
+      Sugarcane: [10, 15, 20, 25, 30, 40, 45, 40, 30, 20, 15, 10],
+      Potato: [20, 30, 40, 50, 60, 65, 55, 50, 35, 25, 20, 15],
+    };
+    return riskMap[crop]?.[month] ?? 30;
+  };
+
+  // Get user location & soil type
+  useEffect(() => {
+    const fetchLocation = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setSoilType('Permission Denied');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({});
+      setLocation(loc);
+      setRegion({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        latitudeDelta: 0.1,
+        longitudeDelta: 0.1,
+      });
+
+      // Simulate soil type based on latitude (for demo)
+      const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
+      const index = Math.floor((loc.coords.latitude % 6));
+      setSoilType(soils[index]);
+    };
+    fetchLocation();
+  }, []);
+
+  // Fetch weather forecast (7-day + monthly approximation)
+  useEffect(() => {
+    const fetchWeather = async () => {
+      if (!location) return;
+      try {
+        const API_KEY = '529094980f6e4316be96ffc561515561';
+        const url = `https://api.weatherbit.io/v2.0/forecast/daily?lat=${location.coords.latitude}&lon=${location.coords.longitude}&key=${API_KEY}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && Array.isArray(data.data)) {
+          setWeatherForecast(data.data.slice(0, 7)); // 7-day forecast
+        } else {
+          console.warn('Unexpected weather payload', data);
+          setWeatherForecast([]);
+        }
+      } catch (e) {
+        console.error('Failed fetching weather', e);
+        setWeatherForecast([]);
+      }
+    };
+    fetchWeather();
+  }, [location]);
+
+  // Fetch market prices
+  useEffect(() => {
+    const fetchMarketPrices = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/calculator/prices/crop');
+        const data = await res.json();
+        setMarketPrices(data); // { Rice: 120, Wheat: 100, ... }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchMarketPrices();
+  }, []);
+
+  // Calculate crop suitability scores
+  useEffect(() => {
+    if (!weatherForecast.length || !Object.keys(marketPrices).length) return;
+    const month = new Date().getMonth(); // 0-11
+    const calculatedCrops: Crop[] = initialCrops.map((cropName) => {
+      const tempScore = Math.max(0, 100 - Math.abs(weatherForecast[0].temp - 28) * 3); // ideal 28°C
+      const humidityScore = Math.max(0, 100 - Math.abs(weatherForecast[0].rh - 70)); // ideal 70%
+      const soilScoreMap: Record<string, Record<string, number>> = {
+        'Rice': { 'Loamy Soil': 90, 'Clay Soil': 60, 'Sandy Soil': 40, 'Silty Soil': 80, 'Alluvial Soil': 95, 'Saline Soil': 20 },
+        'Wheat': { 'Loamy Soil': 95, 'Clay Soil': 80, 'Sandy Soil': 50, 'Silty Soil': 70, 'Alluvial Soil': 60, 'Saline Soil': 30 },
+        'Corn': { 'Loamy Soil': 90, 'Clay Soil': 70, 'Sandy Soil': 60, 'Silty Soil': 80, 'Alluvial Soil': 65, 'Saline Soil': 25 },
+        'Sugarcane': { 'Loamy Soil': 85, 'Clay Soil': 70, 'Sandy Soil': 50, 'Silty Soil': 75, 'Alluvial Soil': 90, 'Saline Soil': 20 },
+        'Potato': { 'Loamy Soil': 90, 'Clay Soil': 80, 'Sandy Soil': 55, 'Silty Soil': 70, 'Alluvial Soil': 60, 'Saline Soil': 20 },
+      };
+      const soilScore = soilScoreMap[cropName]?.[soilType] ?? 50;
+      const areaScore = 100; // Assuming all area suitable
+      const marketScore = marketPrices[cropName] ? Math.min(100, marketPrices[cropName]) : 50;
+      const pestRiskScore = 100 - simulatePestRisk(cropName, month);
+      const totalScore = Math.round((tempScore + humidityScore + soilScore + areaScore + marketScore + pestRiskScore) / 6);
+      return { name: cropName, weatherScore: tempScore, soilScore, areaScore, marketScore, pestRiskScore, totalScore };
+    });
+    setCrops(calculatedCrops.sort((a,b)=>b.totalScore-a.totalScore));
+    setLoading(false);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 10,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [weatherForecast, marketPrices, soilType]);
+
+  if (loading) return (
+    <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <GreenHeader title={{ english: 'Crop Recommendations', urdu: 'تجویز کردہ فصلیں' }} onBack={handleBack} />
+        <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+          <ActivityIndicator size="large" color="#059669" />
+          <Text style={{marginTop:12, color: '#1F2937'}}>Calculating best crops...</Text>
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <GreenHeader title={{ english: 'Recommended Crops', urdu: 'تجویز کردہ فصلیں' }} onBack={() => router.back()} />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Top Info Cards */}
-        <View style={styles.topCardsRow}>
-          <View style={[styles.topCard, styles.weatherCard]}>
-            <Feather name="cloud" size={20} color="#F9FAF7" />
-            <Text style={styles.topCardLabel}>Weather</Text>
-            <Text style={styles.topCardValue}>28°C, Sunny</Text>
+    <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <GreenHeader title={{ english: 'Crop Recommendations', urdu: 'تجویز کردہ فصلیں' }} onBack={handleBack} />
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          {/* Header */}
+          <View style={styles.headerSection}>
+            <Text style={styles.headerTitle}>Smart Crop Recommendation</Text>
+            <Text style={styles.headerSubtitle}>Smart farming insights</Text>
           </View>
 
-          <View style={[styles.topCard, styles.locationCard]}>
-            <MaterialCommunityIcons
-              name="map-marker-radius"
-              size={20}
-              color="#F9FAF7"
-            />
-            <Text style={styles.topCardLabel}>Location</Text>
-            <Text style={styles.topCardValue}>Lahore, Punjab</Text>
-          </View>
+          {/* Top Recommended Crop Card */}
+          <Animated.View style={[styles.topCropCard, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+            <LinearGradient colors={['#059669', '#047857']} style={styles.topCropGradient}>
+              <View style={styles.topCropContent}>
+                <Text style={styles.topCropTitle}>🌾 Top Recommendation</Text>
+                <Text style={styles.topCropName}>{crops[0]?.name}</Text>
+                <Text style={styles.topCropScore}>Suitability Score: {crops[0]?.totalScore}/100</Text>
+                <Text style={styles.topCropDesc}>Based on current weather, soil conditions, and market prices</Text>
+              </View>
+            </LinearGradient>
+          </Animated.View>
 
-          <View style={[styles.topCard, styles.seasonCard]}>
-            <Feather name="sun" size={20} color="#1F2D1C" />
-            <Text style={[styles.topCardLabel, { color: '#1F2D1C' }]}>
-              Season
-            </Text>
-            <Text style={[styles.topCardValue, { color: '#1F2D1C' }]}>
-              Kharif
-            </Text>
-          </View>
-        </View>
+          <Animated.View style={{ opacity: fadeAnim }}>
+            {/* Location & Soil Analysis */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>📍 Location & Soil Analysis</Text>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardText}>Latitude: {location?.coords.latitude.toFixed(4)}</Text>
+                <Text style={styles.cardText}>Longitude: {location?.coords.longitude.toFixed(4)}</Text>
+                <Text style={styles.cardText}>Soil Type: {soilType}</Text>
+                {MapView && region && (
+                  <MapView style={styles.map} region={region}>
+                    <Marker coordinate={region} />
+                  </MapView>
+                )}
+              </View>
+            </View>
 
-        {/* Crop Recommendations */}
+            {/* Weather Forecast */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>🌤️ 7-Day Weather Forecast</Text>
+              {BarChart && weatherForecast.length > 0 && (
+                <BarChart
+                  data={{
+                    labels: weatherForecast.map(d => new Date(d.datetime).toLocaleDateString('en-US', { weekday: 'short' })),
+                    datasets: [{ data: weatherForecast.map(d => d.temp) }]
+                  }}
+                  width={width - 40}
+                  height={220}
+                  chartConfig={{
+                    backgroundColor: '#ffffff',
+                    backgroundGradientFrom: '#ffffff',
+                    backgroundGradientTo: '#ffffff',
+                    decimalPlaces: 1,
+                    color: (opacity = 1) => `rgba(5, 150, 105, ${opacity})`,
+                    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                    style: { borderRadius: 16 },
+                  }}
+                  yAxisLabel=""
+                  yAxisSuffix="°C"
+                  style={styles.chart}
+                  showValuesOnTopOfBars={true}
+                  fromZero={true}
+                />
+              )}
+              <View style={styles.weatherDetails}>
+                {weatherForecast.map((day, index) => (
+                  <View key={index} style={styles.weatherDetailRow}>
+                    <Text style={styles.weatherDetailDay}>{new Date(day.datetime).toLocaleDateString('en-US', { weekday: 'short' })}</Text>
+                    <Text style={styles.weatherDetailTemp}>{day.temp}°C</Text>
+                    <Text style={styles.weatherDetailHumidity}>{day.rh}% Humidity</Text>
+                    <Text style={styles.weatherDetailRain}>{day.pop}% Rain</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
 
-        <View style={styles.cropList}>
-          {cropData.map((crop) => {
-            const isBest = crop.percentage === bestPercentage;
 
-            return (
-              <TouchableOpacity
-                key={crop.name}
-                style={[styles.cropRow, isBest && styles.bestCropRow]}
-              >
-                <View>
-                  <Text style={styles.cropName}>
-                    {crop.name} {isBest && '⭐'}
-                  </Text>
-                  {/* Score breakdown */}
-                  <Text style={styles.scoreText}>
-                    Weather: {crop.weatherScore}% | Area: {crop.areaScore}% | Market: {crop.marketScore}%
-                  </Text>
-                </View>
 
-                <View style={styles.percentageBadge}>
-                  <Text style={styles.cropPercentage}>{crop.percentage}%</Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+            {/* Crop Ranking */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>🌱 Crop Suitability Ranking</Text>
+              <View style={styles.cropList}>
+                {crops.map((crop, index) => (
+                  <View key={crop.name} style={styles.cropCard}>
+                    <View style={styles.cropHeader}>
+                      <Text style={styles.cropRank}>{index + 1}</Text>
+                      <Text style={styles.cropName}>{crop.name}</Text>
+                      <Text style={styles.cropScore}>{crop.totalScore}/100</Text>
+                    </View>
+                    <View style={styles.progressBar}>
+                      <View style={[styles.progressFill, { width: `${crop.totalScore}%` }]} />
+                    </View>
+                    <View style={styles.cropMetrics}>
+                      <Text style={styles.metric}>Weather: {crop.weatherScore.toFixed(2)}</Text>
+                      <Text style={styles.metric}>Soil: {crop.soilScore}</Text>
+                      <Text style={styles.metric}>Market: {crop.marketScore}</Text>
+                      <Text style={styles.metric}>Pest Risk: {crop.pestRiskScore}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
-
-const { width } = Dimensions.get('window');
-const cardWidth = (width - 48) / 3;
-
-/* 🌿 Assan Kheti Brand Colors */
-const COLORS = {
-  background: '#F9FAF7', // --cream
-  primary: '#1F4D3A', // --forest-green
-  secondary: '#5FA36A', // --leaf-green
-  accent: '#F4A226', // --sunrise-orange
-  card: '#FFFFFF',
-  muted: '#E7EFEA',
-  textPrimary: '#1F2D1C',
-};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
   },
-  header: {
-    paddingTop: 18,
-    paddingBottom: 28,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+  safeArea: {
+    flex: 1,
   },
-  headerTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
-    padding: 16,
+    padding: 20,
   },
-
-  /* Top Cards */
-  topCardsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 28,
-  },
-  topCard: {
-    width: cardWidth,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 10,
+  headerSection: {
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 4,
+    marginBottom: 30,
   },
-  weatherCard: {
-    backgroundColor: COLORS.primary,
-  },
-  locationCard: {
-    backgroundColor: COLORS.secondary,
-  },
-  seasonCard: {
-    backgroundColor: COLORS.accent,
-  },
-  topCardLabel: {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: '500',
-    color: COLORS.background,
-  },
-  topCardValue: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.background,
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#065F46',
     textAlign: 'center',
   },
-
-  /* Section */
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: COLORS.primary,
-    marginBottom: 14,
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#047857',
+    textAlign: 'center',
+    marginTop: 8,
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  backButtonInline: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(31,77,58,0.06)' },
-  headerContainer: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
-
-  /* Crop List */
-  cropList: {
-    marginTop: 4,
+  topCropCard: {
+    borderRadius: 24,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
+    overflow: 'hidden',
   },
-  cropRow: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    marginBottom: 14,
-    flexDirection: 'row',
+  topCropGradient: {
+    padding: 30,
+  },
+  topCropContent: {
     alignItems: 'center',
-    justifyContent: 'space-between',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 3,
   },
-  bestCropRow: {
-    borderWidth: 2,
-    borderColor: COLORS.accent,
+  topCropTitle: {
+    fontSize: 18,
+    color: '#FFFFFF',
+    marginBottom: 10,
+  },
+  topCropName: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 10,
+  },
+  topCropScore: {
+    fontSize: 20,
+    color: '#FFFFFF',
+    marginBottom: 10,
+  },
+  topCropDesc: {
+    fontSize: 14,
+    color: '#E0F2FE',
+    textAlign: 'center',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 15,
+  },
+  cardContent: {
+    // flex
+  },
+  cardText: {
+    fontSize: 16,
+    color: '#374151',
+    marginBottom: 10,
+  },
+  map: {
+    height: 200,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  weatherScroll: {
+    // horizontal scroll
+  },
+  weatherCard: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    padding: 15,
+    marginRight: 15,
+    alignItems: 'center',
+    minWidth: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  weatherDay: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  weatherTemp: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#059669',
+    marginBottom: 5,
+  },
+  weatherDetail: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  weatherDetails: {
+    marginTop: 20,
+  },
+  weatherDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  weatherDetailDay: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    width: 60,
+  },
+  weatherDetailTemp: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#059669',
+    width: 60,
+    textAlign: 'center',
+  },
+  weatherDetailHumidity: {
+    fontSize: 14,
+    color: '#6B7280',
+    width: 80,
+    textAlign: 'center',
+  },
+  weatherDetailRain: {
+    fontSize: 14,
+    color: '#059669',
+    width: 60,
+    textAlign: 'center',
+  },
+  barGraphContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingVertical: 20,
+  },
+  bar: {
+    width: 20,
+    backgroundColor: '#059669',
+    borderRadius: 4,
+  },
+  chart: {
+    borderRadius: 16,
+    marginVertical: 10,
+  },
+  cropList: {
+    // flex
+  },
+  cropCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cropHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cropRank: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#059669',
+    width: 30,
   },
   cropName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    flex: 1,
+    textAlign: 'center',
   },
-  scoreText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#4A5D4D',
-    marginTop: 4,
+  cropScore: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#059669',
   },
-  percentageBadge: {
-    backgroundColor: '#ECF7F0',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 999,
+  progressBar: {
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 4,
+    marginBottom: 15,
+    overflow: 'hidden',
   },
-  cropPercentage: {
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#059669',
+    borderRadius: 4,
+  },
+  cropMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  metric: {
     fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.secondary,
+    color: '#6B7280',
+    flex: 1,
+    textAlign: 'center',
   },
 });

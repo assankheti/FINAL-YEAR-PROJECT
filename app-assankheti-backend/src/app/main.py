@@ -3,14 +3,22 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+import asyncio
 
-from app.api.v1.endpoints import auth, deviceSettings
-from app.utils.logger import logger
-from app.db.db_connection import get_database
+from .api.v1.endpoints import auth, deviceSettings
+from .utils.logger import logger
+from .db.db_connection import get_database
 
 
-from app.api.v1.endpoints.disease_api import router as disease_router
-from app.api.v1.endpoints import calculator
+from .api.v1.endpoints.disease_api import router as disease_router
+from .api.v1.endpoints.fertilizer_api import router as fertilizer_router
+from .api.v1.endpoints.pesticide_api import router as pesticide_router
+from .api.v1.endpoints.seed_api import router as seed_router
+from .api.v1.endpoints import calculator
+from .api.v1.endpoints.chatbot import router as chatbot_router
+from .services.fertilizer_service import scrape_and_store_fertilizers
+from .services.pesticide_service import scrape_and_store_pesticides
+from .services.seed_service import scrape_and_store_seeds
 
 
 
@@ -25,16 +33,91 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Run scrapers when the application starts"""
+    logger.info("Application startup: Running scrapers...")
+    try:
+        # Fertilizer scraper
+        fertilizer_result = await scrape_and_store_fertilizers()
+        if fertilizer_result["status"] == "success":
+            logger.info(f"Startup fertilizer scraper: {fertilizer_result['message']}")
+        else:
+            logger.error(f"Startup fertilizer scraper failed: {fertilizer_result['message']}")
+
+        # Pesticide scraper
+        pesticide_result = await scrape_and_store_pesticides()
+        if pesticide_result["status"] == "success":
+            logger.info(f"Startup pesticide scraper: {pesticide_result['message']}")
+        else:
+            logger.error(f"Startup pesticide scraper failed: {pesticide_result['message']}")
+
+        # Seed scraper
+        seed_result = await scrape_and_store_seeds()
+        if seed_result["status"] == "success":
+            logger.info(f"Startup seed scraper: {seed_result['message']}")
+        else:
+            logger.error(f"Startup seed scraper failed: {seed_result['message']}")
+
+    except Exception as e:
+        logger.error(f"Error during startup scrapers: {e}")
+
+    # Start the background task for periodic scraping
+    asyncio.create_task(schedule_scraping())
+
+
+async def schedule_scraping():
+    """Run all scrapers every 24 hours"""
+    while True:
+        try:
+            # Wait 24 hours (86400 seconds)
+            await asyncio.sleep(86400)
+            logger.info("Scheduled scraping: Starting...")
+
+            # Fertilizer scraper
+            fertilizer_result = await scrape_and_store_fertilizers()
+            if fertilizer_result["status"] == "success":
+                logger.info(f"Scheduled fertilizer scraper: {fertilizer_result['message']}")
+            else:
+                logger.error(f"Scheduled fertilizer scraper failed: {fertilizer_result['message']}")
+
+            # Pesticide scraper
+            pesticide_result = await scrape_and_store_pesticides()
+            if pesticide_result["status"] == "success":
+                logger.info(f"Scheduled pesticide scraper: {pesticide_result['message']}")
+            else:
+                logger.error(f"Scheduled pesticide scraper failed: {pesticide_result['message']}")
+
+            # Seed scraper
+            seed_result = await scrape_and_store_seeds()
+            if seed_result["status"] == "success":
+                logger.info(f"Scheduled seed scraper: {seed_result['message']}")
+            else:
+                logger.error(f"Scheduled seed scraper failed: {seed_result['message']}")
+
+        except Exception as e:
+            logger.error(f"Error in scheduled scraping: {e}")
+            # Wait 1 hour before retrying on error
+            await asyncio.sleep(3600)
+            logger.error(f"Error in scheduled scraping: {e}")
+            # Wait 1 hour before retrying on error
+            await asyncio.sleep(3600)
+
 app.include_router(
     deviceSettings.router, prefix="/api/v1/user", tags=["Device Settings"]
 )
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(disease_router, prefix="/api/v1/disease", tags=["disease"])
+app.include_router(fertilizer_router, prefix="/api/v1/fertilizer", tags=["Fertilizer Management"])
+app.include_router(pesticide_router, prefix="/api/v1/pesticide", tags=["Pesticide Management"])
+app.include_router(seed_router, prefix="/api/v1/seed", tags=["Seed Management"])
 app.include_router(
     calculator.router,
     prefix="/api/v1/calculator",
     tags=["Smart Agriculture Calculator"]
 )
+app.include_router(chatbot_router, prefix="/api/v1/chatbot", tags=["AI Chatbot"])
 
 
 @app.get("/health/db", tags=["health"])

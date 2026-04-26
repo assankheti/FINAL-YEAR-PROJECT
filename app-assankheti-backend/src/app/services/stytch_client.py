@@ -1,8 +1,10 @@
 # src/app/services/stytch_client.py
 import os
 import stytch
+from dotenv import load_dotenv
 
 # Load environment variables
+load_dotenv()
 STYTCH_PROJECT_ID = os.getenv("STYTCH_PROJECT_ID")
 STYTCH_SECRET = os.getenv("STYTCH_SECRET")
 STYTCH_ENV = os.getenv("STYTCH_ENV", "test")  # "test" or "live"
