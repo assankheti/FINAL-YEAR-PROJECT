@@ -5,19 +5,20 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import asyncio
 
-from app.api.v1.endpoints import auth, deviceSettings
-from app.utils.logger import logger
-from app.db.db_connection import get_database
+from .api.v1.endpoints import auth, deviceSettings
+from .utils.logger import logger
+from .db.db_connection import get_database
 
 
-from app.api.v1.endpoints.disease_api import router as disease_router
-from app.api.v1.endpoints.fertilizer_api import router as fertilizer_router
-from app.api.v1.endpoints.pesticide_api import router as pesticide_router
-from app.api.v1.endpoints.seed_api import router as seed_router
-from app.api.v1.endpoints import calculator
-from app.services.fertilizer_service import scrape_and_store_fertilizers
-from app.services.pesticide_service import scrape_and_store_pesticides
-from app.services.seed_service import scrape_and_store_seeds
+from .api.v1.endpoints.disease_api import router as disease_router
+from .api.v1.endpoints.fertilizer_api import router as fertilizer_router
+from .api.v1.endpoints.pesticide_api import router as pesticide_router
+from .api.v1.endpoints.seed_api import router as seed_router
+from .api.v1.endpoints import calculator
+from .api.v1.endpoints.chatbot import router as chatbot_router
+from .services.fertilizer_service import scrape_and_store_fertilizers
+from .services.pesticide_service import scrape_and_store_pesticides
+from .services.seed_service import scrape_and_store_seeds
 
 
 
@@ -116,6 +117,7 @@ app.include_router(
     prefix="/api/v1/calculator",
     tags=["Smart Agriculture Calculator"]
 )
+app.include_router(chatbot_router, prefix="/api/v1/chatbot", tags=["AI Chatbot"])
 
 
 @app.get("/health/db", tags=["health"])

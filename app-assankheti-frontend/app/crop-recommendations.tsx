@@ -17,34 +17,7 @@ import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
 
-// Conditionally import charts for native platforms only
-let LineChart: any = null;
-let BarChart: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    // eslint-disable-next-line no-eval, @typescript-eslint/no-unsafe-assignment
-    const Charts = eval("require('react-native-chart-kit')");
-    LineChart = Charts.LineChart;
-    BarChart = Charts.BarChart;
-  } catch (e) {
-    console.warn('Could not load react-native-chart-kit', e);
-  }
-}
-
-// Conditionally import MapView for native platforms only
-let MapView: any = null;
-let Marker: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    // load through eval so Metro doesn't statically analyze the string
-    // eslint-disable-next-line no-eval, @typescript-eslint/no-unsafe-assignment
-    const Maps = eval("require('react-native-maps')");
-    MapView = Maps.default || Maps.MapView;
-    Marker = Maps.Marker;
-  } catch (e) {
-    console.warn('Could not load react-native-maps', e);
-  }
-}
+import { LineChart, BarChart, MapView, Marker } from '@/lib/native-charts';
 
 type Crop = {
   name: string;
@@ -332,6 +305,8 @@ export default function SmartCropRecommendation() {
                     labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
                     style: { borderRadius: 16 },
                   }}
+                  yAxisLabel=""
+                  yAxisSuffix="°C"
                   style={styles.chart}
                   showValuesOnTopOfBars={true}
                   fromZero={true}
