@@ -31,6 +31,14 @@ CROP_PRICE_MAPPING = {
     "wheat": "atta bag (20kg)"
 }
 
+FALLBACK_CROP_PRICES = {
+    "Rice": 45,
+    "Wheat": 38,
+    "Potato": 30,
+    "Tomato": 55,
+    "Onion": 50,
+}
+
 RETAIL_TO_FARM_FACTOR = 0.6
 
 # ---------- Common Input ----------
@@ -69,7 +77,23 @@ def seed_prices():
 
 @router.get("/prices/crop")
 def crop_prices():
-    return scrape_crop_prices()
+    raw_prices = scrape_crop_prices()
+
+    # Always return stable keys expected by frontend/dashboard.
+    normalized = {
+        "Rice": raw_prices.get(CROP_PRICE_MAPPING["rice"]),
+        "Wheat": raw_prices.get(CROP_PRICE_MAPPING["wheat"]),
+        "Potato": raw_prices.get(CROP_PRICE_MAPPING["potato"]),
+        "Tomato": raw_prices.get(CROP_PRICE_MAPPING["tomato"]),
+        "Onion": raw_prices.get(CROP_PRICE_MAPPING["onion"]),
+    }
+
+    # If scraping is empty or any crop is missing, fill with safe fallback values.
+    for crop, fallback_value in FALLBACK_CROP_PRICES.items():
+        if normalized.get(crop) is None:
+            normalized[crop] = fallback_value
+
+    return normalized
 
 # ---------- Budget ----------
 class BudgetInput(BaseModel):

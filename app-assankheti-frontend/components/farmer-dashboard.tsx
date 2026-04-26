@@ -1,6 +1,6 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -49,6 +49,14 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const r = useResponsive();
   const { width } = useWindowDimensions();
+  
+  // Real-time data states
+  const [weather, setWeather] = useState<{ temp: number; condition: string } | null>(null);
+  const [cropPrice, setCropPrice] = useState<number | null>(null);
+  const [cropHealth, setCropHealth] = useState<number>(95);
+  const [location, setLocation] = useState<any>(null);
+  const [lastScanTime, setLastScanTime] = useState<string>('Today');
+  const [lastScanData, setLastScanData] = useState<any>(null);
 
   const t = (obj: any) => obj[textLanguage];
 
@@ -93,7 +101,7 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
           onPress: () =>
             router.push({
               pathname: '/disease-detection',
-              params: { textLanguage, voiceLanguage },
+              params: { textLanguage, voiceLanguage, ...(selectedCrop && { selectedCrop }) },
             }),
         },
 
@@ -156,6 +164,132 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
 
   const greeting = getGreeting();
 
+  // Load last scan data when page comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('🔄 Dashboard focused - loading scan data...');
+      const loadLastScan = async () => {
+        try {
+          const mobileId = await getOrCreateMobileId();
+          const response = await fetch(`http://localhost:8000/api/v1/disease/last-scan/${mobileId}`);
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              setLastScanData(null);
+              setLastScanTime('Today');
+              setCropHealth(95);
+              return;
+            }
+            throw new Error(`Failed to fetch last scan: ${response.status}`);
+          }
+
+          const parsedData = await response.json();
+          setLastScanData(parsedData);
+
+          const scanDate = parsedData?.scanned_at
+            ? new Date(parsedData.scanned_at).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : 'Today';
+          setLastScanTime(scanDate);
+
+          if (selectedCrop && parsedData?.crop_name && parsedData.crop_name !== selectedCrop) {
+            // Keep most recent global scan visible, but mark health as neutral for another crop.
+            setCropHealth(95);
+            return;
+          }
+
+            // Update crop health based on disease detection (if healthy, 95%, otherwise lower)
+          const diseaseLabel = String(parsedData?.disease ?? '').trim();
+          if (!diseaseLabel || diseaseLabel === 'no disease' || diseaseLabel === 'Healthy') {
+            setCropHealth(95);
+          } else if (diseaseLabel === 'Not identifiable') {
+            setCropHealth(75);
+          } else {
+            const confidence = typeof parsedData.confidence === 'number' ? parsedData.confidence : 50;
+            setCropHealth(Math.max(30, Math.round(95 - (confidence / 100) * 40)));
+          }
+        } catch (e) {
+          console.warn('⚠️ Failed to load scan data:', e);
+        }
+      };
+      loadLastScan();
+    }, [selectedCrop])
+  );
+
+  // Fetch weather data
+  useEffect(() => {
+    const fetchWeather = async () => {
+      try {
+        const response = await fetch('https://api.weatherbit.io/v2.0/current?lat=31.5204&lon=74.3587&key=529094980f6e4316be96ffc561515561');
+        const data = await response.json();
+        if (data.data && data.data[0]) {
+          setWeather({
+            temp: Math.round(data.data[0].temp),
+            condition: data.data[0].weather.description
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to fetch weather:', e);
+        setWeather({ temp: 28, condition: 'Partly Cloudy' });
+      }
+    };
+    fetchWeather();
+    const interval = setInterval(fetchWeather, 600000); // Update every 10 minutes
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch market prices
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/v1/calculator/prices/crop');
+        const data = await response.json();
+
+        const cropToFetch = (selectedCrop || 'Rice').toLowerCase();
+        const keyMap: Record<string, string[]> = {
+          rice: ['Rice', 'rice', 'rice basmati new (kg)'],
+          wheat: ['Wheat', 'wheat', 'atta bag (20kg)'],
+          potato: ['Potato', 'potato', 'potato fresh (kg)'],
+          onion: ['Onion', 'onion', 'onion (kg)'],
+          tomato: ['Tomato', 'tomato', 'tomato (kg)'],
+        };
+
+        const candidateKeys = keyMap[cropToFetch] || [selectedCrop || 'Rice'];
+        const matchedKey = candidateKeys.find((k) => typeof data?.[k] === 'number');
+
+        if (matchedKey) {
+          setCropPrice(data[matchedKey]);
+        } else {
+          setCropPrice(45);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch crop prices:', e);
+        setCropPrice(45); // Fallback
+      }
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 300000); // Update every 5 minutes
+    return () => clearInterval(interval);
+  }, [selectedCrop]);
+
+  // Get crop health from disease detection results
+  useEffect(() => {
+    const loadCropHealth = async () => {
+      try {
+        // Try to get saved detection results from storage or state
+        // For now, we'll use a default value that can be updated via AsyncStorage
+        setCropHealth(95);
+      } catch (e) {
+        console.warn('Error loading crop health:', e);
+      }
+    };
+    loadCropHealth();
+  }, []);
+
   const HomeTab = () => (
     <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 120 }]} showsVerticalScrollIndicator={false}>
       <LinearGradient colors={['#0d5c4b', '#0f7a62', '#10b981']} style={[styles.homeHeader, { paddingHorizontal: r.wp(5) }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
@@ -192,16 +326,31 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
                 <Text style={{ fontSize: 22 }}>🌾</Text>
               </View>
               <View>
-                <Text style={styles.cropTitle}>{t({ urdu: 'چاول کی فصل', english: 'Rice Crop' })}</Text>
+                <Text style={styles.cropTitle}>{selectedCrop ? selectedCrop + ' ' + t({ urdu: 'فصل', english: 'Crop' }) : t({ urdu: 'چاول کی فصل', english: 'Rice Crop' })}</Text>
               </View>
             </View>
 
             <View style={{ alignItems: 'flex-end' }}>
               <View style={styles.cropHealthRow}>
                 <MaterialCommunityIcons name="leaf" size={16} color="#ffffff" />
-                <Text style={styles.cropHealthText}>{t(strings.healthy)}</Text>
+                <Text style={styles.cropHealthText}>
+                  {lastScanData ? (
+                    !String(lastScanData?.disease ?? '').trim() ||
+                    lastScanData.disease === 'no disease' ||
+                    lastScanData.disease === 'Healthy'
+                      ? t(strings.healthy)
+                      : lastScanData.disease
+                  ) : t(strings.healthy)}
+                </Text>
               </View>
-              <Text style={styles.cropMeta}>{t(strings.lastScan)}</Text>
+              <Text style={styles.cropMeta}>
+                {lastScanData ? (
+                  t({ 
+                    urdu: 'آخری اسکین: ' + lastScanTime, 
+                    english: 'Last scan: ' + lastScanTime 
+                  })
+                ) : t(strings.lastScan)}
+              </Text>
             </View>
           </View>
         </View>
@@ -210,9 +359,9 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
       <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         <View style={styles.statsCard}>
           {[
-            { icon: 'weather-cloudy', label: { urdu: 'موسم', english: 'Weather' }, value: '28°C', color: '#06b6d4' },
-            { icon: 'trending-up', label: { urdu: 'چاول کی قیمت', english: 'Rice Price' }, value: '₨45/kg', color: '#f59e0b' },
-            { icon: 'leaf', label: { urdu: 'فصل کی صحت', english: 'Crop Health' }, value: '95%', color: '#10b981' },
+            { icon: 'weather-cloudy', label: { urdu: 'موسم', english: 'Weather' }, value: weather ? `${weather.temp}°C` : '...', color: '#06b6d4' },
+            { icon: 'trending-up', label: { urdu: 'چاول کی قیمت', english: 'Rice Price' }, value: cropPrice ? `₨${cropPrice}/kg` : '...', color: '#f59e0b' },
+            { icon: 'leaf', label: { urdu: 'فصل کی صحت', english: 'Crop Health' }, value: `${cropHealth}%`, color: '#10b981' },
           ].map((s) => (
             <View key={t(s.label)} style={styles.statItem}>
               <View style={[styles.statIcon, { backgroundColor: '#f3f4f6' }]}>
