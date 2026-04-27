@@ -1,4 +1,6 @@
 # src/app/routers/auth.py
+import re
+
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
 from app.services.stytch_client import send_otp_sms, authenticate_otp
@@ -15,6 +17,36 @@ from app.utils.logger import logger
 router = APIRouter()
 
 
+def _stytch_http_exception(exc: Exception) -> HTTPException:
+    raw_status_code = getattr(exc, "status_code", None)
+    error_message = getattr(exc, "error_message", None)
+    status_code: int | None = None
+
+    try:
+        if raw_status_code is not None:
+            status_code = int(raw_status_code)
+    except Exception:
+        status_code = None
+
+    text = str(exc)
+    if status_code is None:
+        status_match = re.search(r"status_code=(\d{3})", text)
+        if status_match:
+            status_code = int(status_match.group(1))
+
+    if not error_message:
+        message_match = re.search(r"error_message='([^']+)'", text)
+        if message_match:
+            error_message = message_match.group(1)
+
+    detail = error_message or text
+    if status_code == 404:
+        status_code = 400
+    if status_code is not None and 400 <= status_code < 500:
+        return HTTPException(status_code=status_code, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
+
+
 @router.post("/send-otp/", response_model=SendOTPResponse)
 async def send_otp(payload: SendOTPRequest):
     logger.info(f"Sending OTP to phone number: {payload.phone_number}")
@@ -28,8 +60,10 @@ async def send_otp(payload: SendOTPRequest):
 
         return SendOTPResponse(method_id=method_id, message="OTP sent via SMS")
 
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise _stytch_http_exception(exc)
 
 
 @router.post("/verify-otp/", response_model=VerifyOTPResponse)
@@ -79,5 +113,7 @@ async def verify_otp(payload: VerifyOTPRequest):
             user_id=user_id,
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise _stytch_http_exception(exc)

@@ -2,8 +2,14 @@ import os
 import io
 import numpy as np
 from PIL import Image
-import tensorflow as tf  # use TensorFlow instead of tflite_runtime
 import requests
+
+try:
+    import tensorflow as tf  # use TensorFlow instead of tflite_runtime
+    _tf_import_error = None
+except Exception as exc:
+    tf = None
+    _tf_import_error = exc
 
 # Online model endpoints - comment out the ones you don't want to use
 API_KEY = "nKR7maxkLCNkzO6PCUa0"
@@ -16,11 +22,9 @@ online_endpoints = [
 
 # Load model once
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "../models/best_float32.tflite")
-interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
-interpreter.allocate_tensors()
-
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+interpreter = None
+input_details = None
+output_details = None
 
 class_names = [
     "Bacterial Leaf Blight",

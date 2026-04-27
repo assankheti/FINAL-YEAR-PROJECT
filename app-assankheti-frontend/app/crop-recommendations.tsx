@@ -1,13 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
-  Dimensions,
-  TouchableOpacity,
   ActivityIndicator,
-  Platform,
   useWindowDimensions,
   Animated
 } from 'react-native';
@@ -16,35 +13,9 @@ import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
+import { API_BASE } from '@/config/env';
 
-// Conditionally import charts for native platforms only
-let LineChart: any = null;
-let BarChart: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    // eslint-disable-next-line no-eval, @typescript-eslint/no-unsafe-assignment
-    const Charts = eval("require('react-native-chart-kit')");
-    LineChart = Charts.LineChart;
-    BarChart = Charts.BarChart;
-  } catch (e) {
-    console.warn('Could not load react-native-chart-kit', e);
-  }
-}
-
-// Conditionally import MapView for native platforms only
-let MapView: any = null;
-let Marker: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    // load through eval so Metro doesn't statically analyze the string
-    // eslint-disable-next-line no-eval, @typescript-eslint/no-unsafe-assignment
-    const Maps = eval("require('react-native-maps')");
-    MapView = Maps.default || Maps.MapView;
-    Marker = Maps.Marker;
-  } catch (e) {
-    console.warn('Could not load react-native-maps', e);
-  }
-}
+import { BarChart, MapView, Marker } from '@/lib/native-charts';
 
 type Crop = {
   name: string;
@@ -64,6 +35,7 @@ export default function SmartCropRecommendation() {
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.8))[0];
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [weatherChartContainerWidth, setWeatherChartContainerWidth] = useState(0);
 
   // navigation helper with fallback
   const handleBack = () => {
@@ -71,17 +43,6 @@ export default function SmartCropRecommendation() {
     router.replace('/farmer-dashboard');
   };
 
-  // custom bar graph renderer (works on web/mobile without external lib)
-  const renderBarGraph = (tempData: number[]) => {
-    const maxVal = Math.max(...tempData, 1);
-    return (
-      <View style={styles.barGraphContainer}>
-        {tempData.map((val, idx) => (
-          <View key={idx} style={[styles.bar, { height: (val / maxVal) * 150 + 20 }]} />
-        ))}
-      </View>
-    );
-  };
   const [region, setRegion] = useState<any>(null);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [weatherForecast, setWeatherForecast] = useState<any[]>([]);
@@ -89,6 +50,47 @@ export default function SmartCropRecommendation() {
   const [soilType, setSoilType] = useState('Detecting...');
   const [loading, setLoading] = useState(true);
   const [mapLoading, setMapLoading] = useState(true);
+  const DEFAULT_COORDS = { latitude: 31.5204, longitude: 74.3587 };
+  const DEFAULT_SOIL = 'Loamy Soil';
+
+  const topCrop = crops[0];
+  const formatCoord = (value?: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '--';
+  const formatForecastDay = (value?: string) => {
+    if (!value) return '--';
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return '--';
+    return dt.toLocaleDateString('en-US', { weekday: 'short' });
+  };
+  const buildFallbackWeather = (startMs: number = Date.now(), days: number = 7) =>
+    Array.from({ length: days }, (_, i) => ({
+      datetime: new Date(startMs + i * 86400000).toISOString(),
+      temp: 27 + ((i % 3) - 1),
+      rh: 68 + (i % 4) * 3,
+      pop: 15 + (i % 5) * 8,
+    }));
+
+  const normalizeSevenDayForecast = (items: any[]): any[] => {
+    const normalized = (Array.isArray(items) ? items : [])
+      .slice(0, 7)
+      .map((entry, idx) => ({
+        datetime: entry?.datetime || new Date(Date.now() + idx * 86400000).toISOString(),
+        temp: Number(entry?.temp ?? 28),
+        rh: Number(entry?.rh ?? 70),
+        pop: Number(entry?.pop ?? 20),
+      }));
+
+    if (normalized.length >= 7) return normalized;
+    const startMs = normalized.length
+      ? new Date(normalized[normalized.length - 1].datetime).getTime() + 86400000
+      : Date.now();
+    return normalized.concat(buildFallbackWeather(startMs, 7 - normalized.length));
+  };
+
+  const weatherSnapshot = useMemo(() => weatherForecast.slice(0, 7), [weatherForecast]);
+  const weatherChartWidth = Math.max(260, Math.round(weatherChartContainerWidth || width - 48));
+  const isCompactWeatherChart = weatherChartWidth < 320;
+  const isSmallScreen = width < 360;
   
   // Timeout for loading - if still loading after 8 seconds, force finish with fallback data
   useEffect(() => {
@@ -96,7 +98,6 @@ export default function SmartCropRecommendation() {
       if (loading && crops.length === 0) {
         console.warn('Loading timeout - using fallback data');
         // Create default crops if still loading
-        const month = new Date().getMonth();
         const defaultCrops: Crop[] = initialCrops.map((cropName) => ({
           name: cropName,
           weatherScore: 75,
@@ -141,24 +142,68 @@ export default function SmartCropRecommendation() {
   // Get user location & soil type
   useEffect(() => {
     const fetchLocation = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setSoilType('Permission Denied');
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc);
-      setRegion({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.1,
-        longitudeDelta: 0.1,
-      });
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('Location permission denied. Using default coordinates.');
+          setSoilType(DEFAULT_SOIL);
+          setRegion({
+            latitude: DEFAULT_COORDS.latitude,
+            longitude: DEFAULT_COORDS.longitude,
+            latitudeDelta: 0.1,
+            longitudeDelta: 0.1,
+          });
+          setMapLoading(false);
+          return;
+        }
 
-      // Simulate soil type based on latitude (for demo)
-      const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
-      const index = Math.floor((loc.coords.latitude % 6));
-      setSoilType(soils[index]);
+        let loc: Location.LocationObject | null = null;
+        try {
+          loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+        } catch (e) {
+          console.warn('Current location unavailable, trying last known location:', e);
+          loc = await Location.getLastKnownPositionAsync();
+        }
+
+        if (!loc) {
+          console.warn('No location available. Using default coordinates.');
+          setSoilType(DEFAULT_SOIL);
+          setRegion({
+            latitude: DEFAULT_COORDS.latitude,
+            longitude: DEFAULT_COORDS.longitude,
+            latitudeDelta: 0.1,
+            longitudeDelta: 0.1,
+          });
+          setMapLoading(false);
+          return;
+        }
+
+        setLocation(loc);
+        setRegion({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
+        });
+
+        // Simulate soil type based on latitude (for demo)
+        const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
+        const index = Math.floor((Math.abs(loc.coords.latitude) % 6));
+        setSoilType(soils[index] || DEFAULT_SOIL);
+        setMapLoading(false);
+      } catch (e) {
+        console.warn('Location setup failed. Using defaults:', e);
+        setSoilType(DEFAULT_SOIL);
+        setRegion({
+          latitude: DEFAULT_COORDS.latitude,
+          longitude: DEFAULT_COORDS.longitude,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
+        });
+        setMapLoading(false);
+      }
     };
     fetchLocation();
   }, []);
@@ -166,41 +211,34 @@ export default function SmartCropRecommendation() {
   // Fetch weather forecast (7-day + monthly approximation)
   useEffect(() => {
     const fetchWeather = async () => {
-      if (!location) return;
+      const latitude = location?.coords?.latitude ?? region?.latitude;
+      const longitude = location?.coords?.longitude ?? region?.longitude;
+      if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
       try {
         const API_KEY = '529094980f6e4316be96ffc561515561';
-        const url = `https://api.weatherbit.io/v2.0/forecast/daily?lat=${location.coords.latitude}&lon=${location.coords.longitude}&key=${API_KEY}`;
+        const url = `https://api.weatherbit.io/v2.0/forecast/daily?lat=${latitude}&lon=${longitude}&key=${API_KEY}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Weather API error: ${res.status}`);
         const data = await res.json();
         if (data && Array.isArray(data.data)) {
-          setWeatherForecast(data.data.slice(0, 7)); // 7-day forecast
+          setWeatherForecast(normalizeSevenDayForecast(data.data));
         } else {
           console.warn('Unexpected weather payload', data);
-          // Use fallback weather data
-          setWeatherForecast([
-            { datetime: new Date().toISOString(), temp: 28, rh: 70, pop: 20 },
-            { datetime: new Date(Date.now() + 86400000).toISOString(), temp: 29, rh: 65, pop: 15 },
-          ]);
+          setWeatherForecast(buildFallbackWeather());
         }
       } catch (e) {
         console.warn('Failed fetching weather, using defaults:', e);
-        // Use fallback weather data to prevent infinite loading
-        setWeatherForecast([
-          { datetime: new Date().toISOString(), temp: 28, rh: 70, pop: 20 },
-          { datetime: new Date(Date.now() + 86400000).toISOString(), temp: 29, rh: 65, pop: 15 },
-          { datetime: new Date(Date.now() + 2*86400000).toISOString(), temp: 27, rh: 75, pop: 25 },
-        ]);
+        setWeatherForecast(buildFallbackWeather());
       }
     };
     fetchWeather();
-  }, [location]);
+  }, [location, region]);
 
   // Fetch market prices
   useEffect(() => {
     const fetchMarketPrices = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/v1/calculator/prices/crop');
+        const res = await fetch(`${API_BASE}/api/v1/calculator/prices/crop`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         const data = await res.json();
         setMarketPrices(data); // { Rice: 120, Wheat: 100, ... }
@@ -261,27 +299,44 @@ export default function SmartCropRecommendation() {
     ]).start();
   }, [weatherForecast, marketPrices, soilType]);
 
-  if (loading) return (
-    <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <GreenHeader title={{ english: 'Crop Recommendations', urdu: 'تجویز کردہ فصلیں' }} onBack={handleBack} />
-        <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
-          <ActivityIndicator size="large" color="#059669" />
-          <Text style={{marginTop:12, color: '#1F2937'}}>Calculating best crops...</Text>
-        </View>
-      </SafeAreaView>
-    </LinearGradient>
-  );
+  if (loading)
+    return (
+      <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <GreenHeader
+            title={{ english: 'Crop Recommendation', urdu: 'تجویز کردہ فصلیں' }}
+            titleLines={2}
+            onBack={handleBack}
+          />
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color="#059669" />
+            <Text style={styles.loadingTitle}>Building Smart Recommendation...</Text>
+            <Text style={styles.loadingSub}>Analyzing weather, soil, and market signals</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
 
   return (
     <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <GreenHeader title={{ english: 'Crop Recommendations', urdu: 'تجویز کردہ فصلیں' }} onBack={handleBack} />
+        <GreenHeader
+          title={{ english: 'Crop Recommendation', urdu: 'تجویز کردہ فصلیں' }}
+          titleLines={2}
+          onBack={handleBack}
+        />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.headerSection}>
-            <Text style={styles.headerTitle}>Smart Crop Recommendation</Text>
-            <Text style={styles.headerSubtitle}>Smart farming insights</Text>
+            <View style={styles.aiTag}>
+              <Text style={styles.aiTagText}>AI Powered</Text>
+            </View>
+            <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleCompact]}>
+              Smart Crop Recommendation
+            </Text>
+            <Text style={[styles.headerSubtitle, isSmallScreen && styles.headerSubtitleCompact]}>
+              Data-driven suggestions for your current farm conditions
+            </Text>
           </View>
 
           {/* Top Recommended Crop Card */}
@@ -289,9 +344,9 @@ export default function SmartCropRecommendation() {
             <LinearGradient colors={['#059669', '#047857']} style={styles.topCropGradient}>
               <View style={styles.topCropContent}>
                 <Text style={styles.topCropTitle}>🌾 Top Recommendation</Text>
-                <Text style={styles.topCropName}>{crops[0]?.name}</Text>
-                <Text style={styles.topCropScore}>Suitability Score: {crops[0]?.totalScore}/100</Text>
-                <Text style={styles.topCropDesc}>Based on current weather, soil conditions, and market prices</Text>
+                <Text style={styles.topCropName}>{topCrop?.name ?? 'Rice'}</Text>
+                <Text style={styles.topCropScore}>Suitability Score: {topCrop?.totalScore ?? 0}/100</Text>
+                <Text style={styles.topCropDesc}>Based on live weather, soil profile, and mandi trends</Text>
               </View>
             </LinearGradient>
           </Animated.View>
@@ -300,47 +355,89 @@ export default function SmartCropRecommendation() {
             {/* Location & Soil Analysis */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>📍 Location & Soil Analysis</Text>
-              <View style={styles.cardContent}>
-                <Text style={styles.cardText}>Latitude: {location?.coords.latitude.toFixed(4)}</Text>
-                <Text style={styles.cardText}>Longitude: {location?.coords.longitude.toFixed(4)}</Text>
-                <Text style={styles.cardText}>Soil Type: {soilType}</Text>
-                {MapView && region && (
+              <View style={styles.locationStats}>
+                <View style={styles.locationChip}>
+                  <Text style={styles.locationLabel}>Latitude</Text>
+                  <Text style={styles.locationValue}>
+                    {formatCoord(location?.coords?.latitude ?? region?.latitude)}
+                  </Text>
+                </View>
+                <View style={styles.locationChip}>
+                  <Text style={styles.locationLabel}>Longitude</Text>
+                  <Text style={styles.locationValue}>
+                    {formatCoord(location?.coords?.longitude ?? region?.longitude)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.soilBadge}>
+                <Text style={styles.soilBadgeText}>Soil: {soilType}</Text>
+              </View>
+              {MapView && region ? (
+                mapLoading ? (
+                  <View style={styles.mapLoader}>
+                    <ActivityIndicator color="#059669" />
+                  </View>
+                ) : (
                   <MapView style={styles.map} region={region}>
                     <Marker coordinate={region} />
                   </MapView>
-                )}
-              </View>
+                )
+              ) : null}
             </View>
 
             {/* Weather Forecast */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>🌤️ 7-Day Weather Forecast</Text>
-              {BarChart && weatherForecast.length > 0 && (
-                <BarChart
-                  data={{
-                    labels: weatherForecast.map(d => new Date(d.datetime).toLocaleDateString('en-US', { weekday: 'short' })),
-                    datasets: [{ data: weatherForecast.map(d => d.temp) }]
-                  }}
-                  width={width - 40}
-                  height={220}
-                  chartConfig={{
-                    backgroundColor: '#ffffff',
-                    backgroundGradientFrom: '#ffffff',
-                    backgroundGradientTo: '#ffffff',
-                    decimalPlaces: 1,
-                    color: (opacity = 1) => `rgba(5, 150, 105, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                    style: { borderRadius: 16 },
-                  }}
-                  style={styles.chart}
-                  showValuesOnTopOfBars={true}
-                  fromZero={true}
-                />
-              )}
+              <View
+                style={styles.chartWrap}
+                onLayout={(event) => {
+                  const next = Math.round(event.nativeEvent.layout.width);
+                  if (next > 0 && Math.abs(next - weatherChartContainerWidth) > 2) {
+                    setWeatherChartContainerWidth(next);
+                  }
+                }}
+              >
+                {BarChart && weatherForecast.length > 0 && (
+                  <BarChart
+                    data={{
+                      labels: weatherForecast.map((d) =>
+                        new Date(d.datetime).toLocaleDateString('en-US', { weekday: 'short' })
+                      ),
+                      datasets: [{ data: weatherForecast.map((d) => d.temp) }],
+                    }}
+                    width={weatherChartWidth}
+                    height={220}
+                    chartConfig={{
+                      backgroundColor: '#ffffff',
+                      backgroundGradientFrom: '#ffffff',
+                      backgroundGradientTo: '#ffffff',
+                      decimalPlaces: 1,
+                      color: (opacity = 1) => `rgba(5, 150, 105, ${opacity})`,
+                      labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                      style: { borderRadius: 16 },
+                    }}
+                    yAxisLabel=""
+                    yAxisSuffix="°C"
+                    style={styles.chart}
+                    showValuesOnTopOfBars={!isCompactWeatherChart}
+                    verticalLabelRotation={isCompactWeatherChart ? 20 : 0}
+                    fromZero={true}
+                  />
+                )}
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.snapshotRow}>
+                {weatherSnapshot.map((day, index) => (
+                  <View key={`snapshot-${index}`} style={styles.snapshotCard}>
+                    <Text style={styles.snapshotDay}>{formatForecastDay(day.datetime)}</Text>
+                    <Text style={styles.snapshotTemp}>{Math.round(day.temp)}°</Text>
+                    <Text style={styles.snapshotMeta}>{Math.round(day.pop)}% rain</Text>
+                  </View>
+                ))}
+              </ScrollView>
               <View style={styles.weatherDetails}>
                 {weatherForecast.map((day, index) => (
                   <View key={index} style={styles.weatherDetailRow}>
-                    <Text style={styles.weatherDetailDay}>{new Date(day.datetime).toLocaleDateString('en-US', { weekday: 'short' })}</Text>
+                    <Text style={styles.weatherDetailDay}>{formatForecastDay(day.datetime)}</Text>
                     <Text style={styles.weatherDetailTemp}>{day.temp}°C</Text>
                     <Text style={styles.weatherDetailHumidity}>{day.rh}% Humidity</Text>
                     <Text style={styles.weatherDetailRain}>{day.pop}% Rain</Text>
@@ -358,18 +455,41 @@ export default function SmartCropRecommendation() {
                 {crops.map((crop, index) => (
                   <View key={crop.name} style={styles.cropCard}>
                     <View style={styles.cropHeader}>
-                      <Text style={styles.cropRank}>{index + 1}</Text>
+                      <View style={styles.rankPill}>
+                        <Text style={styles.cropRank}>{index + 1}</Text>
+                      </View>
                       <Text style={styles.cropName}>{crop.name}</Text>
                       <Text style={styles.cropScore}>{crop.totalScore}/100</Text>
                     </View>
                     <View style={styles.progressBar}>
-                      <View style={[styles.progressFill, { width: `${crop.totalScore}%` }]} />
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${crop.totalScore}%`,
+                            backgroundColor:
+                              crop.totalScore >= 80
+                                ? '#059669'
+                                : crop.totalScore >= 60
+                                  ? '#0ea5e9'
+                                  : '#f59e0b',
+                          },
+                        ]}
+                      />
                     </View>
-                    <View style={styles.cropMetrics}>
-                      <Text style={styles.metric}>Weather: {crop.weatherScore.toFixed(2)}</Text>
-                      <Text style={styles.metric}>Soil: {crop.soilScore}</Text>
-                      <Text style={styles.metric}>Market: {crop.marketScore}</Text>
-                      <Text style={styles.metric}>Pest Risk: {crop.pestRiskScore}</Text>
+                    <View style={styles.metricGrid}>
+                      <View style={styles.metricChip}>
+                        <Text style={styles.metric}>Weather {Math.round(crop.weatherScore)}</Text>
+                      </View>
+                      <View style={styles.metricChip}>
+                        <Text style={styles.metric}>Soil {Math.round(crop.soilScore)}</Text>
+                      </View>
+                      <View style={styles.metricChip}>
+                        <Text style={styles.metric}>Market {Math.round(crop.marketScore)}</Text>
+                      </View>
+                      <View style={styles.metricChip}>
+                        <Text style={styles.metric}>Pest {Math.round(crop.pestRiskScore)}</Text>
+                      </View>
                     </View>
                   </View>
                 ))}
@@ -393,90 +513,146 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
+    paddingBottom: 28,
   },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingTitle: { marginTop: 12, color: '#1F2937', fontSize: 15, fontWeight: '700' },
+  loadingSub: { marginTop: 4, color: '#6B7280', fontSize: 12.5 },
   headerSection: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 18,
+  },
+  aiTag: {
+    backgroundColor: '#d1fae5',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginBottom: 8,
+  },
+  aiTagText: {
+    color: '#065f46',
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 26,
+    fontWeight: '800',
     color: '#065F46',
     textAlign: 'center',
   },
+  headerTitleCompact: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: 13.5,
     color: '#047857',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 6,
+    lineHeight: 19,
+  },
+  headerSubtitleCompact: {
+    fontSize: 12.5,
+    lineHeight: 17,
   },
   topCropCard: {
-    borderRadius: 24,
-    marginBottom: 20,
+    borderRadius: 20,
+    marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 6,
     overflow: 'hidden',
   },
   topCropGradient: {
-    padding: 30,
+    paddingVertical: 24,
+    paddingHorizontal: 18,
   },
   topCropContent: {
     alignItems: 'center',
   },
   topCropTitle: {
-    fontSize: 18,
+    fontSize: 15.5,
+    fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 10,
+    marginBottom: 6,
   },
   topCropName: {
-    fontSize: 48,
-    fontWeight: 'bold',
+    fontSize: 40,
+    fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: 10,
+    marginBottom: 4,
   },
   topCropScore: {
-    fontSize: 20,
+    fontSize: 16,
+    fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 10,
+    marginBottom: 6,
   },
   topCropDesc: {
-    fontSize: 14,
+    fontSize: 12.5,
     color: '#E0F2FE',
     textAlign: 'center',
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e4f2ec',
+    padding: 14,
+    marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 2,
   },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#1F2937',
-    marginBottom: 15,
-  },
-  cardContent: {
-    // flex
-  },
-  cardText: {
-    fontSize: 16,
-    color: '#374151',
     marginBottom: 10,
   },
-  map: {
-    height: 200,
+  locationStats: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  locationChip: {
+    flex: 1,
     borderRadius: 12,
-    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#dcf3e8',
+    backgroundColor: '#f6fdf9',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  locationLabel: { fontSize: 11, color: '#6B7280' },
+  locationValue: { marginTop: 2, fontSize: 13.5, fontWeight: '700', color: '#1F2937' },
+  soilBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#dcfce7',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 8,
+  },
+  soilBadgeText: { fontSize: 12, fontWeight: '700', color: '#166534' },
+  mapLoader: {
+    height: 180,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f9fafb',
+  },
+  map: {
+    height: 180,
+    borderRadius: 12,
   },
   weatherScroll: {
     // horizontal scroll
@@ -511,7 +687,28 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   weatherDetails: {
-    marginTop: 20,
+    marginTop: 8,
+  },
+  snapshotRow: {
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  snapshotCard: {
+    width: 88,
+    borderRadius: 12,
+    backgroundColor: '#f6fdf9',
+    borderWidth: 1,
+    borderColor: '#dcf3e8',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  snapshotDay: { fontSize: 11.5, color: '#6B7280' },
+  snapshotTemp: { marginTop: 2, fontSize: 18, fontWeight: '800', color: '#059669' },
+  snapshotMeta: { marginTop: 2, fontSize: 10.5, color: '#64748b' },
+  cropList: {
+    gap: 10,
   },
   weatherDetailRow: {
     flexDirection: 'row',
@@ -546,29 +743,19 @@ const styles = StyleSheet.create({
     width: 60,
     textAlign: 'center',
   },
-  barGraphContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingVertical: 20,
-  },
-  bar: {
-    width: 20,
-    backgroundColor: '#059669',
-    borderRadius: 4,
-  },
   chart: {
     borderRadius: 16,
     marginVertical: 10,
+    alignSelf: 'center',
   },
-  cropList: {
-    // flex
+  chartWrap: {
+    width: '100%',
+    alignItems: 'center',
   },
   cropCard: {
     backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 15,
-    marginBottom: 15,
+    borderRadius: 14,
+    padding: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -581,29 +768,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  rankPill: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#dcfce7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cropRank: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '800',
     color: '#059669',
-    width: 30,
   },
   cropName: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#1F2937',
     flex: 1,
-    textAlign: 'center',
+    marginLeft: 10,
   },
   cropScore: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#059669',
   },
   progressBar: {
     height: 8,
     backgroundColor: '#E5E7EB',
     borderRadius: 4,
-    marginBottom: 15,
+    marginBottom: 10,
     overflow: 'hidden',
   },
   progressFill: {
@@ -611,14 +805,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#059669',
     borderRadius: 4,
   },
-  cropMetrics: {
+  metricGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  metricChip: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e5e7eb',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
   },
   metric: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#6B7280',
-    flex: 1,
-    textAlign: 'center',
+    fontWeight: '600',
   },
 });

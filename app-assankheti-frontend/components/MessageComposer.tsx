@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useT } from '@/contexts/LanguageContext';
 
@@ -7,6 +7,8 @@ export default function MessageComposer({
   draft,
   onChangeDraft,
   onSend,
+  onInputFocus,
+  onInputBlur,
   placeholder,
   leftElement,
   style,
@@ -14,6 +16,8 @@ export default function MessageComposer({
   draft: string;
   onChangeDraft: (s: string) => void;
   onSend: () => void;
+  onInputFocus?: () => void;
+  onInputBlur?: () => void;
   placeholder?: string | { english: string; urdu: string };
   leftElement?: React.ReactNode;
   style?: any;
@@ -27,10 +31,13 @@ export default function MessageComposer({
       <TextInput
         value={draft}
         onChangeText={onChangeDraft}
+        onFocus={onInputFocus}
+        onBlur={onInputBlur}
         placeholder={resolvedPlaceholder}
         placeholderTextColor="#9ca3af"
         style={styles.input}
         returnKeyType="send"
+        blurOnSubmit={false}
         onSubmitEditing={onSend}
       />
       <TouchableOpacity
@@ -48,11 +55,6 @@ export default function MessageComposer({
 
 const styles = StyleSheet.create({
   inputBar: {
-    paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 16 : 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    backgroundColor: '#f5f1e8',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -61,12 +63,20 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 46,
     borderRadius: 14,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f3f4f6',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#e8eceb',
     paddingHorizontal: 14,
     color: '#111827',
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '500',
   },
-  sendBtn: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#0d5c4b', alignItems: 'center', justifyContent: 'center' },
+  sendBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#0d5c4b',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

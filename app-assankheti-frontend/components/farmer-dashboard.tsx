@@ -4,34 +4,61 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import SmartBudgetCalculator from '@/app/smart-budget';
 import MessageComposer from '@/components/MessageComposer';
+import { API_BASE } from '@/config/env';
 import { getOrCreateMobileId } from '@/lib/deviceId';
-
-
 
 type Props = {
   textLanguage?: 'urdu' | 'english';
   voiceLanguage?: 'urdu' | 'english';
   initialTab?: Tab;
   selectedCrop?: string;
+  characterType?: 'farmer' | 'simple-user' | 'businessman';
 };
 type Tab = 'home' | 'shop' | 'chat' | 'profile';
 
-export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'english', initialTab = 'home', selectedCrop }: Props) {
+const useResponsive = () => {
+  const { width, height } = useWindowDimensions();
+  const scale = Math.min(width / 375, 1.15);
+  const isSmall = height < 700;
+  const hp = (pct: number) => Math.round((height * pct) / 100);
+  const wp = (pct: number) => Math.round((width * pct) / 100);
+  const fs = (size: number) => Math.round(size * scale);
+  return { width, height, scale, isSmall, hp, wp, fs };
+};
+
+const getGreeting = (): { urdu: string; english: string } => {
+  const hour = new Date().getHours();
+  if (hour < 12) return { english: 'Good Morning', urdu: 'صبح بخیر' };
+  if (hour < 17) return { english: 'Good Afternoon', urdu: 'سہ پہر بخیر' };
+  return { english: 'Good Evening', urdu: 'شام بخیر' };
+};
+
+export function FarmerDashboard({
+  textLanguage = 'english',
+  voiceLanguage = 'english',
+  initialTab = 'home',
+  selectedCrop,
+  characterType = 'farmer',
+}: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [isChatInputFocused, setIsChatInputFocused] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const r = useResponsive();
   const { width } = useWindowDimensions();
   
   // Real-time data states
@@ -56,6 +83,9 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
         recentAlerts: { urdu: 'تازہ الرٹس', english: 'Recent Alerts' },
         viewAll: { urdu: 'سب دیکھیں', english: 'View All' },
         marketplace: { urdu: 'مارکیٹ پلیس', english: 'Marketplace' },
+        marketplaceLoginTitle: { urdu: 'مارکیٹ پلیس استعمال کرنے کے لیے لاگ اِن کریں', english: 'Login required for Marketplace' },
+        marketplaceLoginDesc: { urdu: 'خرید و فروخت اور پروڈکٹ مینجمنٹ کے لیے مارکیٹ پلیس اکاؤنٹ میں لاگ اِن کریں۔', english: 'Please login to your marketplace account to buy/sell and manage products.' },
+        marketplaceLoginBtn: { urdu: 'مارکیٹ پلیس لاگ اِن', english: 'Login to Marketplace' },
         listNewProduct: { urdu: 'نئی پروڈکٹ لسٹ کریں', english: 'List New Product' },
         yourListings: { urdu: 'آپ کی لسٹنگز', english: 'Your Listings' },
         diseaseTitle: { urdu: 'فصل کی بیماری کی تشخیص', english: 'Crop Disease Detection' },
@@ -131,8 +161,8 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
           id: 'CropRecommendations',
           title: { urdu: 'فصل کی سفارشات', english: 'Crop Recommendations' },
           subtitle: { urdu: 'موسمی حالات کے مطابق', english: 'Based on seasonal conditions' },
-          icon: <Feather name="bell" size={22} color="#ffffff" />,
-          gradient: ['#3b82f6', '#2563eb'] as const,
+          icon: <MaterialCommunityIcons name="sprout" size={22} color="#ffffff" />,
+          gradient: ['#7c3aed', '#a855f7'] as const,
           onPress: () =>
             router.push({
               pathname: '/crop-recommendations',
@@ -144,6 +174,20 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
   );
 
   const contentMaxWidth = Math.min(520, width);
+  const tabBarH = Platform.OS === 'ios' ? 86 : 74;
+  const [tabBarHeight, setTabBarHeight] = useState(tabBarH);
+
+  const greeting = getGreeting();
+
+  // Keep users on dashboard unless they explicitly use the profile "back" action.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS !== 'android') return undefined;
+      const onHardwareBack = () => true;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => subscription.remove();
+    }, [])
+  );
 
   // Load last scan data when page comes into focus
   useFocusEffect(
@@ -152,7 +196,7 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
       const loadLastScan = async () => {
         try {
           const mobileId = await getOrCreateMobileId();
-          const response = await fetch(`http://localhost:8000/api/v1/disease/last-scan/${mobileId}`);
+          const response = await fetch(`${API_BASE}/api/v1/disease/last-scan/${mobileId}`);
 
           if (!response.ok) {
             if (response.status === 404) {
@@ -227,7 +271,7 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
   useEffect(() => {
     const fetchPrices = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/calculator/prices/crop');
+        const response = await fetch(`${API_BASE}/api/v1/calculator/prices/crop`);
         const data = await response.json();
 
         const cropToFetch = (selectedCrop || 'Rice').toLowerCase();
@@ -272,15 +316,21 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
   }, []);
 
   const HomeTab = () => (
-    <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 120 }]} showsVerticalScrollIndicator={false}>
-      <LinearGradient colors={['#0d5c4b', '#10b981']} style={styles.homeHeader} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+    <ScrollView
+      contentContainerStyle={[styles.scroll, { paddingBottom: tabBarHeight + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <LinearGradient colors={['#0d5c4b', '#0f7a62', '#10b981']} style={[styles.homeHeader, { paddingHorizontal: r.wp(5) }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+        <View style={styles.headerGlowOne} />
+        <View style={styles.headerGlowTwo} />
         <View style={styles.homeHeaderRow}>
           <View style={styles.homeBrandRow}>
             <View style={styles.homeLogoBox}>
-              <MaterialCommunityIcons name="account-cowboy-hat" size={22} color="#ffffff" />
+              <MaterialCommunityIcons name="account-cowboy-hat" size={r.fs(22)} color="#ffffff" />
             </View>
             <View>
-              <Text style={styles.homeWelcomeName}>{t(strings.farmer)}</Text>
+              <Text style={styles.homeWelcomeSmall}>{t(greeting)}</Text>
+              <Text style={[styles.homeWelcomeName, { fontSize: r.fs(18) }]}>{t(strings.farmer)}</Text>
             </View>
           </View>
 
@@ -306,14 +356,18 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
                 <Text style={{ fontSize: 22 }}>🌾</Text>
               </View>
               <View>
-                <Text style={styles.cropTitle}>{selectedCrop ? selectedCrop + ' ' + t({ urdu: 'فصل', english: 'Crop' }) : t({ urdu: 'چاول کی فصل', english: 'Rice Crop' })}</Text>
+                <Text style={styles.cropTitle} numberOfLines={1}>
+                  {selectedCrop
+                    ? selectedCrop + ' ' + t({ urdu: 'فصل', english: 'Crop' })
+                    : t({ urdu: 'چاول کی فصل', english: 'Rice Crop' })}
+                </Text>
               </View>
             </View>
 
-            <View style={{ alignItems: 'flex-end' }}>
+            <View style={styles.cropStatusBlock}>
               <View style={styles.cropHealthRow}>
                 <MaterialCommunityIcons name="leaf" size={16} color="#ffffff" />
-                <Text style={styles.cropHealthText}>
+                <Text style={styles.cropHealthText} numberOfLines={2}>
                   {lastScanData ? (
                     !String(lastScanData?.disease ?? '').trim() ||
                     lastScanData.disease === 'no disease' ||
@@ -323,7 +377,7 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
                   ) : t(strings.healthy)}
                 </Text>
               </View>
-              <Text style={styles.cropMeta}>
+              <Text style={styles.cropMeta} numberOfLines={1}>
                 {lastScanData ? (
                   t({ 
                     urdu: 'آخری اسکین: ' + lastScanTime, 
@@ -339,8 +393,18 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
       <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         <View style={styles.statsCard}>
           {[
-            { icon: 'weather-cloudy', label: { urdu: 'موسم', english: 'Weather' }, value: weather ? `${weather.temp}°C` : '...', color: '#06b6d4' },
-            { icon: 'trending-up', label: { urdu: 'چاول کی قیمت', english: 'Rice Price' }, value: cropPrice ? `₨${cropPrice}/kg` : '...', color: '#f59e0b' },
+            {
+              icon: 'weather-cloudy',
+              label: { urdu: 'موسم', english: 'Weather' },
+              value: weather ? `${weather.temp}°C` : t({ urdu: 'لوڈ ہو رہا ہے', english: 'Loading' }),
+              color: '#06b6d4',
+            },
+            {
+              icon: 'trending-up',
+              label: { urdu: 'چاول کی قیمت', english: 'Rice Price' },
+              value: cropPrice ? `₨${cropPrice}/kg` : t({ urdu: 'لوڈ ہو رہا ہے', english: 'Loading' }),
+              color: '#f59e0b',
+            },
             { icon: 'leaf', label: { urdu: 'فصل کی صحت', english: 'Crop Health' }, value: `${cropHealth}%`, color: '#10b981' },
           ].map((s) => (
             <View key={t(s.label)} style={styles.statItem}>
@@ -354,9 +418,18 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
         </View>
 
         <View style={styles.alertHeaderRow}>
-          <Text style={styles.sectionTitle}>{t(strings.recentAlerts)}</Text>
-          <TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.alertSectionTitle}>{t(strings.recentAlerts)}</Text>
+            <Text style={styles.alertSectionSub}>
+              {t({
+                urdu: 'آپ کی فصل کے لیے تازہ موسمی اور مارکیٹ اپڈیٹس',
+                english: 'Fresh weather and market updates for your crop',
+              })}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.85}>
             <Text style={styles.viewAll}>{t(strings.viewAll)}</Text>
+            <Feather name="chevron-right" size={14} color="#0d5c4b" />
           </TouchableOpacity>
         </View>
 
@@ -420,90 +493,72 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
     </ScrollView>
   );
 
-  // const ScanTab = () => (
-  //   <ScrollView contentContainerStyle={[styles.scanScroll, { paddingBottom: 120 }]}>
-  //     <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-  //       <Text style={styles.scanTitle}>{t(strings.diseaseTitle)}</Text>
-  //       <Text style={styles.scanSub}>فصل کی بیماری کا پتہ لگائیں</Text>
-
-  //       <TouchableOpacity activeOpacity={0.9} style={styles.scanBox} onPress={() => setShowScanModal(true)}>
-  //         <LinearGradient colors={['rgba(13,92,75,0.10)', 'rgba(16,185,129,0.10)']} style={StyleSheet.absoluteFill} />
-  //         <View style={styles.scanIconCircle}>
-  //           <Feather name="camera" size={26} color="#0d5c4b" />
-  //         </View>
-  //         <Text style={styles.scanBoxText}>{t(strings.scanYourCrop)}</Text>
-  //         <Text style={styles.scanBoxHint}>{t(strings.scanHint)}</Text>
-  //       </TouchableOpacity>
-
-  //       <View style={{ marginTop: 16, gap: 10 }}>
-  //         <TouchableOpacity
-  //           style={styles.primaryBtn}
-  //           activeOpacity={0.9}
-  //           onPress={() => router.push('/disease-detection')}
-  //         ></TouchableOpacity>
-
-  //         <TouchableOpacity
-  //           style={styles.outlineBtn}
-  //           activeOpacity={0.9}
-  //           onPress={() => router.push('/disease-detection')}
-  //         ></TouchableOpacity>
-  //       </View>
-
-  //       <View style={styles.tipCard}>
-  //         <View style={styles.tipRow}>
-  //           <MaterialCommunityIcons name="star-four-points" size={18} color="#0d5c4b" />
-  //           <View style={{ flex: 1 }}>
-  //             <Text style={styles.tipTitle}>{t(strings.aiPowered)}</Text>
-  //             <Text style={styles.tipDesc}>{t(strings.aiDesc)}</Text>
-  //           </View>
-  //         </View>
-  //       </View>
-  //     </View>
-  //   </ScrollView>
-  // );
-
   const ShopTab = () => (
-    <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 120 }]} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[styles.scroll, { paddingBottom: tabBarHeight + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         <Text style={styles.scanTitle}>{t(strings.marketplace)}</Text>
-        <Text style={styles.scanSub}>Sell your products directly</Text>
+        <Text style={styles.scanSub}>{t({ urdu: 'اپنی مصنوعات براہ راست فروخت کریں', english: 'Sell your products directly' })}</Text>
 
-        <TouchableOpacity
-          style={styles.sunriseBtn}
-          activeOpacity={0.9}
-          onPress={() =>
-            router.push({
-              pathname: '/add-product',
-              params: { textLanguage, voiceLanguage },
-            })
-          }
-        >
-          <Feather name="upload" size={18} color="#111827" />
-          <Text style={styles.sunriseBtnText}>{t(strings.listNewProduct)}</Text>
-        </TouchableOpacity>
-
-        <Text style={[styles.sectionTitle, { marginTop: 14 }]}>{t(strings.yourListings)}</Text>
-        {[
-          { name: { urdu: 'تازہ چاول - 50 کلو', english: 'Fresh Rice - 50kg' }, price: '₨2,250', status: { urdu: 'فعال', english: 'Active' } },
-          { name: { urdu: 'چاول کی بھوسی - 25 کلو', english: 'Rice Bran - 25kg' }, price: '₨800', status: { urdu: 'فروخت', english: 'Sold' } },
-        ].map((p) => (
-          <View key={p.name.english} style={styles.productRow}>
-            <View style={styles.productImg}><Text style={{ fontSize: 22 }}>🌾</Text></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.productName}>{t(p.name)}</Text>
-              <Text style={styles.productPrice}>{p.price}</Text>
+        {characterType === 'farmer' ? (
+          <View style={styles.marketplaceLoginCard}>
+            <View style={styles.marketplaceLoginHead}>
+              <Feather name="lock" size={18} color="#0d5c4b" />
+              <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceLoginTitle)}</Text>
             </View>
-            <View style={[styles.badge, p.status.english === 'Active' ? styles.badgeActive : styles.badgeMuted]}>
-              <Text style={[styles.badgeText, p.status.english === 'Active' ? styles.badgeTextActive : styles.badgeTextMuted]}>{t(p.status)}</Text>
-            </View>
+            <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceLoginDesc)}</Text>
+            <TouchableOpacity
+              style={styles.sunriseBtn}
+              activeOpacity={0.9}
+              onPress={() =>
+                router.push({
+                  pathname: '/login',
+                  params: { userType: 'businessman', textLanguage, voiceLanguage },
+                })
+              }
+            >
+              <Feather name="log-in" size={18} color="#111827" />
+              <Text style={styles.sunriseBtnText}>{t(strings.marketplaceLoginBtn)}</Text>
+            </TouchableOpacity>
           </View>
-        ))}
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.sunriseBtn}
+              activeOpacity={0.9}
+              onPress={() =>
+                router.push({
+                  pathname: '/add-product',
+                  params: { textLanguage, voiceLanguage },
+                })
+              }
+            >
+              <Feather name="upload" size={18} color="#111827" />
+              <Text style={styles.sunriseBtnText}>{t(strings.listNewProduct)}</Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>{t(strings.yourListings)}</Text>
+            {[
+              { name: { urdu: 'تازہ چاول - 50 کلو', english: 'Fresh Rice - 50kg' }, price: '₨2,250', status: { urdu: 'فعال', english: 'Active' } },
+              { name: { urdu: 'چاول کی بھوسی - 25 کلو', english: 'Rice Bran - 25kg' }, price: '₨800', status: { urdu: 'فروخت', english: 'Sold' } },
+            ].map((p) => (
+              <View key={p.name.english} style={styles.productRow}>
+                <View style={styles.productImg}><Text style={{ fontSize: 22 }}>🌾</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.productName}>{t(p.name)}</Text>
+                  <Text style={styles.productPrice}>{p.price}</Text>
+                </View>
+                <View style={[styles.badge, p.status.english === 'Active' ? styles.badgeActive : styles.badgeMuted]}>
+                  <Text style={[styles.badgeText, p.status.english === 'Active' ? styles.badgeTextActive : styles.badgeTextMuted]}>{t(p.status)}</Text>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
       </View>
     </ScrollView>
-  );
-
-  const ChatTab = () => (
-    <AIChatTab textLanguage={textLanguage} />
   );
 
   type ChatMessage = {
@@ -513,238 +568,905 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
     time: string;
   };
 
-  const AIChatTab = ({ textLanguage }: { textLanguage: 'urdu' | 'english' }) => {
+  type SessionItem = {
+    session_id: string;
+    title: string;
+    last_message: string;
+    message_count: number;
+    created_at: string;
+    updated_at: string;
+  };
+  type SessionGroup = { label: string; sessions: SessionItem[] };
+
+  const AIChatTab = ({
+    textLanguage,
+    r,
+    bottomInset,
+    onInputFocusChange,
+  }: {
+    textLanguage: 'urdu' | 'english';
+    r: ReturnType<typeof useResponsive>;
+    bottomInset: number;
+    onInputFocusChange?: (focused: boolean) => void;
+  }) => {
+    const t = (obj: any) => obj[textLanguage];
     const [messageText, setMessageText] = useState('');
     const [isListening, setIsListening] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
+    const [loadingHistory, setLoadingHistory] = useState(true);
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [showHistory, setShowHistory] = useState(false);
+    const [sessionGroups, setSessionGroups] = useState<SessionGroup[]>([]);
+    const [loadingSessions, setLoadingSessions] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+    const [sessionsError, setSessionsError] = useState<string | null>(null);
+    const [hasLoadedRemoteHistory, setHasLoadedRemoteHistory] = useState(false);
+    const [hasExistingHistory, setHasExistingHistory] = useState(false);
+    const [chatMobileId, setChatMobileId] = useState<string | null>(null);
 
     const timeNow = () =>
-      new Date().toLocaleTimeString([], {
+      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const scrollRef = useRef<ScrollView | null>(null);
+    const autoRestoreLatestRef = useRef(true);
+    const historyLoadTokenRef = useRef(0);
+    const logChatDebug = (...args: any[]) => {
+      if (__DEV__) console.log('[Chat]', ...args);
+    };
+
+    const getChatMobileId = async (): Promise<string> => {
+      if (chatMobileId) return chatMobileId;
+      const id = await getOrCreateMobileId();
+      setChatMobileId(id);
+      return id;
+    };
+
+    const normalizeSessionGroups = (rawGroups: Record<string, unknown>): SessionGroup[] => {
+      const groups = Object.entries(rawGroups || {}).map(([label, rawSessions]) => {
+        const sessions = Array.isArray(rawSessions) ? rawSessions : [];
+        const normalized: SessionItem[] = sessions
+          .map((s: any) => ({
+            session_id: String(s?.session_id ?? ''),
+            title: String(s?.title ?? 'Untitled Chat'),
+            last_message: String(s?.last_message ?? ''),
+            message_count: Number(s?.message_count ?? 0),
+            created_at: String(s?.created_at ?? ''),
+            updated_at: String(s?.updated_at ?? ''),
+          }))
+          .filter((s) => !!s.session_id)
+          .sort(
+            (a, b) =>
+              new Date(b.updated_at || b.created_at || 0).getTime() -
+              new Date(a.updated_at || a.created_at || 0).getTime()
+          );
+        return { label, sessions: normalized };
+      });
+
+      return groups
+        .filter((g) => g.sessions.length > 0)
+        .sort((a, b) => {
+          const aLatest = a.sessions[0];
+          const bLatest = b.sessions[0];
+          return (
+            new Date(bLatest.updated_at || bLatest.created_at || 0).getTime() -
+            new Date(aLatest.updated_at || aLatest.created_at || 0).getTime()
+          );
+        });
+    };
+
+    const normalizeSessionsList = (rawSessions: unknown): SessionItem[] => {
+      const sessions = Array.isArray(rawSessions) ? rawSessions : [];
+      return sessions
+        .map((s: any) => ({
+          session_id: String(s?.session_id ?? ''),
+          title: String(s?.title ?? 'Untitled Chat'),
+          last_message: String(s?.last_message ?? ''),
+          message_count: Number(s?.message_count ?? 0),
+          created_at: String(s?.created_at ?? ''),
+          updated_at: String(s?.updated_at ?? ''),
+        }))
+        .filter((s) => !!s.session_id)
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at || b.created_at || 0).getTime() -
+            new Date(a.updated_at || a.created_at || 0).getTime()
+        );
+    };
+
+    const flattenSessions = (groups: SessionGroup[]): SessionItem[] =>
+      groups.reduce<SessionItem[]>((acc, group) => acc.concat(group.sessions), []);
+
+    const groupLabelForDate = (value: string): string => {
+      const dt = value ? new Date(value) : new Date();
+      const today = new Date();
+      const currentDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const targetDay = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+      const diffDays = Math.round((currentDay - targetDay) / (24 * 60 * 60 * 1000));
+
+      if (diffDays <= 0) return 'Today';
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return 'This Week';
+      if (diffDays < 30) return 'This Month';
+      return dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    };
+
+    const buildSessionGroupsFromFlat = (sessions: SessionItem[]): SessionGroup[] => {
+      const groupedMap = new Map<string, SessionItem[]>();
+      sessions.forEach((session) => {
+        const label = groupLabelForDate(session.updated_at || session.created_at);
+        if (!groupedMap.has(label)) groupedMap.set(label, []);
+        groupedMap.get(label)!.push(session);
+      });
+
+      const groups = Array.from(groupedMap.entries()).map(([label, entries]) => ({
+        label,
+        sessions: entries.sort(
+          (a, b) =>
+            new Date(b.updated_at || b.created_at || 0).getTime() -
+            new Date(a.updated_at || a.created_at || 0).getTime()
+        ),
+      }));
+
+      return groups.sort((a, b) => {
+        const aLatest = a.sessions[0];
+        const bLatest = b.sessions[0];
+        return (
+          new Date(bLatest.updated_at || bLatest.created_at || 0).getTime() -
+          new Date(aLatest.updated_at || aLatest.created_at || 0).getTime()
+        );
+      });
+    };
+
+    const buildSessionsFromLegacyHistory = (rawMessages: any[]): SessionItem[] => {
+      const bySession = new Map<string, SessionItem>();
+
+      (Array.isArray(rawMessages) ? rawMessages : []).forEach((m: any) => {
+        const sid = String(m?.session_id ?? '').trim();
+        if (!sid) return;
+        const text = String(m?.text ?? '').trim();
+        const createdAt = String(m?.created_at ?? '');
+        const role = String(m?.sender ?? '');
+
+        if (!bySession.has(sid)) {
+          bySession.set(sid, {
+            session_id: sid,
+            title: '',
+            last_message: text,
+            message_count: 0,
+            created_at: createdAt,
+            updated_at: createdAt,
+          });
+        }
+
+        const existing = bySession.get(sid)!;
+        existing.message_count += 1;
+
+        if (createdAt && (!existing.created_at || new Date(createdAt).getTime() < new Date(existing.created_at).getTime())) {
+          existing.created_at = createdAt;
+        }
+        if (createdAt && (!existing.updated_at || new Date(createdAt).getTime() > new Date(existing.updated_at).getTime())) {
+          existing.updated_at = createdAt;
+          if (text) existing.last_message = text;
+        }
+        if (!existing.title && role === 'user' && text) {
+          existing.title = text.slice(0, 60);
+        }
+      });
+
+      return Array.from(bySession.values())
+        .map((s) => ({
+          ...s,
+          title: s.title || 'Farming Chat',
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at || b.created_at || 0).getTime() -
+            new Date(a.updated_at || a.created_at || 0).getTime()
+        );
+    };
+
+    const parseSessionsPayload = (data: any): { groups: SessionGroup[]; sessions: SessionItem[] } => {
+      const grouped = normalizeSessionGroups(data?.groups || {});
+      const flatFromPayload = normalizeSessionsList(data?.sessions);
+      const flat = flatFromPayload.length > 0 ? flatFromPayload : flattenSessions(grouped);
+      const groups = grouped.length > 0 ? grouped : buildSessionGroupsFromFlat(flat);
+      return { groups, sessions: flat };
+    };
+
+    const normalizeHistoryMessages = (rawMessages: any[], sid: string): ChatMessage[] => {
+      const messages = (Array.isArray(rawMessages) ? rawMessages : [])
+        .map((m: any, i: number) => {
+          const sender = m?.sender === 'user' ? 'user' : 'ai';
+          const text = String(m?.text ?? '').trim();
+          const createdAt = String(m?.created_at ?? '');
+          const time = String(m?.time ?? '');
+          return {
+            id: `hist-${sid}-${createdAt || time || i}`,
+            sender,
+            text,
+            time,
+            createdAt,
+          };
+        })
+        .filter((m: any) => !!m.text)
+        .sort(
+          (a: any, b: any) =>
+            new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+        );
+
+      const seen = new Set<string>();
+      const deduped = messages.filter((m: any) => {
+        const key = `${m.sender}|${m.text}|${m.time}|${m.createdAt}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      return deduped.map(({ id, sender, text, time }) => ({
+        id,
+        sender: sender as 'user' | 'ai',
+        text,
+        time,
+      }));
+    };
+
+    const formatSessionTime = (value: string): string => {
+      if (!value) return '';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return '';
+      return dt.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
       });
+    };
+    const totalSessionCount = flattenSessions(sessionGroups).length;
 
-    const [messages, setMessages] = useState<ChatMessage[]>([
-      {
-        id: '1',
-        sender: 'ai',
-        time: timeNow(),
-        text: t({
-          english:
-            "Assalam-o-Alaikum! 🌾 I'm your AI Farming Assistant. I can help you with crop diseases, farming tips, weather guidance, and much more. How can I assist you today?",
-          urdu:
-            'السلام علیکم! 🌾 میں آپ کا اے آئی زرعی اسسٹنٹ ہوں۔ میں فصل کی بیماریوں، زرعی مشوروں، موسم کی رہنمائی اور بہت کچھ میں مدد کر سکتا ہوں۔ آپ کیسے مدد چاہتے ہیں؟',
-        }),
-      },
-    ]);
+    // Load most recent session on mount
+    useEffect(() => {
+      (async () => {
+        setHistoryError(null);
+        setLoadingHistory(true);
+        setHasLoadedRemoteHistory(false);
+        try {
+          const mobileId = await getChatMobileId();
+          const url = `${API_BASE}/api/v1/chatbot/sessions/${mobileId}`;
+          logChatDebug('history_bootstrap mobile_id=', mobileId);
+          logChatDebug('history_bootstrap url=', url);
+          const res = await fetch(url);
+          logChatDebug('history_bootstrap status=', res.status);
+          if (!res.ok) throw new Error(`sessions request failed: ${res.status}`);
+          const data = await res.json();
+          logChatDebug('history_bootstrap response_keys=', Object.keys(data || {}));
+          const parsed = parseSessionsPayload(data);
+          setSessionGroups(parsed.groups);
+          const allSessions = parsed.sessions;
 
-    const scrollRef = useRef<ScrollView | null>(null);
+          logChatDebug('history_bootstrap sessions_count=', allSessions.length);
+          if (allSessions.length > 0 && autoRestoreLatestRef.current) {
+            const latest = allSessions[0];
+            setSessionId(latest.session_id);
+            await loadSession(mobileId, latest.session_id);
+            return;
+          }
+        } catch (err) {
+          logChatDebug('history_bootstrap error=', err);
+          setHistoryError(
+            t({
+              english: 'Could not load previous chat history right now.',
+              urdu: 'پچھلی چیٹ ہسٹری اس وقت لوڈ نہیں ہو سکی۔',
+            })
+          );
+        }
+        setMessages([]);
+        setHasExistingHistory(false);
+        setHasLoadedRemoteHistory(true);
+        setLoadingHistory(false);
+      })();
+    }, []);
+
+    const loadSession = async (mobileId: string, sid: string) => {
+      const token = ++historyLoadTokenRef.current;
+      setLoadingHistory(true);
+      setHistoryError(null);
+      try {
+        const url = `${API_BASE}/api/v1/chatbot/history/${mobileId}/${sid}`;
+        logChatDebug('history_load_session session_id=', sid, 'url=', url);
+        const res = await fetch(url);
+        logChatDebug('history_load_session status=', res.status);
+        if (!res.ok) throw new Error(`history request failed: ${res.status}`);
+        const data = await res.json();
+        if (token !== historyLoadTokenRef.current) return;
+        logChatDebug('history_load_session response_keys=', Object.keys(data || {}));
+        logChatDebug('history_load_session messages_count=', Array.isArray(data?.messages) ? data.messages.length : 0);
+        const history = normalizeHistoryMessages(data.messages, sid);
+        if (history.length > 0) {
+          setHasExistingHistory(true);
+          setMessages(history);
+        } else {
+          setHasExistingHistory(false);
+          setMessages([]);
+        }
+      } catch (err) {
+        if (token !== historyLoadTokenRef.current) return;
+        logChatDebug('history_load_session error=', err);
+        setHistoryError(
+          t({
+            english: 'Could not load this conversation. Please try again.',
+            urdu: 'یہ گفتگو لوڈ نہیں ہو سکی۔ براہ کرم دوبارہ کوشش کریں۔',
+          })
+        );
+      }
+      setHasLoadedRemoteHistory(true);
+      setLoadingHistory(false);
+    };
+
+    const loadSessions = async () => {
+      setLoadingSessions(true);
+      setSessionsError(null);
+      try {
+        const mobileId = await getChatMobileId();
+        const url = `${API_BASE}/api/v1/chatbot/sessions/${mobileId}`;
+        logChatDebug('history_modal_fetch mobile_id=', mobileId);
+        logChatDebug('history_modal_fetch url=', url);
+        const res = await fetch(url);
+        logChatDebug('history_modal_fetch status=', res.status);
+        if (!res.ok) throw new Error(`sessions list failed: ${res.status}`);
+        const data = await res.json();
+        logChatDebug('history_modal_fetch response_keys=', Object.keys(data || {}));
+        const parsed = parseSessionsPayload(data);
+        let groupsToSet = parsed.groups;
+        let sessionsToSet = parsed.sessions;
+
+        if (sessionsToSet.length === 0) {
+          const fallbackUrl = `${API_BASE}/api/v1/chatbot/history/${mobileId}?limit=500`;
+          logChatDebug('history_modal_fetch fallback_url=', fallbackUrl);
+          const fallbackRes = await fetch(fallbackUrl);
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            const fallbackSessions = buildSessionsFromLegacyHistory(fallbackData?.messages || []);
+            if (fallbackSessions.length > 0) {
+              sessionsToSet = fallbackSessions;
+              groupsToSet = buildSessionGroupsFromFlat(fallbackSessions);
+            }
+          }
+        }
+
+        logChatDebug(
+          'history_modal_fetch parsed_groups=',
+          groupsToSet.length,
+          'parsed_sessions=',
+          sessionsToSet.length
+        );
+        setSessionGroups(groupsToSet);
+      } catch (err) {
+        logChatDebug('history_modal_fetch error=', err);
+        setSessionsError(
+          t({
+            english: 'Could not load chat history list. Please retry.',
+            urdu: 'چیٹ ہسٹری لسٹ لوڈ نہیں ہو سکی۔ براہ کرم دوبارہ کوشش کریں۔',
+          })
+        );
+      }
+      setLoadingSessions(false);
+    };
+
+    const startNewChat = () => {
+      autoRestoreLatestRef.current = false;
+      historyLoadTokenRef.current += 1;
+      logChatDebug('new_chat_mode enabled');
+      setSessionId(null);
+      setMessages([]);
+      setHasExistingHistory(false);
+      setHasLoadedRemoteHistory(true);
+      setShowHistory(false);
+    };
+
+    const openSession = async (sid: string) => {
+      autoRestoreLatestRef.current = true;
+      logChatDebug('history_modal_select_session session_id=', sid);
+      setSessionId(sid);
+      setShowHistory(false);
+      const mobileId = await getChatMobileId();
+      await loadSession(mobileId, sid);
+    };
+
+    const deleteSession = async (sid: string) => {
+      try {
+        const mobileId = await getChatMobileId();
+        await fetch(`${API_BASE}/api/v1/chatbot/session/${mobileId}/${sid}`, { method: 'DELETE' });
+        if (sessionId === sid) startNewChat();
+        await loadSessions();
+      } catch {}
+    };
+
+    useEffect(() => {
+      if (showHistory) {
+        logChatDebug('history_modal_opened rendered_session_groups=', sessionGroups.length);
+        loadSessions();
+      }
+    }, [showHistory]);
+
+    useEffect(() => {
+      if (!showHistory) return;
+      logChatDebug('history_modal_rendered_sessions=', flattenSessions(sessionGroups).length);
+    }, [sessionGroups, showHistory]);
 
     useEffect(() => {
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-    }, [messages, isTyping]);
+    }, [messages, isTyping, loadingHistory]);
 
-    const aiResponses: Record<string, { urdu: string; english: string }> = useMemo(
-      () => ({
-        disease: {
-          english:
-            'Based on common rice diseases in Punjab, here are some tips:\n\n🔸 Blast Disease: Use Tricyclazole fungicide\n🔸 Brown Spot: Apply Mancozeb spray\n🔸 Bacterial Leaf Blight: Use copper-based solutions\n\nWould you like me to analyze a specific crop image?',
-          urdu:
-            'پنجاب میں چاول کی عام بیماریوں کے حوالے سے چند مشورے:\n\n🔸 بلاسٹ: ٹرائی سائیکلازول فنجی سائیڈ استعمال کریں\n🔸 براؤن اسپاٹ: مینکوزیب سپرے کریں\n🔸 بیکٹیریل لیف بلیٹ: کاپر بیسڈ محلول استعمال کریں\n\nکیا آپ چاہتے ہیں کہ میں کسی فصل کی تصویر کا تجزیہ کروں؟',
-        },
-        weather: {
-          english:
-            '🌤️ Weather Forecast for Punjab:\n\nToday: Sunny, 28°C\nHumidity: 65%\nWind: Light breeze\n\n⚠️ No rain expected for next 3 days. Consider irrigation for your crops.',
-          urdu:
-            '🌤️ پنجاب کے لیے موسم کی پیش گوئی:\n\nآج: دھوپ، 28°C\nنمی: 65%\nہوا: ہلکی\n\n⚠️ اگلے 3 دن بارش کا امکان نہیں۔ فصل کے لیے آبپاشی پر غور کریں۔',
-        },
-        fertilizer: {
-          english:
-            '📊 Fertilizer Recommendation for Rice:\n\nFor 1 acre of rice field:\n• Urea: 50 kg\n• DAP: 25 kg\n• Potash: 20 kg\n\nBest time to apply: Early morning or evening for better absorption.',
-          urdu:
-            '📊 چاول کے لیے کھاد کی سفارش:\n\n1 ایکڑ چاول کے لیے:\n• یوریا: 50 کلو\n• ڈی اے پی: 25 کلو\n• پوٹاش: 20 کلو\n\nبہترین وقت: بہتر جذب کے لیے صبح سویرے یا شام۔',
-        },
-        price: {
-          english:
-            '📈 Current Mandi Prices:\n\n🌾 Basmati Rice: ₨3,800/40kg\n🌾 IRRI Rice: ₨2,200/40kg\n🌾 Wheat: ₨2,800/40kg\n\nPrices are from Lahore Mandi. Updated today.',
-          urdu:
-            '📈 موجودہ منڈی ریٹس:\n\n🌾 باسمتی چاول: ₨3,800/40kg\n🌾 اری چاول: ₨2,200/40kg\n🌾 گندم: ₨2,800/40kg\n\nریٹس لاہور منڈی کے ہیں۔ آج اپڈیٹ ہوئے۔',
-        },
-        help: {
-          english:
-            'I can help you with:\n\n1️⃣ Crop disease detection\n2️⃣ Weather updates\n3️⃣ Fertilizer recommendations\n4️⃣ Mandi prices\n5️⃣ Farming best practices\n6️⃣ Government schemes\n\nJust ask me anything!',
-          urdu:
-            'میں ان چیزوں میں مدد کر سکتا ہوں:\n\n1️⃣ فصل کی بیماری کی تشخیص\n2️⃣ موسم کی اپڈیٹس\n3️⃣ کھاد کی سفارشات\n4️⃣ منڈی کے ریٹس\n5️⃣ بہترین زرعی طریقے\n6️⃣ حکومتی اسکیمیں\n\nبس اپنا سوال پوچھیں!',
-        },
-      }),
-      []
-    );
-
-    const getAIResponse = (userMessage: string): string => {
-      const lowerMessage = userMessage.toLowerCase();
-      if (lowerMessage.includes('disease') || lowerMessage.includes('bimari') || lowerMessage.includes('problem')) return t(aiResponses.disease);
-      if (lowerMessage.includes('weather') || lowerMessage.includes('mausam') || lowerMessage.includes('barish')) return t(aiResponses.weather);
-      if (lowerMessage.includes('fertilizer') || lowerMessage.includes('khad') || lowerMessage.includes('urea')) return t(aiResponses.fertilizer);
-      if (lowerMessage.includes('price') || lowerMessage.includes('rate') || lowerMessage.includes('mandi') || lowerMessage.includes('qeemat')) return t(aiResponses.price);
-      if (lowerMessage.includes('help') || lowerMessage.includes('madad') || lowerMessage.includes('kya')) return t(aiResponses.help);
-
-      return t({
-        english:
-          "Thank you for your question! 🌱 I'm here to help with farming queries. You can ask me about:\n\n• Crop diseases and treatments\n• Weather updates\n• Fertilizer dosages\n• Market prices\n• Farming tips\n\nHow can I assist you?",
-        urdu:
-          'آپ کے سوال کا شکریہ! 🌱 میں زرعی سوالات میں مدد کے لیے موجود ہوں۔ آپ یہ پوچھ سکتے ہیں:\n\n• فصل کی بیماریاں اور علاج\n• موسم کی اپڈیٹس\n• کھاد کی مقدار\n• منڈی کے ریٹس\n• زرعی مشورے\n\nمیں کیسے مدد کروں؟',
-      });
+    const sendWithTimeout = async (
+      url: string,
+      options: RequestInit,
+      timeoutMs: number = 20000
+    ): Promise<Response> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
     };
 
-    const handleSend = () => {
-      const trimmed = messageText.trim();
+    const handleComposerFocus = () => onInputFocusChange?.(true);
+    const handleComposerBlur = () => onInputFocusChange?.(false);
+
+    const quickPrompts = [
+      { english: 'My rice leaves have brown spots. What should I do?', urdu: 'چاول کے پتوں پر بھورے دھبے ہیں، کیا کروں؟' },
+      { english: 'When should I irrigate my rice crop?', urdu: 'چاول کی فصل کو پانی کب دینا چاہیے؟' },
+      { english: 'How can I upload crop image for disease detection?', urdu: 'بیماری کی تشخیص کے لیے فصل کی تصویر کیسے اپلوڈ کروں؟' },
+      { english: 'How can I check mandi prices?', urdu: 'منڈی کی قیمتیں کیسے چیک کروں؟' },
+    ] as const;
+
+    const handleSend = async (overrideText?: string) => {
+      const rawText = typeof overrideText === 'string' ? overrideText : messageText;
+      const trimmed = rawText.trim();
       if (!trimmed || isTyping) return;
 
-      const userMsg: ChatMessage = {
-        id: `${Date.now()}`,
-        sender: 'user',
-        text: trimmed,
-        time: timeNow(),
-      };
-
+      const userMsg: ChatMessage = { id: `${Date.now()}`, sender: 'user', text: trimmed, time: timeNow() };
       setMessages((prev) => [...prev, userMsg]);
       setMessageText('');
       setIsTyping(true);
+      setHasExistingHistory(true);
+      setHasLoadedRemoteHistory(true);
 
-      const captured = trimmed;
-      setTimeout(() => {
-        const aiMsg: ChatMessage = {
-          id: `${Date.now() + 1}`,
-          sender: 'ai',
-          text: getAIResponse(captured),
-          time: timeNow(),
-        };
-        setMessages((prev) => [...prev, aiMsg]);
+      try {
+        const mobileId = await getChatMobileId();
+        logChatDebug('chat_send mobile_id=', mobileId, 'session_id=', sessionId, 'message_len=', trimmed.length);
+        const res = await sendWithTimeout(`${API_BASE}/api/v1/chatbot/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: trimmed, mobile_id: mobileId, session_id: sessionId }),
+        });
+
+        logChatDebug('chat_send status=', res.status);
+        if (!res.ok) {
+          const errText = await res.text();
+          logChatDebug('chat_send error_body=', errText);
+          throw new Error('Failed');
+        }
+
+        const data = await res.json();
+        logChatDebug('chat_send response_keys=', Object.keys(data || {}));
+        logChatDebug('chat_send returned_session_id=', data.session_id);
+        autoRestoreLatestRef.current = true;
+        if (!sessionId) setSessionId(data.session_id);
+        setMessages((prev) => [
+          ...prev,
+          { id: `${Date.now() + 1}`, sender: 'ai', text: data.reply, time: timeNow() },
+        ]);
+        await loadSessions();
+      } catch (err) {
+        logChatDebug('chat_send error=', err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `${Date.now() + 1}`,
+            sender: 'ai',
+            time: timeNow(),
+            text: t({
+              english: 'Sorry, I could not connect to the server. Please check your internet connection and try again.',
+              urdu: 'معذرت، سرور سے رابطہ نہیں ہو سکا۔ براہ کرم اپنا انٹرنیٹ چیک کریں اور دوبارہ کوشش کریں۔',
+            }),
+          },
+        ]);
+      } finally {
         setIsTyping(false);
-      }, 1500);
+        onInputFocusChange?.(false);
+      }
     };
 
-    const quickPrompts: string[] = [];
-
     return (
-      <View style={{ flex: 1, paddingBottom: 160 }}>
-        <View style={styles.chatHeader}>
-          <View style={styles.chatAvatar}>
-            <Feather name="cpu" size={20} color="#ffffff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.chatTitle}>{t(strings.chatTitle)}</Text>
-              <MaterialCommunityIcons name="star-four-points" size={14} color="#0d5c4b" />
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: '#f0faf6', paddingBottom: bottomInset }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* ── Chat header ── */}
+        <LinearGradient
+          colors={['#0d5c4b', '#0f7a62', '#10b981']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.chatHeaderGradient, { paddingHorizontal: r.wp(4), paddingTop: r.isSmall ? 12 : 16, paddingBottom: r.isSmall ? 14 : 18 }]}
+        >
+          <View style={styles.chatHeaderGlowOne} />
+          <View style={styles.chatHeaderGlowTwo} />
+          <View style={styles.chatHeaderInner}>
+            <View style={styles.chatAvatarBox}>
+              <LinearGradient colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.08)']} style={[styles.chatAvatarGradient, { width: r.fs(44), height: r.fs(44), borderRadius: r.fs(14) }]}>
+                <MaterialCommunityIcons name="robot-happy-outline" size={r.fs(22)} color="#ffffff" />
+              </LinearGradient>
+              <View style={styles.onlineDot} />
             </View>
-            <Text style={styles.chatSub}>{t({ urdu: '24/7 دستیاب', english: '24/7 Available' })} • {t(strings.online)}</Text>
-          </View>
-        </View>
 
-        {quickPrompts.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickPromptRow}>
-            {quickPrompts.map((p) => (
-              <TouchableOpacity key={p} activeOpacity={0.9} style={styles.quickPromptChip} onPress={() => setMessageText(p)}>
-                <Text style={styles.quickPromptText}>{p}</Text>
+            <View style={{ flex: 1, marginHorizontal: 10 }}>
+              <Text style={[styles.chatTitle, { fontSize: r.fs(16) }]} numberOfLines={1}>{t(strings.chatTitle)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                <View style={styles.onlineDotSmall} />
+                <Text style={[styles.chatSubWhite, { fontSize: r.fs(11) }]} numberOfLines={1}>
+                  {t(strings.online)} • {t({ urdu: '24/7 دستیاب', english: '24/7 Available' })}
+                </Text>
+              </View>
+            </View>
+
+            {/* Header action buttons */}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setShowHistory(true)}
+              style={styles.chatHeaderBtn}
+            >
+              <Feather name="clock" size={r.fs(16)} color="#ffffff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={startNewChat}
+              style={styles.chatHeaderBtn}
+            >
+              <Feather name="edit" size={r.fs(16)} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+
+        {messages.length < 2 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[styles.quickPromptRow, { paddingHorizontal: r.wp(4) }]}
+          >
+            {quickPrompts.map((prompt) => (
+              <TouchableOpacity
+                key={prompt.english}
+                style={styles.quickPromptChip}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setMessageText(t(prompt));
+                  onInputFocusChange?.(true);
+                }}
+              >
+                <Text style={styles.quickPromptText}>{t(prompt)}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
-        ) : null}
+        )}
 
+        {/* ── Messages ── */}
+        {loadingHistory && (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color="#0d5c4b" />
+            <Text style={{ color: '#6b7280', fontSize: r.fs(12), marginTop: 8 }}>
+              {t({ english: 'Loading chat history...', urdu: 'چیٹ ہسٹری لوڈ ہو رہی ہے...' })}
+            </Text>
+          </View>
+        )}
+        {!loadingHistory && historyError && (
+          <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+            <View
+              style={{
+                backgroundColor: '#fff7ed',
+                borderColor: '#fed7aa',
+                borderWidth: 1,
+                borderRadius: 12,
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: '#9a3412', fontSize: r.fs(12.5) }}>{historyError}</Text>
+            </View>
+          </View>
+        )}
         <ScrollView
-          ref={(r) => {
-            scrollRef.current = r;
-          }}
-          contentContainerStyle={[styles.chatBody, { paddingBottom: 140 }]}
+          ref={(ref) => { scrollRef.current = ref; }}
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.chatBody, { paddingHorizontal: r.wp(4), paddingBottom: 12 }]}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           showsVerticalScrollIndicator={false}
         >
+          {messages.length > 0 && (
+            <View style={styles.dateBadge}>
+              <Text style={[styles.dateBadgeText, { fontSize: r.fs(11) }]}>
+                {t({ english: 'Today', urdu: 'آج' })}
+              </Text>
+            </View>
+          )}
+
+          {messages.length === 0 && !loadingHistory && hasLoadedRemoteHistory && !hasExistingHistory && (
+            <View
+              style={{
+                backgroundColor: '#ecfdf5',
+                borderColor: '#a7f3d0',
+                borderWidth: 1,
+                borderRadius: 14,
+                padding: 14,
+                marginTop: 8,
+              }}
+            >
+              <Text style={{ color: '#065f46', fontSize: r.fs(13), fontWeight: '700', marginBottom: 6 }}>
+                {t({
+                  english: 'Welcome to Assan Kheti AI Farming Assistant',
+                  urdu: 'آسان کھیتی اے آئی فارمنگ اسسٹنٹ میں خوش آمدید',
+                })}
+              </Text>
+              <Text style={{ color: '#065f46', fontSize: r.fs(12.5), lineHeight: r.fs(18) }}>
+                {t({
+                  english:
+                    'No saved conversations yet. Ask a farming question to start your first chat.',
+                  urdu:
+                    'ابھی تک کوئی محفوظ گفتگو موجود نہیں۔ اپنی پہلی چیٹ شروع کرنے کے لیے کھیتی باڑی سے متعلق سوال کریں۔',
+                })}
+              </Text>
+            </View>
+          )}
+
           {messages.map((m) => {
             const isUser = m.sender === 'user';
             return (
               <View key={m.id} style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAi]}>
-                {!isUser ? (
-                  <View style={styles.msgAvatarAi}>
-                    <Feather name="cpu" size={14} color="#ffffff" />
+                {!isUser && (
+                  <LinearGradient
+                    colors={['#0d5c4b', '#10b981']}
+                    style={[styles.msgAvatarAi, { width: r.fs(32), height: r.fs(32), borderRadius: r.fs(10) }]}
+                  >
+                    <MaterialCommunityIcons name="robot-happy-outline" size={r.fs(15)} color="#ffffff" />
+                  </LinearGradient>
+                )}
+                <View style={[styles.msgBubble, isUser ? styles.msgBubbleUser : styles.msgBubbleAi, { padding: r.isSmall ? 12 : 14 }]}>
+                  <Text style={[styles.msgText, { fontSize: r.fs(13.5), lineHeight: r.fs(20) }, isUser ? styles.msgTextUser : styles.msgTextAi]}>
+                    {m.text}
+                  </Text>
+                  <View style={[styles.msgTimeBadge, isUser ? styles.msgTimeBadgeUser : styles.msgTimeBadgeAi]}>
+                    <Feather name="clock" size={r.fs(9)} color={isUser ? 'rgba(255,255,255,0.5)' : '#b0b8b5'} />
+                    <Text style={[styles.msgTime, { fontSize: r.fs(10) }, isUser ? styles.msgTimeUser : styles.msgTimeAi]}>{m.time}</Text>
+                    {isUser && <Feather name="check" size={r.fs(10)} color="rgba(255,255,255,0.5)" />}
                   </View>
-                ) : null}
-
-                <View style={[styles.msgBubble, isUser ? styles.msgBubbleUser : styles.msgBubbleAi]}>
-                  <Text style={[styles.msgText, isUser ? styles.msgTextUser : styles.msgTextAi]}>{m.text}</Text>
-                  <Text style={[styles.msgTime, isUser ? styles.msgTimeUser : styles.msgTimeAi]}>{m.time}</Text>
                 </View>
-
-                {isUser ? (
-                  <View style={styles.msgAvatarUser}>
-                    <Feather name="user" size={14} color="#111827" />
+                {isUser && (
+                  <View style={[styles.msgAvatarUser, { width: r.fs(32), height: r.fs(32), borderRadius: r.fs(10) }]}>
+                    <MaterialCommunityIcons name="account" size={r.fs(15)} color="#0d5c4b" />
                   </View>
-                ) : null}
+                )}
               </View>
             );
           })}
 
-          {isTyping ? (
+          {isTyping && (
             <View style={[styles.msgRow, styles.msgRowAi]}>
-              <View style={styles.msgAvatarAi}>
-                <Feather name="cpu" size={14} color="#ffffff" />
-              </View>
-              <View style={[styles.msgBubble, styles.msgBubbleAi, { paddingVertical: 12 }]}>
-                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color="#6b7280" />
-                  <Text style={[styles.msgText, styles.msgTextAi]}>{t({ urdu: 'ٹائپ ہو رہا ہے…', english: 'Typing…' })}</Text>
+              <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.msgAvatarAi, { width: r.fs(32), height: r.fs(32), borderRadius: r.fs(10) }]}>
+                <MaterialCommunityIcons name="robot-happy-outline" size={r.fs(15)} color="#ffffff" />
+              </LinearGradient>
+              <View style={[styles.msgBubble, styles.msgBubbleAi, styles.typingBubble]}>
+                <View style={styles.typingDots}>
+                  <View style={[styles.dot, { opacity: 0.3 }]} />
+                  <View style={[styles.dot, { opacity: 0.6 }]} />
+                  <View style={[styles.dot, { opacity: 1 }]} />
                 </View>
               </View>
             </View>
-          ) : null}
+          )}
         </ScrollView>
 
-        <View style={styles.chatComposer}>
+        {/* ── Composer ── */}
+        <View style={[styles.chatComposer, { paddingHorizontal: r.wp(3.5) }]}>
           <MessageComposer
             draft={messageText}
             onChangeDraft={setMessageText}
             onSend={handleSend}
+            onInputFocus={handleComposerFocus}
+            onInputBlur={handleComposerBlur}
             placeholder={strings.typeQuestion}
             leftElement={(
               <TouchableOpacity
-                activeOpacity={0.9}
+                activeOpacity={0.8}
                 onPress={() => setIsListening((v) => !v)}
-                style={[styles.micBtn, isListening ? styles.micBtnActive : null]}
+                style={[styles.micBtn, isListening && styles.micBtnActive]}
               >
-                <Feather name={isListening ? 'mic-off' : 'mic'} size={18} color={isListening ? '#ffffff' : '#6b7280'} />
+                <Feather name={isListening ? 'mic-off' : 'mic'} size={r.fs(18)} color={isListening ? '#ffffff' : '#6b7280'} />
               </TouchableOpacity>
             )}
             style={{ flex: 1 }}
           />
         </View>
-      </View>
+
+        {/* ── History Modal ── */}
+        <Modal visible={showHistory} animationType="slide" transparent>
+          <View style={styles.historyOverlay}>
+            <View style={[styles.historySheet, { height: r.hp(80), minHeight: r.hp(55) }]}>
+              {/* Sheet header */}
+              <View style={styles.historySheetHeader}>
+                <View style={styles.historyHandle} />
+                <View style={styles.historyTitleRow}>
+                  <Text style={[styles.historyTitle, { fontSize: r.fs(18) }]}>
+                    {t({ english: 'Chat History', urdu: 'چیٹ ہسٹری' })}
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowHistory(false)} activeOpacity={0.7}>
+                    <Feather name="x" size={r.fs(22)} color="#111827" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color: '#6b7280', fontSize: r.fs(12), marginTop: 4 }}>
+                  {t({ english: `${totalSessionCount} conversations`, urdu: `${totalSessionCount} گفتگو` })}
+                </Text>
+                {/* New chat button */}
+                <TouchableOpacity style={styles.newChatBtn} activeOpacity={0.8} onPress={startNewChat}>
+                  <Feather name="plus" size={r.fs(16)} color="#ffffff" />
+                  <Text style={[styles.newChatBtnText, { fontSize: r.fs(13) }]}>
+                    {t({ english: 'New Chat', urdu: 'نئی چیٹ' })}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Sessions list */}
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {loadingSessions ? (
+                  <View style={{ padding: 30, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#0d5c4b" />
+                  </View>
+                ) : sessionsError ? (
+                  <View style={{ padding: 24, alignItems: 'center' }}>
+                    <Text style={{ color: '#b45309', textAlign: 'center', fontSize: r.fs(12.5) }}>{sessionsError}</Text>
+                    <TouchableOpacity style={[styles.newChatBtn, { marginTop: 12 }]} onPress={loadSessions} activeOpacity={0.8}>
+                      <Feather name="refresh-cw" size={r.fs(14)} color="#fff" />
+                      <Text style={[styles.newChatBtnText, { fontSize: r.fs(12.5) }]}>
+                        {t({ english: 'Retry', urdu: 'دوبارہ کوشش' })}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : sessionGroups.length === 0 ? (
+                  <View style={{ padding: 30, alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="chat-outline" size={40} color="#d1d5db" />
+                    <Text style={{ color: '#9ca3af', fontSize: r.fs(13), marginTop: 12 }}>
+                      {t({
+                        english: 'No saved conversations yet. Start a farming chat to see it here.',
+                        urdu: 'ابھی تک کوئی محفوظ گفتگو نہیں۔ یہاں دیکھنے کے لیے نئی زرعی چیٹ شروع کریں۔',
+                      })}
+                    </Text>
+                  </View>
+                ) : (
+                  sessionGroups.map((group) => (
+                    <View key={group.label} style={{ marginBottom: 8 }}>
+                      <Text style={[styles.historyGroupLabel, { fontSize: r.fs(12) }]}>{group.label}</Text>
+                      {group.sessions.map((s) => (
+                        <TouchableOpacity
+                          key={s.session_id}
+                          style={[
+                            styles.historyItem,
+                            sessionId === s.session_id && styles.historyItemActive,
+                          ]}
+                          activeOpacity={0.8}
+                          onPress={() => openSession(s.session_id)}
+                        >
+                          <Feather name="message-circle" size={r.fs(16)} color={sessionId === s.session_id ? '#0d5c4b' : '#6b7280'} />
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                styles.historyItemText,
+                                { fontSize: r.fs(13.5) },
+                                sessionId === s.session_id && styles.historyItemTextActive,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {s.title}
+                            </Text>
+                            {!!s.last_message && (
+                              <Text style={{ color: '#6b7280', fontSize: r.fs(11.5), marginTop: 2 }} numberOfLines={1}>
+                                {s.last_message}
+                              </Text>
+                            )}
+                            <Text style={{ color: '#9ca3af', fontSize: r.fs(10.5), marginTop: 2 }}>
+                              {formatSessionTime(s.updated_at || s.created_at)}
+                              {s.message_count > 0 ? ` • ${s.message_count}` : ''}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => deleteSession(s.session_id)}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Feather name="trash-2" size={r.fs(14)} color="#d1d5db" />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </KeyboardAvoidingView>
     );
   };
 
+  const StableAIChatTab = useRef(AIChatTab).current;
+  const chatBottomInset = isKeyboardVisible ? 0 : tabBarHeight;
+
+  useEffect(() => {
+    if (activeTab !== 'chat' && isChatInputFocused) {
+      setIsChatInputFocused(false);
+    }
+  }, [activeTab, isChatInputFocused]);
+
+  useEffect(() => {
+    if (activeTab !== 'chat') return;
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      setIsKeyboardVisible(true);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false);
+      setIsChatInputFocused(false);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [activeTab]);
+
   const ProfileTab = () => (
-    <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 120 }]} showsVerticalScrollIndicator={false}>
-      <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-        <View style={{ alignItems: 'center', marginTop: 8, marginBottom: 16 }}>
-          <LinearGradient colors={['#0d5c4b', '#10b981']} style={styles.profileAvatar}>
-            <Feather name="user" size={34} color="#ffffff" />
+    <ScrollView
+      contentContainerStyle={[styles.scroll, { paddingHorizontal: r.wp(4), paddingBottom: tabBarHeight + 20 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%', paddingHorizontal: r.wp(4) }]}>
+        <View style={{ alignItems: 'center', marginTop: r.isSmall ? 6 : 12, marginBottom: r.isSmall ? 14 : 20 }}>
+          <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.profileAvatar, { width: r.fs(88), height: r.fs(88), borderRadius: r.fs(44) }]}>
+            <MaterialCommunityIcons name="account-cowboy-hat" size={r.fs(36)} color="#ffffff" />
           </LinearGradient>
-          <Text style={styles.profileTitle}>{t(strings.profileTitle)}</Text>
-          <Text style={styles.profileSub}>{t({ urdu: 'چاول کے کسان • پنجاب', english: 'Rice Farmer • Punjab' })}</Text>
+          <Text style={[styles.profileTitle, { fontSize: r.fs(18) }]}>{t(strings.profileTitle)}</Text>
+          <Text style={[styles.profileSub, { fontSize: r.fs(13) }]}>{t({ urdu: 'چاول کے کسان • پنجاب', english: 'Rice Farmer • Punjab' })}</Text>
         </View>
 
+        <Text style={styles.profileSectionTitle}>
+          {t({ urdu: 'اکاؤنٹ اور نیویگیشن', english: 'Account & Navigation' })}
+        </Text>
+
         {[
+          {
+            label: { urdu: 'کردار منتخب صفحہ پر جائیں', english: 'Back to Character Selection' },
+            icon: 'arrow-left-circle-outline',
+            onPress: () =>
+              router.replace({
+                pathname: '/user-type-selection',
+                params: { textLanguage, voiceLanguage },
+              }),
+          },
           { label: { urdu: 'میرے آرڈرز', english: 'My Orders' }, icon: 'shopping-outline', onPress: () => router.push({ pathname: '/farmer-orders', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'میری مصنوعات', english: 'My Products' }, icon: 'leaf', onPress: () => router.push({ pathname: '/farmer-products', params: { textLanguage, voiceLanguage } }) },
-          { label: { urdu: 'اطلاعات', english: 'Notifications' }, icon: 'bell', onPress: () => router.push({ pathname: '/farmer-notifications', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'مدد کا مرکز', english: 'Help Center' }, icon: 'help-circle-outline', onPress: () => router.push({ pathname: '/help-center', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'رازداری کی پالیسی', english: 'Privacy Policy' }, icon: 'shield-lock-outline', onPress: () => router.push({ pathname: '/privacy-policy', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'ترتیبات', english: 'Settings' }, icon: 'cog-outline', onPress: () => router.push({ pathname: '/farmer-settings', params: { textLanguage, voiceLanguage } }) },
-        ].map((i) => (
-          <TouchableOpacity key={i.label.english} style={styles.profileRow} activeOpacity={0.9} onPress={i.onPress}>
-            <View style={styles.profileRowIcon}>
-              <MaterialCommunityIcons name={i.icon as any} size={18} color="#0d5c4b" />
+        ].map((item) => (
+          <TouchableOpacity key={item.label.english} style={[styles.profileRow, { padding: r.isSmall ? 12 : 14 }]} activeOpacity={0.85} onPress={item.onPress}>
+            <View style={[styles.profileRowIcon, { width: r.fs(40), height: r.fs(40), borderRadius: r.fs(12) }]}>
+              <MaterialCommunityIcons name={item.icon as any} size={r.fs(18)} color="#0d5c4b" />
             </View>
-            <Text style={styles.profileRowText}>{t(i.label)}</Text>
-            <Feather name="chevron-right" size={18} color="#9ca3af" />
+            <Text style={[styles.profileRowText, { fontSize: r.fs(14) }]}>{t(item.label)}</Text>
+            <Feather name="chevron-right" size={r.fs(17)} color="#9ca3af" />
           </TouchableOpacity>
         ))}
       </View>
@@ -752,7 +1474,14 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
   );
 
   const TabBar = () => (
-    <View style={styles.tabBarWrap}>
+    <View
+      style={[styles.tabBarWrap, { paddingBottom: Platform.OS === 'ios' ? r.hp(3) : r.hp(1.5) }]}
+      pointerEvents="box-none"
+      onLayout={(e) => {
+        const measured = Math.round(e.nativeEvent.layout.height);
+        setTabBarHeight((prev) => (Math.abs(prev - measured) > 1 ? measured : prev));
+      }}
+    >
       <View style={[styles.tabBar, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         {[
           { id: 'home' as const, label: { urdu: 'ہوم', english: 'Home' }, icon: 'home' },
@@ -762,9 +1491,10 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           return (
-            <TouchableOpacity key={tab.id} onPress={() => setActiveTab(tab.id)} activeOpacity={0.9} style={[styles.tabBtn, isActive ? styles.tabBtnActive : null]}>
-              <MaterialCommunityIcons name={tab.icon as any} size={20} color={isActive ? '#0d5c4b' : '#6b7280'} />
-              <Text style={[styles.tabLabel, { color: isActive ? '#0d5c4b' : '#6b7280' }]}>{t(tab.label)}</Text>
+            <TouchableOpacity key={tab.id} onPress={() => setActiveTab(tab.id)} activeOpacity={0.85} style={[styles.tabBtn, isActive && styles.tabBtnActive]}>
+              <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
+              <Text style={[styles.tabLabel, { fontSize: r.fs(10.5), color: isActive ? '#0d5c4b' : '#9ca3af' }]}>{t(tab.label)}</Text>
+              {isActive && <View style={styles.tabDot} />}
             </TouchableOpacity>
           );
         })}
@@ -773,15 +1503,21 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#f5f1e8' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f8faf9' }}>
       <View style={{ flex: 1 }}>
         {activeTab === 'home' && <HomeTab />}
-        {/* {activeTab === 'scan' && <ScanTab />} */}
         {activeTab === 'shop' && <ShopTab />}
-        {activeTab === 'chat' && <ChatTab />}
+        {activeTab === 'chat' && (
+          <StableAIChatTab
+            textLanguage={textLanguage}
+            r={r}
+            bottomInset={chatBottomInset}
+            onInputFocusChange={setIsChatInputFocused}
+          />
+        )}
         {activeTab === 'profile' && <ProfileTab />}
 
-        <TabBar />
+        {!(activeTab === 'chat' && isKeyboardVisible) && <TabBar />}
 
       </View>
     </SafeAreaView>
@@ -789,15 +1525,41 @@ export function FarmerDashboard({ textLanguage = 'english', voiceLanguage = 'eng
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 16, paddingTop: 16 },
+  scroll: { paddingHorizontal: 16, paddingTop: 16, backgroundColor: '#f3fbf8' },
   sectionWrap: { paddingHorizontal: 16 },
 
   homeHeader: {
+    position: 'relative',
+    overflow: 'hidden',
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 22,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    ...Platform.select({
+      ios: { shadowColor: '#064e3b', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 16 },
+      android: { elevation: 6 },
+    }),
+  },
+  headerGlowOne: {
+    position: 'absolute',
+    top: -30,
+    right: -18,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  headerGlowTwo: {
+    position: 'absolute',
+    bottom: -36,
+    left: -24,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(16,185,129,0.22)',
   },
   homeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   homeBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -834,10 +1596,13 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderRadius: 18,
     padding: 14,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
   },
-  cropRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cropLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cropRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  cropLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
+  cropStatusBlock: { alignItems: 'flex-end', flex: 1, minWidth: 0 },
   cropIconBox: {
     width: 48,
     height: 48,
@@ -848,9 +1613,9 @@ const styles = StyleSheet.create({
   },
   cropTitle: { color: '#ffffff', fontWeight: '800' },
   cropSub: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
-  cropHealthRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cropHealthText: { color: '#ffffff', fontWeight: '900' },
-  cropMeta: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 4 },
+  cropHealthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, alignSelf: 'stretch' },
+  cropHealthText: { color: '#ffffff', fontWeight: '900', textAlign: 'right', flexShrink: 1, lineHeight: 16, fontSize: 13 },
+  cropMeta: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 4, textAlign: 'right' },
 
   statsCard: {
     marginTop: -14,
@@ -859,6 +1624,8 @@ const styles = StyleSheet.create({
     padding: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e5f4ef',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.06,
@@ -878,6 +1645,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 14,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e6f4ee',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.05,
@@ -889,7 +1658,13 @@ const styles = StyleSheet.create({
   gridUrdu: { fontSize: 11, color: '#10b981', marginTop: 2, fontWeight: '700' },
   gridDesc: { fontSize: 11, color: '#6b7280', marginTop: 8, lineHeight: 16 },
 
-  promoCard: { borderRadius: 18, padding: 16, marginTop: 6 },
+  promoCard: {
+    borderRadius: 18,
+    padding: 16,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.22)',
+  },
   promoInner: { gap: 10 },
   promoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   promoTitle: { fontWeight: '900', color: '#111827' },
@@ -906,7 +1681,20 @@ const styles = StyleSheet.create({
   },
   promoBtnText: { fontWeight: '900', color: '#111827' },
 
-  alertHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 8 },
+  alertHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 22, marginBottom: 10 },
+  alertSectionTitle: { fontSize: 18, fontWeight: '900', color: '#111827', lineHeight: 24 },
+  alertSectionSub: { marginTop: 2, fontSize: 12, color: '#6b7280', lineHeight: 17 },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#e9f8f2',
+    borderWidth: 1,
+    borderColor: '#cdeee2',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
   viewAll: { color: '#0d5c4b', fontWeight: '800' },
   alertItem: {
     flexDirection: 'row',
@@ -916,6 +1704,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e9f2ef',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.04,
@@ -977,7 +1767,7 @@ const styles = StyleSheet.create({
 
   sunriseBtn: {
     marginTop: 14,
-    backgroundColor: '#fbbf24',
+    backgroundColor: '#f9ce4e',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -995,6 +1785,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
     marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#e9f2ef',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.04,
@@ -1011,70 +1803,262 @@ const styles = StyleSheet.create({
   badgeTextActive: { color: '#10b981' },
   badgeTextMuted: { color: '#6b7280' },
 
-  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  chatAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0d5c4b', alignItems: 'center', justifyContent: 'center' },
-  chatTitle: { fontWeight: '900', color: '#111827' },
-  chatSub: { color: '#10b981', fontSize: 12, marginTop: 2 },
-  quickPromptRow: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6, gap: 8 },
-  quickPromptChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(13,92,75,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(13,92,75,0.18)',
+  // Chat header
+  chatHeaderGradient: {
+    position: 'relative',
+    overflow: 'hidden',
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#064e3b', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
+      android: { elevation: 6 },
+    }),
   },
-  quickPromptText: { color: '#0d5c4b', fontWeight: '900', fontSize: 12 },
-  chatBody: { padding: 16 },
-  chatRow: { flexDirection: 'row', gap: 10 },
-  chatBubbleIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#0d5c4b', alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  chatBubble: { backgroundColor: '#ffffff', borderRadius: 18, padding: 12, maxWidth: '82%' },
-  chatBubbleText: { color: '#111827' },
-  chatBubbleSub: { color: '#6b7280', fontSize: 12, marginTop: 8 },
+  chatHeaderGlowOne: {
+    position: 'absolute',
+    top: -24,
+    right: -18,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  chatHeaderGlowTwo: {
+    position: 'absolute',
+    bottom: -40,
+    left: -22,
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    backgroundColor: 'rgba(16,185,129,0.24)',
+  },
+  chatHeaderInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  chatAvatarBox: { position: 'relative' },
+  chatAvatarGradient: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  onlineDot: {
+    position: 'absolute', bottom: -1, right: -1,
+    width: 14, height: 14, borderRadius: 7,
+    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#0d5c4b',
+  },
+  onlineDotSmall: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' },
+  chatTitle: { fontWeight: '800', color: '#ffffff' },
+  chatSubWhite: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '500' },
+  aiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  aiBadgeText: { color: '#ffffff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
 
-  msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 12 },
+  // Quick prompts
+  quickPromptRow: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6, gap: 8 },
+  quickPromptChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cdeee2',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
+      android: { elevation: 1 },
+    }),
+  },
+  quickPromptText: { color: '#0d5c4b', fontWeight: '700', fontSize: 12.5, maxWidth: 260 },
+  marketplaceLoginCard: {
+    marginTop: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d1fae5',
+    borderRadius: 16,
+    padding: 14,
+  },
+  marketplaceLoginHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  marketplaceLoginTitle: { color: '#0d5c4b', fontWeight: '800', flex: 1, fontSize: 14 },
+  marketplaceLoginDesc: { color: '#4b5563', fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
+
+  // Chat body
+  chatBody: { padding: 16, paddingTop: 8 },
+  dateBadge: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(13,92,75,0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    marginBottom: 16,
+    marginTop: 4,
+  },
+  dateBadgeText: { color: '#6b7280', fontWeight: '600', letterSpacing: 0.3 },
+
+  // Messages
+  msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 14 },
   msgRowAi: { justifyContent: 'flex-start' },
   msgRowUser: { justifyContent: 'flex-end' },
-  msgAvatarAi: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#0d5c4b', alignItems: 'center', justifyContent: 'center' },
-  msgAvatarUser: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
-  msgBubble: { maxWidth: '82%', borderRadius: 18, padding: 12 },
-  msgBubbleAi: { backgroundColor: '#ffffff', borderTopLeftRadius: 6 },
-  msgBubbleUser: { backgroundColor: '#0d5c4b', borderTopRightRadius: 6 },
-  msgText: { fontSize: 13, lineHeight: 18 },
-  msgTextAi: { color: '#111827' },
+  msgAvatarAi: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  msgAvatarUser: {
+    width: 30, height: 30, borderRadius: 10,
+    backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center',
+  },
+  msgBubble: {
+    maxWidth: '80%', borderRadius: 18, padding: 14,
+    borderWidth: 1,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4 },
+      android: { elevation: 1 },
+    }),
+  },
+  msgBubbleAi: { backgroundColor: '#ffffff', borderColor: '#e7efec', borderBottomLeftRadius: 6 },
+  msgBubbleUser: {
+    backgroundColor: '#0d5c4b', borderColor: '#0f7a62', borderBottomRightRadius: 6,
+    ...Platform.select({
+      ios: { shadowColor: '#064e3b', shadowOpacity: 0.15 },
+      android: {},
+    }),
+  },
+  msgText: { fontSize: 13.5, lineHeight: 20 },
+  msgTextAi: { color: '#1f2937' },
   msgTextUser: { color: '#ffffff' },
-  msgTime: { fontSize: 10, marginTop: 6, textAlign: 'right' },
-  msgTimeAi: { color: '#6b7280' },
-  msgTimeUser: { color: 'rgba(255,255,255,0.75)' },
+  msgTimeBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 6 },
+  msgTimeBadgeUser: { justifyContent: 'flex-end' },
+  msgTimeBadgeAi: { justifyContent: 'flex-start' },
+  msgTime: { fontSize: 10 },
+  msgTimeAi: { color: '#9ca3af' },
+  msgTimeUser: { color: 'rgba(255,255,255,0.6)' },
+
+  // Typing indicator
+  typingBubble: { paddingVertical: 16, paddingHorizontal: 20 },
+  typingDots: { flexDirection: 'row', gap: 5, alignItems: 'center' },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#0d5c4b' },
+
+  // Composer
   chatComposer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: Platform.OS === 'ios' ? 86 : 74,
-    padding: 12,
-    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 24,
+    backgroundColor: 'rgba(255,255,255,0.97)',
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    borderTopColor: '#dfe9e6',
     flexDirection: 'row',
     gap: 10,
     alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.04, shadowRadius: 6 },
+      android: { elevation: 4 },
+    }),
   },
   micBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#f3f4f6',
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#e8eceb',
+  },
+  micBtnActive: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
+
+  // Chat header buttons
+  chatHeaderBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  micBtnActive: { backgroundColor: '#ef4444' },
-  chatInput: { flex: 1, height: 46, borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb', paddingHorizontal: 12, backgroundColor: '#f9fafb', color: '#111827' },
-  chatSend: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#0d5c4b', alignItems: 'center', justifyContent: 'center' },
-  chatSendDisabled: { opacity: 0.55 },
+
+  // History modal
+  historyOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  historySheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  historySheetHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  historyHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e5e7eb',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  historyTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  historyTitle: {
+    fontWeight: '800',
+    color: '#111827',
+  },
+  newChatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#0d5c4b',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 14,
+  },
+  newChatBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  historyGroupLabel: {
+    color: '#9ca3af',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginHorizontal: 12,
+    borderRadius: 12,
+  },
+  historyItemActive: {
+    backgroundColor: '#d1fae5',
+  },
+  historyItemText: {
+    flex: 1,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  historyItemTextActive: {
+    color: '#0d5c4b',
+    fontWeight: '700',
+  },
 
   profileAvatar: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center' },
   profileTitle: { marginTop: 12, fontWeight: '900', color: '#111827', fontSize: 18 },
   profileSub: { color: '#6b7280', marginTop: 4 },
+  profileSectionTitle: { fontSize: 12, color: '#6b7280', fontWeight: '700', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.6 },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1100,13 +2084,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 26 : 14,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    backgroundColor: 'transparent',
   },
-  tabBar: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
+  tabBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#dfe9e6',
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    ...Platform.select({
+      ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 16 },
+      android: { elevation: 8 },
+    }),
+  },
   tabBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 14 },
   tabBtnActive: { backgroundColor: 'rgba(13,92,75,0.08)' },
+  tabDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#0d5c4b', marginTop: 3 },
   tabLabel: { fontSize: 11, fontWeight: '800', marginTop: 4 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(17,24,39,0.55)', justifyContent: 'flex-end' },
