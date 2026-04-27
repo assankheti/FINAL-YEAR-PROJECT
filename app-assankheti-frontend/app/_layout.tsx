@@ -30,6 +30,9 @@ export default function RootLayout() {
         <Stack.Screen name="farmer-products" options={{ headerShown: false }} />
         <Stack.Screen name="farmer-orders" options={{ headerShown: false }} />
         <Stack.Screen name="farmer-notifications" options={{ headerShown: false }} />
+        <Stack.Screen name="disease-detection" options={{ headerShown: false }} />
+        <Stack.Screen name="smart-budget" options={{ headerShown: false }} />
+        <Stack.Screen name="crop-recommendations" options={{ headerShown: false }} />
         <Stack.Screen name="category-products/[category]" options={{ headerShown: false }} />
         <Stack.Screen name="product-buy/[productId]" options={{ headerShown: false }} />
         <Stack.Screen name="user-orders" options={{ headerShown: false }} />

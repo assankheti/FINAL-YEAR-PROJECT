@@ -18,7 +18,7 @@ export default function FarmerNotificationsPage() {
     <Notification
       initial={initial}
       title={{ english: 'Notifications', urdu: 'اطلاعات' }}
-      onBack={() => router.replace({ pathname: '/farmer-dashboard', params: { tab: 'profile' } })}
+      onBack={() => router.replace({ pathname: '/farmer-dashboard', params: { tab: 'home' } })}
     />
   );
 }

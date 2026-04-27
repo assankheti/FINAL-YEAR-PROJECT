@@ -7,6 +7,8 @@ export default function MessageComposer({
   draft,
   onChangeDraft,
   onSend,
+  onInputFocus,
+  onInputBlur,
   placeholder,
   leftElement,
   style,
@@ -14,6 +16,8 @@ export default function MessageComposer({
   draft: string;
   onChangeDraft: (s: string) => void;
   onSend: () => void;
+  onInputFocus?: () => void;
+  onInputBlur?: () => void;
   placeholder?: string | { english: string; urdu: string };
   leftElement?: React.ReactNode;
   style?: any;
@@ -27,10 +31,13 @@ export default function MessageComposer({
       <TextInput
         value={draft}
         onChangeText={onChangeDraft}
+        onFocus={onInputFocus}
+        onBlur={onInputBlur}
         placeholder={resolvedPlaceholder}
         placeholderTextColor="#9ca3af"
         style={styles.input}
         returnKeyType="send"
+        blurOnSubmit={false}
         onSubmitEditing={onSend}
       />
       <TouchableOpacity

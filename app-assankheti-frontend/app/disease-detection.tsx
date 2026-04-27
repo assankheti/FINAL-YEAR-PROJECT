@@ -8,16 +8,16 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
-  SafeAreaView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GreenHeader from '@/components/GreenHeader';
-import { useRouter } from 'expo-router';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+import { API_BASE } from '@/config/env';
 
-const API_URL = "http://localhost:8000/api/v1/disease/predict_disease";
+const API_URL = `${API_BASE}/api/v1/disease/predict_disease`;
 
 export default function DiseaseDetection() {
   const router = useRouter();
@@ -25,6 +25,16 @@ export default function DiseaseDetection() {
   const [image, setImage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const REQUEST_TIMEOUT_MS = 30000;
+
+  const guessMimeType = (uri: string): string => {
+    const lower = uri.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.heic')) return 'image/heic';
+    if (lower.endsWith('.heif')) return 'image/heif';
+    return 'image/jpeg';
+  };
 
   // 📷 Camera
   const takePhoto = async () => {
@@ -66,6 +76,8 @@ export default function DiseaseDetection() {
 
   // 🚀 Detect
   const detectDisease = async () => {
+    if (loading) return; // prevent accidental double-submit race on rapid taps
+
     if (!image) {
       Alert.alert('Error', 'Please select an image first');
       return;
@@ -76,65 +88,83 @@ export default function DiseaseDetection() {
     try {
       console.log('🔍 Starting disease detection...');
       console.log('Image URI:', image);
-      
-      // Fetch image from URI and convert to blob
-      console.log('📥 Fetching image blob...');
-      let blob: Blob;
-      
-      try {
-        const response = await fetch(image);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image: ${response.status}`);
-        }
-        blob = await response.blob();
-        console.log('✅ Blob created, size:', blob.size, 'bytes');
-      } catch (e) {
-        // If fetch fails, try alternative method for local file URIs
-        console.warn('Fetch method failed, trying alternative...');
-        const reader = new FileReader();
-        return new Promise((resolve, reject) => {
-          reader.onload = () => {
-            if (reader.result instanceof ArrayBuffer) {
-              blob = new Blob([reader.result], { type: 'image/jpeg' });
-              console.log('✅ Blob created via FileReader, size:', blob.size, 'bytes');
-              performUpload(blob);
-              resolve(undefined);
-            }
-          };
-          reader.onerror = () => reject(reader.error);
-          // This might need adjustment based on your platform
-        });
-      }
 
-      await performUpload(blob);
+      await performUpload(image);
       
     } catch (e) {
       console.error('❌ Error:', e);
-      Alert.alert('Error', `Disease detection failed: ${e instanceof Error ? e.message : String(e)}`);
+      const message = e instanceof Error ? e.message : String(e);
+      const isNetworkIssue = /network request failed/i.test(message);
+      if (isNetworkIssue) {
+        Alert.alert(
+          'Connection Error',
+          `Cannot reach backend server at ${API_BASE}.\n\n1) Ensure backend is running on port 8000\n2) Ensure phone and laptop are on same Wi-Fi\n3) Restart Expo with cache clear (npx expo start -c)`
+        );
+      } else {
+        Alert.alert('Error', `Disease detection failed: ${message}`);
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const uploadOnce = async (formData: FormData) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const uploadResponse = await fetch(API_URL, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+      return uploadResponse;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  const isTransientNetworkError = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return (
+      /network request failed/i.test(msg) ||
+      /aborted/i.test(msg) ||
+      /timeout/i.test(msg)
+    );
+  };
+
   // Helper function to perform the upload
-  const performUpload = async (blob: Blob) => {
+  const performUpload = async (imageUri: string) => {
     const mobileId = await getOrCreateMobileId();
     const selectedCrop = typeof params?.selectedCrop === 'string' ? params.selectedCrop : undefined;
 
     // Create FormData
     const formData = new FormData();
-    formData.append('file', blob, 'leaf.jpg');
+    const fileName = imageUri.split('/').pop() || 'leaf.jpg';
+    const filePart = {
+      uri: imageUri,
+      name: fileName,
+      type: guessMimeType(fileName),
+    } as any;
+    formData.append('file', filePart);
     formData.append('mobile_id', mobileId);
     if (selectedCrop) {
       formData.append('crop_name', selectedCrop);
     }
 
     console.log('📤 Sending request to:', API_URL);
-    const uploadResponse = await fetch(API_URL, {
-      method: 'POST',
-      body: formData,
-      // Don't set Content-Type header - let fetch handle multipart/form-data
-    });
+    let uploadResponse: Response;
+    try {
+      uploadResponse = await uploadOnce(formData);
+    } catch (err) {
+      if (!isTransientNetworkError(err)) throw err;
+      console.warn('⚠️ Upload transient error, retrying once...');
+      // Recreate form data for retry to avoid consumed body edge-cases.
+      const retryFormData = new FormData();
+      retryFormData.append('file', filePart);
+      retryFormData.append('mobile_id', mobileId);
+      if (selectedCrop) retryFormData.append('crop_name', selectedCrop);
+      uploadResponse = await uploadOnce(retryFormData);
+    }
 
     console.log('📨 Response status:', uploadResponse.status, uploadResponse.statusText);
     
@@ -166,9 +196,12 @@ export default function DiseaseDetection() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <GreenHeader title={{ english: 'Crop Disease Detection', urdu: 'فصل کی بیماری کی پہچان' }} onBack={() => router.back()} />
+      <GreenHeader title={{ english: 'Disease Detection', urdu: 'فصل کی بیماری کی پہچان' }} onBack={() => router.back()} />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.subtitle}>فصل کی بیماری کی پہچان کریں</Text>
+        <View style={styles.introBlock}>
+          <Text style={styles.subtitle}>Scan your crop for smart disease analysis</Text>
+          <Text style={styles.subtitleUrdu}>فصل کی بیماری کی پہچان کریں</Text>
+        </View>
 
         {/* Upload Box */}
         <View style={styles.uploadBox}>
@@ -184,12 +217,12 @@ export default function DiseaseDetection() {
         </View>
 
         {/* Buttons */}
-        <TouchableOpacity style={styles.primaryBtn} onPress={takePhoto}>
+        <TouchableOpacity style={styles.primaryBtn} onPress={takePhoto} activeOpacity={0.9}>
           <Feather name="camera" size={18} color="#fff" />
           <Text style={styles.primaryText}> Take Photo</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.secondaryBtn} onPress={pickImage}>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={pickImage} activeOpacity={0.9}>
           <Feather name="image" size={18} color="#2f6f5f" />
           <Text style={styles.secondaryText}> Upload from Gallery</Text>
         </TouchableOpacity>
@@ -274,18 +307,24 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingTop: 16,
+    paddingBottom: 44,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: '#1f4d3f',
+  introBlock: {
+    marginBottom: 14,
+    alignItems: 'center',
   },
   subtitle: {
     textAlign: 'center',
+    color: '#225447',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  subtitleUrdu: {
+    textAlign: 'center',
     color: '#4b7c6d',
-    marginBottom: 20,
+    marginTop: 4,
+    fontSize: 14,
   },
   uploadBox: {
     height: 200,
@@ -297,14 +336,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    overflow: 'hidden',
   },
   uploadText: {
     marginTop: 10,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#2f6f5f',
   },
   uploadSub: {
-    fontSize: 12,
+    marginTop: 4,
+    fontSize: 13,
     color: '#4b7c6d',
   },
   preview: {
@@ -315,58 +357,72 @@ const styles = StyleSheet.create({
   primaryBtn: {
     flexDirection: 'row',
     backgroundColor: '#2f6f5f',
-    padding: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 14,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 10,
+    shadowColor: '#0d5c4b',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 2,
   },
   primaryText: {
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '800',
+    fontSize: 17,
     marginLeft: 6,
   },
   secondaryBtn: {
     flexDirection: 'row',
     borderWidth: 1,
     borderColor: '#2f6f5f',
-    padding: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 14,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#ffffff',
   },
   secondaryText: {
     color: '#2f6f5f',
-    fontWeight: '600',
+    fontWeight: '700',
+    fontSize: 17,
     marginLeft: 6,
   },
   detectBtn: {
     backgroundColor: '#1f4d3f',
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
     borderRadius: 14,
     alignItems: 'center',
     marginTop: 14,
   },
   detectText: {
     color: '#fff',
-    fontWeight: '700',
+    fontWeight: '800',
+    fontSize: 16,
   },
   resultCard: {
     marginTop: 20,
-    backgroundColor: '#e9f5ef',
-    padding: 16,
-    borderRadius: 14,
-    alignItems: 'center',
+    backgroundColor: '#ecf9f2',
+    padding: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#d2efe3',
+    alignItems: 'flex-start',
   },
   resultTitle: {
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#1f4d3f',
     marginBottom: 6,
   },
   resultText: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#1f4d3f',   // 👈 IMPORTANT
+    color: '#1f4d3f',
   },
 
   confidence: {
@@ -394,15 +450,20 @@ const styles = StyleSheet.create({
   footer: {
     marginTop: 30,
     backgroundColor: '#eaf4ef',
-    padding: 12,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#d7eee4',
   },
   footerText: {
-    fontWeight: '600',
+    fontWeight: '800',
+    fontSize: 16,
     color: '#1f4d3f',
   },
   footerSub: {
-    fontSize: 12,
+    fontSize: 13,
+    marginTop: 4,
+    lineHeight: 18,
     color: '#4b7c6d',
   },
   backBtn: {
@@ -415,9 +476,7 @@ const styles = StyleSheet.create({
   },
   backBtnText: {
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 14,
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  backButtonInline: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(31,77,63,0.08)' },
 });
