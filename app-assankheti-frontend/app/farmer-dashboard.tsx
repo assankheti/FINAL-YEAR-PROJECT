@@ -10,6 +10,7 @@ export default function FarmerDashboardPage() {
   const voiceLanguage = coerceAppLanguage(params?.voiceLanguage, ctxVoiceLanguage);
   const tab = (params?.tab as string) ?? 'home';
   const selectedCrop = (params?.selectedCrop as string) ?? undefined;
+  const characterType = (params?.userType as string) ?? 'farmer';
 
   return (
     <FarmerDashboard
@@ -17,6 +18,7 @@ export default function FarmerDashboardPage() {
       voiceLanguage={voiceLanguage}
       initialTab={(tab as any) ?? 'home'}
       selectedCrop={selectedCrop}
+      characterType={characterType as any}
     />
   );
 }

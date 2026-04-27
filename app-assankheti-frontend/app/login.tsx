@@ -1,11 +1,8 @@
 import { Login } from '@/components/login';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { coerceAppLanguage, useLanguage } from '@/contexts/LanguageContext';
-
-const API_BASE =
-  Constants.expoConfig?.extra?.API_URL ?? 'http://192.168.1.25:8000';
+import { API_BASE } from '@/config/env';
 
 
 function tryParseJson(text: string): any | null {

@@ -11,6 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import GreenHeader from '@/components/GreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { API_BASE } from '@/config/env';
 
 type CropData = {
   fertilizers: string[];
@@ -164,6 +165,11 @@ export default function SmartBudgetForm() {
   const [loadingPesticides, setLoadingPesticides] = useState(true);
   const [loadingSeeds, setLoadingSeeds] = useState(true);
 
+  const formatMoney = (value: number) =>
+    new Intl.NumberFormat('en-PK', { maximumFractionDigits: 0 }).format(
+      Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
+    );
+
   // Update crop from params
   useEffect(() => {
     if (params.selectedCrop) {
@@ -182,17 +188,17 @@ export default function SmartBudgetForm() {
     const fetchData = async () => {
       try {
         setLoadingFertilizers(true);
-        const fertRes = await fetch('http://localhost:8000/api/v1/fertilizer/all?limit=100');
+        const fertRes = await fetch(`${API_BASE}/api/v1/fertilizer/all?limit=100`);
         const fertData = await fertRes.json();
         if (fertData.status === 'success') setAvailableFertilizers(fertData.data);
 
         setLoadingPesticides(true);
-        const pestRes = await fetch('http://localhost:8000/api/v1/pesticide/all?limit=100');
+        const pestRes = await fetch(`${API_BASE}/api/v1/pesticide/all?limit=100`);
         const pestData = await pestRes.json();
         if (pestData.status === 'success') setAvailablePesticides(pestData.data);
 
         setLoadingSeeds(true);
-        const seedRes = await fetch('http://localhost:8000/api/v1/seed/all?limit=100');
+        const seedRes = await fetch(`${API_BASE}/api/v1/seed/all?limit=100`);
         const seedData = await seedRes.json();
         if (seedData.status === 'success') setAvailableSeeds(seedData.data);
       } catch (error) {
@@ -263,9 +269,19 @@ export default function SmartBudgetForm() {
     if (soilType === 'Saline Soil') soilFactor = 1.2;
     if (soilType === 'Loamy Soil') soilFactor = 0.9;
 
-    const fertilizerPrice = filteredFertilizers.find(f => f.name === fertilizer)?.price || 0;
-    const pesticidePrice = filteredPesticides.find(p => p.name === pesticide)?.price || 0;
-    const seedPrice = filteredSeeds.find(s => s.name === seed)?.price || 0;
+    const fertilizerSelected = !fertilizer.toLowerCase().startsWith('select ') ? fertilizer : '';
+    const pesticideSelected = !pesticide.toLowerCase().startsWith('select ') ? pesticide : '';
+    const seedSelected = !seed.toLowerCase().startsWith('select ') ? seed : '';
+
+    const fertilizerPrice = fertilizerSelected
+      ? filteredFertilizers.find((f) => f.name === fertilizerSelected)?.price || 0
+      : 0;
+    const pesticidePrice = pesticideSelected
+      ? filteredPesticides.find((p) => p.name === pesticideSelected)?.price || 0
+      : 0;
+    const seedPrice = seedSelected
+      ? filteredSeeds.find((s) => s.name === seedSelected)?.price || 0
+      : 0;
 
     const fertilizerCost = areaNum * fertilizerPrice * 1;
     const pesticideCost = areaNum * pesticidePrice * 0.5;
@@ -277,13 +293,39 @@ export default function SmartBudgetForm() {
     const expectedRevenue = areaNum * (revenueMap[crop] || 120000);
     const profit = expectedRevenue - totalCost;
 
-    setResult({ totalCost, expectedRevenue, profit, fertilizerCost, pesticideCost, seedCost, fertilizerPrice, pesticidePrice, seedPrice, fertilizerUnits: areaNum * 1, pesticideUnits: areaNum * 0.5, seedUnits: areaNum * 1 });
+    setResult({
+      totalCost,
+      expectedRevenue,
+      profit,
+      fertilizerCost,
+      pesticideCost,
+      seedCost,
+      fertilizerPrice,
+      pesticidePrice,
+      seedPrice,
+      fertilizerUnits: areaNum * 1,
+      pesticideUnits: areaNum * 0.5,
+      seedUnits: areaNum * 1,
+      fertilizerName: fertilizerSelected || 'Not selected',
+      pesticideName: pesticideSelected || 'Not selected',
+      seedName: seedSelected || 'Not selected',
+    });
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <GreenHeader title={{ english: 'Smart Budget Calculator', urdu: 'سمارٹ بجٹ کیلکولیٹر' }} onBack={() => router.back()} />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <GreenHeader
+        title={{ english: 'Smart Budget Calculator', urdu: 'سمارٹ بجٹ کیلکولیٹر' }}
+        titleLines={2}
+        onBack={() => router.back()}
+      />
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.introCard}>
+          <Text style={styles.introTitle}>Farm Cost Planner</Text>
+          <Text style={styles.introSub}>Enter your crop details to estimate cost, revenue, and profit.</Text>
+        </View>
+
+        <View style={styles.formCard}>
         <View style={{ marginBottom: 12 }}>
           <Text style={styles.label}>Crop Type</Text>
           <View style={[styles.dropdown, { backgroundColor: '#f0f0f0' }]}>
@@ -307,7 +349,11 @@ export default function SmartBudgetForm() {
             disabled={loadingFertilizers}
           >
             <Text style={[styles.dropdownText, loadingFertilizers && { color: '#9ca3af' }]}>
-              {loadingFertilizers ? 'Loading fertilizers...' : fertilizer ? `${fertilizer} - Rs ${filteredFertilizers.find(f=>f.name===fertilizer)?.price ?? ''}` : 'Select Fertilizer'}
+              {loadingFertilizers
+                ? 'Loading fertilizers...'
+                : fertilizer.toLowerCase().startsWith('select ')
+                  ? 'Select Fertilizer'
+                  : `${fertilizer} - Rs ${filteredFertilizers.find((f) => f.name === fertilizer)?.price ?? ''}`}
             </Text>
             <Feather name="chevron-down" size={18} color={loadingFertilizers ? "#9ca3af" : "#2f6f5f"} />
           </TouchableOpacity>
@@ -332,7 +378,11 @@ export default function SmartBudgetForm() {
             disabled={loadingPesticides}
           >
             <Text style={[styles.dropdownText, loadingPesticides && { color: '#9ca3af' }]}>
-              {loadingPesticides ? 'Loading pesticides...' : pesticide ? `${pesticide} - Rs ${filteredPesticides.find(p=>p.name===pesticide)?.price ?? ''}` : 'Select Pesticide'}
+              {loadingPesticides
+                ? 'Loading pesticides...'
+                : pesticide.toLowerCase().startsWith('select ')
+                  ? 'Select Pesticide'
+                  : `${pesticide} - Rs ${filteredPesticides.find((p) => p.name === pesticide)?.price ?? ''}`}
             </Text>
             <Feather name="chevron-down" size={18} color={loadingPesticides ? "#9ca3af" : "#2f6f5f"} />
           </TouchableOpacity>
@@ -357,7 +407,11 @@ export default function SmartBudgetForm() {
             disabled={loadingSeeds}
           >
             <Text style={[styles.dropdownText, loadingSeeds && { color: '#9ca3af' }]}>
-              {loadingSeeds ? 'Loading seeds...' : seed ? `${seed} - Rs ${filteredSeeds.find(s=>s.name===seed)?.price ?? ''}` : 'Select Seed'}
+              {loadingSeeds
+                ? 'Loading seeds...'
+                : seed.toLowerCase().startsWith('select ')
+                  ? 'Select Seed'
+                  : `${seed} - Rs ${filteredSeeds.find((s) => s.name === seed)?.price ?? ''}`}
             </Text>
             <Feather name="chevron-down" size={18} color={loadingSeeds ? "#9ca3af" : "#2f6f5f"} />
           </TouchableOpacity>
@@ -384,18 +438,64 @@ export default function SmartBudgetForm() {
           <Feather name="command" size={18} color="#fff" />
           <Text style={styles.buttonText}> Calculate Budget</Text>
         </TouchableOpacity>
+        </View>
 
         {/* Result */}
         {result && (
           <View style={styles.resultCard}>
             <Text style={styles.resultTitle}>📊 Estimated Result</Text>
-            {result.fertilizerPrice > 0 && <View style={styles.row}><Text>Fertilizer ({fertilizer}):</Text><Text style={styles.cost}>Rs {result.fertilizerCost} ({result.fertilizerPrice}/unit, {result.fertilizerUnits} bags)</Text></View>}
-            {result.pesticidePrice > 0 && <View style={styles.row}><Text>Pesticide ({pesticide}):</Text><Text style={styles.cost}>Rs {result.pesticideCost} ({result.pesticidePrice}/unit, {result.pesticideUnits} units)</Text></View>}
-            {result.seedPrice > 0 && <View style={styles.row}><Text>Seed ({seed}):</Text><Text style={styles.cost}>Rs {result.seedCost} ({result.seedPrice}/unit, {result.seedUnits} units)</Text></View>}
-            <View style={styles.row}><Text>Other Costs:</Text><Text style={styles.cost}>Rs {parseFloat(otherCosts) || 0}</Text></View>
-            <View style={styles.row}><Text>Total Cost:</Text><Text style={styles.cost}>Rs {result.totalCost}</Text></View>
-            <View style={styles.row}><Text>Expected Revenue:</Text><Text style={styles.revenue}>Rs {result.expectedRevenue}</Text></View>
-            <View style={styles.row}><Text>Profit:</Text><Text style={[styles.profit, { color: result.profit >= 0 ? '#065f46' : '#b91c1c' }]}>{result.profit.toFixed(0)}</Text></View>
+            {result.fertilizerPrice > 0 && (
+              <View style={styles.breakdownItem}>
+                <Text style={styles.rowLabel}>Fertilizer ({result.fertilizerName}):</Text>
+                <View style={styles.breakdownRight}>
+                  <Text style={styles.rowValue}>Rs {formatMoney(result.fertilizerCost)}</Text>
+                  <Text style={styles.breakdownMeta}>
+                    {formatMoney(result.fertilizerPrice)}/unit • {formatMoney(result.fertilizerUnits)} bags
+                  </Text>
+                </View>
+              </View>
+            )}
+            {result.pesticidePrice > 0 && (
+              <View style={styles.breakdownItem}>
+                <Text style={styles.rowLabel}>Pesticide ({result.pesticideName}):</Text>
+                <View style={styles.breakdownRight}>
+                  <Text style={styles.rowValue}>Rs {formatMoney(result.pesticideCost)}</Text>
+                  <Text style={styles.breakdownMeta}>
+                    {formatMoney(result.pesticidePrice)}/unit • {formatMoney(result.pesticideUnits)} units
+                  </Text>
+                </View>
+              </View>
+            )}
+            {result.seedPrice > 0 && (
+              <View style={styles.breakdownItem}>
+                <Text style={styles.rowLabel}>Seed ({result.seedName}):</Text>
+                <View style={styles.breakdownRight}>
+                  <Text style={styles.rowValue}>Rs {formatMoney(result.seedCost)}</Text>
+                  <Text style={styles.breakdownMeta}>
+                    {formatMoney(result.seedPrice)}/unit • {formatMoney(result.seedUnits)} units
+                  </Text>
+                </View>
+              </View>
+            )}
+            <View style={styles.summaryDivider} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Other Costs:</Text>
+              <Text style={styles.rowValue}>Rs {formatMoney(parseFloat(otherCosts) || 0)}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Total Cost:</Text>
+              <Text style={styles.cost}>Rs {formatMoney(result.totalCost)}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Expected Revenue:</Text>
+              <Text style={styles.revenue}>Rs {formatMoney(result.expectedRevenue)}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Profit:</Text>
+              <Text style={[styles.profit, { color: result.profit >= 0 ? '#065f46' : '#b91c1c' }]}>
+                Rs {formatMoney(result.profit)}
+              </Text>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -406,19 +506,57 @@ export default function SmartBudgetForm() {
 /* STYLES */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f6faf7' },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40 },
-  label: { marginBottom: 6, fontWeight: '600', color: '#1f4d3f' },
-  input: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#cfe3db' },
-  dropdown: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#cfe3db', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dropdownText: { color: '#374151' },
-  dropdownList: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#cfe3db', marginTop: 4 },
-  dropdownItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  button: { backgroundColor: '#2f6f5f', padding: 16, borderRadius: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
-  buttonText: { color: '#fff', fontWeight: '700', marginLeft: 6 },
-  resultCard: { marginTop: 20, backgroundColor: '#e9f5ef', padding: 16, borderRadius: 14 },
-  resultTitle: { fontWeight: '700', color: '#1f4d3f', marginBottom: 10 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  cost: { color: '#b91c1c', fontWeight: '600' },
-  revenue: { color: '#047857', fontWeight: '600' },
-  profit: { color: '#065f46', fontWeight: '700' },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 },
+  introCard: {
+    backgroundColor: '#e9f8f2',
+    borderWidth: 1,
+    borderColor: '#d2eee4',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+  },
+  introTitle: { color: '#0f5d4c', fontWeight: '800', fontSize: 16 },
+  introSub: { color: '#4b7c6d', marginTop: 4, fontSize: 12.5 },
+  formCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#dceee6',
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 1,
+  },
+  label: { marginBottom: 7, fontWeight: '700', color: '#1f4d3f', fontSize: 14.5 },
+  input: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cfe3db', fontSize: 16, color: '#1f2937' },
+  dropdown: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cfe3db', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dropdownText: { color: '#374151', fontSize: 16 },
+  dropdownList: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#cfe3db', marginTop: 4, overflow: 'hidden' },
+  dropdownItem: { paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+  button: { backgroundColor: '#2f6f5f', paddingVertical: 15, paddingHorizontal: 16, borderRadius: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 12 },
+  buttonText: { color: '#fff', fontWeight: '800', marginLeft: 6, fontSize: 15.5 },
+  resultCard: { marginTop: 16, backgroundColor: '#ecf9f2', padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#d5efe5' },
+  resultTitle: { fontWeight: '800', color: '#1f4d3f', marginBottom: 10, fontSize: 15.5 },
+  breakdownItem: {
+    marginBottom: 10,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#d9ebe4',
+  },
+  breakdownRight: { marginTop: 4, alignItems: 'flex-end' },
+  breakdownMeta: { color: '#6b7280', fontSize: 12, marginTop: 2 },
+  summaryDivider: {
+    marginTop: 4,
+    marginBottom: 10,
+    height: 1,
+    backgroundColor: '#d1e7dd',
+  },
+  row: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 8, alignItems: 'center' },
+  rowLabel: { flex: 1, color: '#374151', fontWeight: '600' },
+  rowValue: { textAlign: 'right', color: '#1f2937', fontWeight: '700', fontSize: 15 },
+  cost: { color: '#b91c1c', fontWeight: '700' },
+  revenue: { color: '#047857', fontWeight: '700' },
+  profit: { color: '#065f46', fontWeight: '800', fontSize: 17 },
 });

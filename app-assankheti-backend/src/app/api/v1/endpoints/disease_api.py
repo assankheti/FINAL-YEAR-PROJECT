@@ -59,7 +59,10 @@ async def predict_disease(file: UploadFile = File(...), mobile_id: str = Form(..
     except Exception as e:
         logger.error(f"Error in disease prediction: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Disease detection failed. Please try again with a clear image.",
+        )
 
 
 @router.get("/last-scan/{mobile_id}")
@@ -78,7 +81,7 @@ async def model_status():
     """Check which models are available and working"""
     status = {
         "offline_model": {
-            "available": True,
+            "available": predictor.tf is not None,
             "name": "YOLO TFLite",
             "type": "local"
         },
@@ -95,4 +98,3 @@ async def model_status():
         "message": "Disease detection models are ready. System will use online models if available, fallback to offline model."
     }
     return status
-

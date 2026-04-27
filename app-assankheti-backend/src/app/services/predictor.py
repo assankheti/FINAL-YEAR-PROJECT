@@ -2,8 +2,14 @@ import os
 import io
 import numpy as np
 from PIL import Image
-import tensorflow as tf  # use TensorFlow instead of tflite_runtime
 import requests
+
+try:
+    import tensorflow as tf  # use TensorFlow instead of tflite_runtime
+    _tf_import_error = None
+except Exception as exc:
+    tf = None
+    _tf_import_error = exc
 
 # Online model endpoints - comment out the ones you don't want to use
 API_KEY = "nKR7maxkLCNkzO6PCUa0"
@@ -16,11 +22,9 @@ online_endpoints = [
 
 # Load model once
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "../models/best_float32.tflite")
-interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
-interpreter.allocate_tensors()
-
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+interpreter = None
+input_details = None
+output_details = None
 
 class_names = [
     "Bacterial Leaf Blight",
@@ -45,6 +49,24 @@ KNOWN_DISEASES = {
     "sheath blight": "Sheath Blight",
     "tungro": "Tungro",
 }
+
+
+def _ensure_offline_model():
+    """Lazily initialize TensorFlow Lite interpreter only when needed."""
+    global interpreter, input_details, output_details
+
+    if interpreter is not None:
+        return
+
+    if tf is None:
+        raise RuntimeError(
+            f"TensorFlow is not available in this environment: {_tf_import_error}"
+        )
+
+    interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
 
 
 def normalize_disease_label(label: str | None) -> str:
@@ -137,27 +159,38 @@ def predict(img_bytes):
         print(f"[WARNING] Roboflow failed: {e}")
     
     # Fallback to offline model
-    print("[INFO] Using OFFLINE model")
-    img = prepare_image(img_bytes)
-    interpreter.set_tensor(input_details[0]['index'], img)
-    interpreter.invoke()
-    output_data = interpreter.get_tensor(output_details[0]['index'])
-    class_idx = int(np.argmax(output_data))
-    confidence = float(np.max(output_data))
-    # Convert confidence to 0-100 range
-    confidence_percent = confidence * 100 if confidence <= 1 else confidence
-    
-    if confidence >= 0.70:
+    try:
+        print("[INFO] Using OFFLINE model")
+        _ensure_offline_model()
+        img = prepare_image(img_bytes)
+        interpreter.set_tensor(input_details[0]['index'], img)
+        interpreter.invoke()
+        output_data = interpreter.get_tensor(output_details[0]['index'])
+        class_idx = int(np.argmax(output_data))
+        confidence = float(np.max(output_data))
+        # Convert confidence to 0-100 range
+        confidence_percent = confidence * 100 if confidence <= 1 else confidence
+
+        if confidence >= 0.70:
+            return {
+                "disease": normalize_disease_label(class_names[class_idx]),
+                "confidence": round(confidence_percent, 2),
+                "model_type": "offline",
+                "model_name": "local_tflite"
+            }
+        else:
+            return {
+                "disease": "Healthy",
+                "confidence": round(confidence_percent, 2),
+                "model_type": "offline",
+                "model_name": "local_tflite"
+            }
+    except Exception as e:
+        # Final safe fallback: never crash prediction endpoint if model backends are unavailable.
+        print(f"[ERROR] Offline model unavailable: {e}")
         return {
-            "disease": normalize_disease_label(class_names[class_idx]), 
-            "confidence": round(confidence_percent, 2),
-            "model_type": "offline",
-            "model_name": "local_tflite"
-        }
-    else:
-        return {
-            "disease": "Healthy",
-            "confidence": round(confidence_percent, 2),
-            "model_type": "offline",
-            "model_name": "local_tflite"
+            "disease": "Not identifiable",
+            "confidence": 0.0,
+            "model_type": "fallback",
+            "model_name": "unavailable",
         }
