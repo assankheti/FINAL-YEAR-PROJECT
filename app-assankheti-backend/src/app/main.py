@@ -143,9 +143,19 @@ def read_root():
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.error(f"Validation error: {exc}")  # log the error
+    errors = exc.errors()
+    # Sanitize errors to ensure they're JSON serializable
+    sanitized_errors = []
+    for err in errors:
+        sanitized_err = {
+            'type': str(err.get('type', 'unknown')),
+            'loc': list(err.get('loc', [])),
+            'msg': str(err.get('msg', 'Unknown error')),
+        }
+        sanitized_errors.append(sanitized_err)
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": exc.body},
+        content={"detail": "Validation error", "errors": sanitized_errors},
     )
 
 

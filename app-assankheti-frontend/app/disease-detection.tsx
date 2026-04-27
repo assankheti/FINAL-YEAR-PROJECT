@@ -25,6 +25,8 @@ export default function DiseaseDetection() {
   const [image, setImage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [statusText, setStatusText] = useState<string | null>(null);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const REQUEST_TIMEOUT_MS = 30000;
 
   const guessMimeType = (uri: string): string => {
@@ -52,6 +54,8 @@ export default function DiseaseDetection() {
     if (!res.canceled) {
       setImage(res.assets[0].uri);
       setResult(null);
+      setErrorText(null);
+      setStatusText(null);
     }
   };
 
@@ -71,6 +75,8 @@ export default function DiseaseDetection() {
     if (!res.canceled) {
       setImage(res.assets[0].uri);
       setResult(null);
+      setErrorText(null);
+      setStatusText(null);
     }
   };
 
@@ -83,26 +89,33 @@ export default function DiseaseDetection() {
       return;
     }
 
+    setErrorText(null);
+    setStatusText('Analyzing crop image...');
     setLoading(true);
-    
+
     try {
       console.log('🔍 Starting disease detection...');
       console.log('Image URI:', image);
 
       await performUpload(image);
-      
+      setStatusText('Analysis complete. Scroll down to view results.');
     } catch (e) {
       console.error('❌ Error:', e);
       const message = e instanceof Error ? e.message : String(e);
       const isNetworkIssue = /network request failed/i.test(message);
-      if (isNetworkIssue) {
-        Alert.alert(
-          'Connection Error',
-          `Cannot reach backend server at ${API_BASE}.\n\n1) Ensure backend is running on port 8000\n2) Ensure phone and laptop are on same Wi-Fi\n3) Restart Expo with cache clear (npx expo start -c)`
-        );
-      } else {
-        Alert.alert('Error', `Disease detection failed: ${message}`);
-      }
+      const uiError = isNetworkIssue
+        ? `Cannot reach backend server at ${API_BASE}. Check backend and network connectivity.`
+        : `Disease detection failed: ${message}`;
+
+      setErrorText(uiError);
+      setStatusText(null);
+
+      Alert.alert(
+        isNetworkIssue ? 'Connection Error' : 'Error',
+        isNetworkIssue
+          ? `${uiError}\n\n1) Ensure backend is running on port 8000\n2) Ensure phone and laptop are on same Wi-Fi\n3) Restart Expo with cache clear (npx expo start -c)`
+          : uiError
+      );
     } finally {
       setLoading(false);
     }
@@ -140,12 +153,24 @@ export default function DiseaseDetection() {
     // Create FormData
     const formData = new FormData();
     const fileName = imageUri.split('/').pop() || 'leaf.jpg';
-    const filePart = {
-      uri: imageUri,
-      name: fileName,
-      type: guessMimeType(fileName),
-    } as any;
-    formData.append('file', filePart);
+    const mimeType = guessMimeType(fileName);
+
+    // For web environment: fetch and convert URI to Blob
+    // For native: use the file object directly
+    try {
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      formData.append('file', blob, fileName);
+    } catch (e) {
+      // Fallback for native environments
+      const filePart = {
+        uri: imageUri,
+        name: fileName,
+        type: mimeType,
+      } as any;
+      formData.append('file', filePart);
+    }
+
     formData.append('mobile_id', mobileId);
     if (selectedCrop) {
       formData.append('crop_name', selectedCrop);
@@ -158,9 +183,20 @@ export default function DiseaseDetection() {
     } catch (err) {
       if (!isTransientNetworkError(err)) throw err;
       console.warn('⚠️ Upload transient error, retrying once...');
-      // Recreate form data for retry to avoid consumed body edge-cases.
+      // Recreate form data for retry
       const retryFormData = new FormData();
-      retryFormData.append('file', filePart);
+      try {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        retryFormData.append('file', blob, fileName);
+      } catch (e) {
+        const filePart = {
+          uri: imageUri,
+          name: fileName,
+          type: guessMimeType(fileName),
+        } as any;
+        retryFormData.append('file', filePart);
+      }
       retryFormData.append('mobile_id', mobileId);
       if (selectedCrop) retryFormData.append('crop_name', selectedCrop);
       uploadResponse = await uploadOnce(retryFormData);
@@ -185,13 +221,19 @@ export default function DiseaseDetection() {
 
     const data = await uploadResponse.json();
     console.log('✅ Disease Detection Result:', JSON.stringify(data, null, 2));
-    
-    // Ensure confidence is a number
-    if (data.confidence && typeof data.confidence === 'string') {
-      data.confidence = parseFloat(data.confidence);
+
+    // Normalize and validate payload before rendering UI.
+    const normalized = {
+      ...data,
+      disease: String(data?.disease ?? '').trim(),
+      confidence: Number(data?.confidence ?? 0),
+    };
+
+    if (!normalized.disease) {
+      throw new Error('No disease prediction returned from server.');
     }
-    
-    setResult(data);
+
+    setResult(normalized);
   };
 
   return (
@@ -230,7 +272,7 @@ export default function DiseaseDetection() {
         {/* Detect */}
         {image && (
           <TouchableOpacity
-            style={styles.detectBtn}
+            style={[styles.detectBtn, loading && styles.detectBtnDisabled]}
             onPress={detectDisease}
             disabled={loading}
           >
@@ -240,6 +282,13 @@ export default function DiseaseDetection() {
               <Text style={styles.detectText}>Analyze Crop</Text>
             )}
           </TouchableOpacity>
+        )}
+
+        {statusText && <Text style={styles.statusText}>{statusText}</Text>}
+        {errorText && (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{errorText}</Text>
+          </View>
         )}
 
         {/* Result */}
@@ -400,10 +449,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 14,
   },
+  detectBtnDisabled: {
+    opacity: 0.75,
+  },
   detectText: {
     color: '#fff',
     fontWeight: '800',
     fontSize: 16,
+  },
+  statusText: {
+    marginTop: 10,
+    textAlign: 'center',
+    color: '#245748',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  errorCard: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f7c7c7',
+    backgroundColor: '#fff4f4',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  errorText: {
+    color: '#9a1f1f',
+    fontSize: 13,
+    lineHeight: 18,
   },
   resultCard: {
     marginTop: 20,
@@ -412,26 +485,32 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#d2efe3',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   resultTitle: {
     fontWeight: '800',
     color: '#1f4d3f',
     marginBottom: 6,
+    textAlign: 'center',
   },
   resultText: {
     fontSize: 18,
     fontWeight: '800',
     color: '#1f4d3f',
+    textAlign: 'center',
   },
 
   confidence: {
     color: '#4b7c6d',
     marginTop: 4,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   modelIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
