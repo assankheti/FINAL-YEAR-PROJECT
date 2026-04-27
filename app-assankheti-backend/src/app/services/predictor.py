@@ -95,7 +95,7 @@ def predict_roboflow(img_bytes):
             raise Exception(f"Unexpected Roboflow response format: {data}")
     else:
         raise Exception(f"Roboflow failed with status {response.status_code}")
-
+#hello
 def prepare_image(img_bytes):
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     img = img.resize((224, 224))  # adjust if your model expects a different size
