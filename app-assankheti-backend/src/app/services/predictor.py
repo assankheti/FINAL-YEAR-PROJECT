@@ -33,60 +33,21 @@ class_names = [
     "Leaf Blast",
     "Leaf scald",
     "Narrow Brown Leaf Spot",
+    "Neck Blast",
     "Rice Hispa",
     "Sheath Blight",
     "Tungro",
 ]
 
 
-KNOWN_DISEASES = {
-    "bacterial leaf blight": "Bacterial Leaf Blight",
-    "brown spot": "Brown Spot",
-    "leaf blast": "Leaf Blast",
-    "leaf scald": "Leaf scald",
-    "narrow brown leaf spot": "Narrow Brown Leaf Spot",
-    "rice hispa": "Rice Hispa",
-    "sheath blight": "Sheath Blight",
-    "tungro": "Tungro",
-}
-
-
-def _ensure_offline_model():
-    """Lazily initialize TensorFlow Lite interpreter only when needed."""
-    global interpreter, input_details, output_details
-
-    if interpreter is not None:
-        return
-
-    if tf is None:
-        raise RuntimeError(
-            f"TensorFlow is not available in this environment: {_tf_import_error}"
-        )
-
-    interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
-
-
-def normalize_disease_label(label: str | None) -> str:
-    raw = (label or "").strip().strip('"').strip("'")
-    normalized = raw.lower()
-
-    # Empty model output should be explicit
-    if not raw:
-        return "Not identifiable"
-
-    # Healthy / no disease outputs
-    if normalized in {"healthy", "healthy rice leaf", "no disease", "none", "null"}:
-        return "Healthy"
-
-    # Known disease classes
-    if normalized in KNOWN_DISEASES:
-        return KNOWN_DISEASES[normalized]
-
-    # Anything outside our supported list
-    return "Not identifiable"
+def confidence_to_percent(value) -> float:
+    try:
+        c = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if c <= 1:
+        c *= 100
+    return round(c, 2)
 
 def predict_hugging_face(img_bytes):
     url = "https://assankheti-assankhetimodel.hf.space/predict"
@@ -117,7 +78,6 @@ def predict_roboflow(img_bytes):
             raise Exception(f"Unexpected Roboflow response format: {data}")
     else:
         raise Exception(f"Roboflow failed with status {response.status_code}")
-
 def prepare_image(img_bytes):
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     img = img.resize((224, 224))  # adjust if your model expects a different size
@@ -128,13 +88,13 @@ def prepare_image(img_bytes):
 def predict(img_bytes):
    
    
-    # Try Hugging Face - uncomment to use
+    # # Try Hugging Face first
     # try:
     #     result = predict_hugging_face(img_bytes)
     #     print("[INFO] Using HUGGING FACE model")
     #     return {
-    #         "disease": result.get("disease", "Unknown"),
-    #         "confidence": round(float(result.get("confidence", 0)) * 100, 2),
+    #         "disease": result.get("disease"),
+    #         "confidence": result.get("confidence"),
     #         "model_type": "online",
     #         "model_name": "hugging_face"
     #     }
@@ -145,13 +105,13 @@ def predict(img_bytes):
     try:
         result = predict_roboflow(img_bytes)
         print("[INFO] Using ROBOFLOW model")
-        confidence = float(result.get("confidence", 0))
-        # Roboflow returns confidence as 0-1, convert to 0-100
-        if confidence <= 1:
-            confidence = confidence * 100
+        confidence = confidence_to_percent(result.get("confidence"))
+        disease = result.get("disease")
+        if confidence < 30:
+            disease = "Not identifiable"
         return {
-            "disease": normalize_disease_label(result.get("disease")),
-            "confidence": round(confidence, 2),
+            "disease": disease,
+            "confidence": confidence,
             "model_type": "online",
             "model_name": "roboflow"
         }
@@ -159,38 +119,20 @@ def predict(img_bytes):
         print(f"[WARNING] Roboflow failed: {e}")
     
     # Fallback to offline model
-    try:
-        print("[INFO] Using OFFLINE model")
-        _ensure_offline_model()
-        img = prepare_image(img_bytes)
-        interpreter.set_tensor(input_details[0]['index'], img)
-        interpreter.invoke()
-        output_data = interpreter.get_tensor(output_details[0]['index'])
-        class_idx = int(np.argmax(output_data))
-        confidence = float(np.max(output_data))
-        # Convert confidence to 0-100 range
-        confidence_percent = confidence * 100 if confidence <= 1 else confidence
+    print("[INFO] Using OFFLINE model")
+    img = prepare_image(img_bytes)
+    interpreter.set_tensor(input_details[0]['index'], img)
+    interpreter.invoke()
+    output_data = interpreter.get_tensor(output_details[0]['index'])
+    class_idx = int(np.argmax(output_data))
+    confidence = confidence_to_percent(np.max(output_data))
+    disease = class_names[class_idx]
+    if confidence < 30:
+        disease = "Not identifiable"
 
-        if confidence >= 0.70:
-            return {
-                "disease": normalize_disease_label(class_names[class_idx]),
-                "confidence": round(confidence_percent, 2),
-                "model_type": "offline",
-                "model_name": "local_tflite"
-            }
-        else:
-            return {
-                "disease": "Healthy",
-                "confidence": round(confidence_percent, 2),
-                "model_type": "offline",
-                "model_name": "local_tflite"
-            }
-    except Exception as e:
-        # Final safe fallback: never crash prediction endpoint if model backends are unavailable.
-        print(f"[ERROR] Offline model unavailable: {e}")
-        return {
-            "disease": "Not identifiable",
-            "confidence": 0.0,
-            "model_type": "fallback",
-            "model_name": "unavailable",
-        }
+    return {
+        "disease": disease,
+        "confidence": confidence,
+        "model_type": "offline",
+        "model_name": "local_tflite"
+    }
