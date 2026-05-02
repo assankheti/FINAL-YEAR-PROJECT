@@ -12,7 +12,7 @@ email-validator
 python-jose[cryptography]
 stytch
 numpy
-tensorflow==2.19.0
+tensorflow==2.16.2
 Pillow
 beautifulsoup4
 requests
