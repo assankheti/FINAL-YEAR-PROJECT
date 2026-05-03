@@ -75,7 +75,15 @@ export default function VerifyOtpPage() {
   };
 
   const handleBack = () => {
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace({
+      pathname: '/login',
+      params: { userType, textLanguage, voiceLanguage },
+    });
   };
 
   return (

@@ -1446,15 +1446,6 @@ export function FarmerDashboard({
         </Text>
 
         {[
-          {
-            label: { urdu: 'کردار منتخب صفحہ پر جائیں', english: 'Back to Character Selection' },
-            icon: 'arrow-left-circle-outline',
-            onPress: () =>
-              router.replace({
-                pathname: '/user-type-selection',
-                params: { textLanguage, voiceLanguage },
-              }),
-          },
           { label: { urdu: 'میرے آرڈرز', english: 'My Orders' }, icon: 'shopping-outline', onPress: () => router.push({ pathname: '/farmer-orders', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'میری مصنوعات', english: 'My Products' }, icon: 'leaf', onPress: () => router.push({ pathname: '/farmer-products', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'مدد کا مرکز', english: 'Help Center' }, icon: 'help-circle-outline', onPress: () => router.push({ pathname: '/help-center', params: { textLanguage, voiceLanguage } }) },

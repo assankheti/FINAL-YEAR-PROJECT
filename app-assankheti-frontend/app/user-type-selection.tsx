@@ -55,7 +55,7 @@ export default function UserTypeSelectionPage() {
       if (type === 'farmer') {
         router.replace({ pathname: '/crop-selection', params: { textLanguage, voiceLanguage } });
       } else {
-        router.replace({
+        router.push({
           pathname: '/login',
           params: { userType: type, textLanguage, voiceLanguage },
         });

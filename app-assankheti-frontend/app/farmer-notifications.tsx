@@ -1,9 +1,27 @@
-import React, { useMemo } from 'react';
-import { useRouter } from 'expo-router';
+import React, { useCallback, useMemo } from 'react';
+import { BackHandler, Platform } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Notification from '@/components/notification';
 
 export default function FarmerNotificationsPage() {
   const router = useRouter();
+
+  const goToDashboard = useCallback(() => {
+    router.replace({ pathname: '/farmer-dashboard', params: { tab: 'home' } });
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return undefined;
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        goToDashboard();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [goToDashboard])
+  );
 
   const initial = useMemo(() => [
     { id: '1', type: 'weather', title: 'Heavy Rain Expected', titleUrdu: 'شدید بارش متوقع', description: 'Rain expected in Punjab region tomorrow. Protect your crops.', time: '30 min ago', isRead: false },
@@ -18,7 +36,7 @@ export default function FarmerNotificationsPage() {
     <Notification
       initial={initial}
       title={{ english: 'Notifications', urdu: 'اطلاعات' }}
-      onBack={() => router.replace({ pathname: '/farmer-dashboard', params: { tab: 'home' } })}
+      onBack={goToDashboard}
     />
   );
 }

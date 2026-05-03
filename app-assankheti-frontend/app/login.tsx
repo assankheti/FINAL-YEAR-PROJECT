@@ -67,7 +67,12 @@ export default function LoginPage() {
   };
 
   const handleBack = () => {
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace({ pathname: '/user-type-selection', params: { textLanguage, voiceLanguage } });
   };
 
   return (
