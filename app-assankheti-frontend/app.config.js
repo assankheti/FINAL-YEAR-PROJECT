@@ -11,13 +11,16 @@ export default {
     version: '1.0.0',
     orientation: 'portrait',
     scheme: 'assankhetiapp',
+    icon: './assets/images/logo-removebg.png',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     ios: {
+      icon: './assets/images/logo-removebg.png',
       supportsTablet: true,
     },
     android: {
       adaptiveIcon: {
+        foregroundImage: './assets/images/logo-removebg.png',
         backgroundColor: '#E6F4FE',
       },
       edgeToEdgeEnabled: true,
@@ -26,6 +29,7 @@ export default {
     },
     web: {
       output: 'static',
+      favicon: './assets/images/logo-removebg.png',
     },
     splash: {
       resizeMode: 'contain',
@@ -33,6 +37,7 @@ export default {
     },
     plugins: [
       'expo-router',
+      'expo-notifications',
       [
         'expo-splash-screen',
         {

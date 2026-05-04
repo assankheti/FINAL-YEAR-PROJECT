@@ -1,9 +1,11 @@
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,7 +14,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLanguage, useT } from '@/contexts/LanguageContext';
+import { coerceAppLanguage, useLanguage, useT } from '@/contexts/LanguageContext';
+import { API_BASE } from '@/config/env';
+import { getOrCreateMobileId } from '@/lib/deviceId';
 
 type SettingsVariant = 'farmer' | 'community';
 type ToggleKey = 'voiceAssistant' | 'darkMode' | 'push' | 'weather' | 'price';
@@ -55,6 +59,15 @@ type SettingsSection = {
   items: SettingsItem[];
 };
 
+type FarmerProfile = {
+  name: string;
+  phone: string;
+  location: string;
+  farmSize: string;
+  crop: string;
+  imageUri: string | null;
+};
+
 const STORAGE_KEYS: Record<ToggleKey, string> = {
   voiceAssistant: 'settings.voiceAssistant',
   darkMode: 'settings.darkMode',
@@ -63,36 +76,61 @@ const STORAGE_KEYS: Record<ToggleKey, string> = {
   price: 'settings.priceUpdates',
 };
 
+const API_TOGGLE_KEYS: Record<ToggleKey, string> = {
+  voiceAssistant: 'voice_assistant',
+  darkMode: 'dark_mode',
+  push: 'push_notifications',
+  weather: 'weather_alerts',
+  price: 'price_updates',
+};
+
+type SavedUserSettings = Partial<Record<(typeof API_TOGGLE_KEYS)[ToggleKey], boolean>> & {
+  language?: 'en' | 'ur' | 'english' | 'urdu';
+  voice?: 'en' | 'ur' | 'english' | 'urdu';
+  selected_crops?: string[];
+};
+
+const FARMER_PROFILE_STORAGE_KEY = 'farmer.profile';
+
+const DEFAULT_FARMER_PROFILE: FarmerProfile = {
+  name: '',
+  phone: '',
+  location: 'Punjab',
+  farmSize: '',
+  crop: '',
+  imageUri: null,
+};
+
+function readSavedToggle(settings: SavedUserSettings, key: ToggleKey): boolean | undefined {
+  const value = settings[API_TOGGLE_KEYS[key] as keyof SavedUserSettings];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 function TogglePill({
   value,
-  onToggle,
   compact,
 }: {
   value: boolean;
-  onToggle: () => void;
   compact: boolean;
 }) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      onPress={onToggle}
+    <View
+      pointerEvents="none"
       style={[
         styles.togglePill,
         compact ? styles.togglePillCompact : null,
         value ? styles.togglePillOn : styles.togglePillOff,
       ]}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
     >
       <View style={[styles.toggleKnob, compact ? styles.toggleKnobCompact : null, value ? styles.toggleKnobOn : null]} />
-    </TouchableOpacity>
+    </View>
   );
 }
 
 export default function SettingsScreen({ variant }: { variant: SettingsVariant }) {
   const router = useRouter();
   const t = useT();
-  const { textLanguage, voiceLanguage } = useLanguage();
+  const { textLanguage, voiceLanguage, setTextLanguage, setVoiceLanguage } = useLanguage();
   const { width } = useWindowDimensions();
   const isTiny = width < 350;
   const isCompact = width < 380;
@@ -107,6 +145,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
     weather: true,
     price: true,
   });
+  const [farmerProfile, setFarmerProfile] = useState<FarmerProfile>(DEFAULT_FARMER_PROFILE);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,11 +172,109 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
       } catch {
         // Keep defaults if local storage is unavailable.
       }
+
+      try {
+        const mobileId = await getOrCreateMobileId();
+        const res = await fetch(`${API_BASE}/api/v1/user/devicesetting/${mobileId}`);
+        if (!res.ok) return;
+
+        const saved = (await res.json()) as SavedUserSettings;
+        if (cancelled) return;
+
+        if (saved.language) {
+          setTextLanguage(coerceAppLanguage(saved.language, textLanguage));
+        }
+        if (saved.voice) {
+          setVoiceLanguage(coerceAppLanguage(saved.voice, voiceLanguage));
+        }
+        if (Array.isArray(saved.selected_crops) && saved.selected_crops[0]) {
+          setFarmerProfile((prev) => ({
+            ...prev,
+            crop: prev.crop.trim() ? prev.crop : String(saved.selected_crops?.[0] ?? ''),
+          }));
+        }
+
+        const entriesToPersist: [string, string][] = [];
+        setToggles((prev) => {
+          const next = { ...prev };
+          for (const key of Object.keys(STORAGE_KEYS) as ToggleKey[]) {
+            const value = readSavedToggle(saved, key);
+            if (typeof value === 'boolean') {
+              next[key] = value;
+              entriesToPersist.push([STORAGE_KEYS[key], String(value)]);
+            }
+          }
+          return next;
+        });
+
+        if (entriesToPersist.length) {
+          AsyncStorage.multiSet(entriesToPersist).catch(() => undefined);
+        }
+      } catch (err) {
+        console.error('Failed to load saved user settings:', err);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
+  }, [setTextLanguage, setVoiceLanguage, textLanguage, voiceLanguage]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      (async () => {
+        try {
+          const [[, rawProfile], [, authPhone]] = await AsyncStorage.multiGet([
+            FARMER_PROFILE_STORAGE_KEY,
+            'auth.phone_number',
+          ]);
+
+          if (cancelled) return;
+
+          let parsedProfile: Partial<FarmerProfile> = {};
+          if (rawProfile) {
+            try {
+              parsedProfile = JSON.parse(rawProfile) as Partial<FarmerProfile>;
+            } catch {
+              parsedProfile = {};
+            }
+          }
+
+          setFarmerProfile((prev) => ({
+            ...DEFAULT_FARMER_PROFILE,
+            ...prev,
+            ...parsedProfile,
+            phone: parsedProfile.phone || authPhone || prev.phone,
+          }));
+        } catch (err) {
+          console.error('Failed to load farmer profile for settings:', err);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const syncToggleToDatabase = useCallback(async (key: ToggleKey, value: boolean) => {
+    try {
+      const mobileId = await getOrCreateMobileId();
+      const res = await fetch(`${API_BASE}/api/v1/user/devicesetting/${mobileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [API_TOGGLE_KEYS[key]]: value }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Failed with status ${res.status}`);
+      }
+    } catch (err) {
+      console.error('Failed to save user setting:', err);
+    }
   }, []);
 
   const setToggle = useCallback((key: ToggleKey) => {
@@ -145,9 +282,15 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
       const nextValue = !prev[key];
       const next = { ...prev, [key]: nextValue };
       AsyncStorage.setItem(STORAGE_KEYS[key], String(nextValue)).catch(() => undefined);
+      syncToggleToDatabase(key, nextValue);
       return next;
     });
-  }, []);
+  }, [syncToggleToDatabase]);
+
+  const farmerName = farmerProfile.name.trim();
+  const farmerPhone = farmerProfile.phone.trim() || '+92 300 1234567';
+  const farmerLocation = farmerProfile.location.trim() || 'Punjab';
+  const farmerCrop = farmerProfile.crop.trim() || 'Rice';
 
   const settingsSections = useMemo<SettingsSection[]>(
     () =>
@@ -174,7 +317,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                   labelUrdu: 'فون نمبر',
                   description: 'Used for OTP and account recovery',
                   descriptionUrdu: 'OTP اور اکاؤنٹ ریکوری کے لیے',
-                  value: '+92 300 1234567',
+                  value: farmerPhone,
                 },
                 {
                   kind: 'value',
@@ -183,7 +326,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                   labelUrdu: 'فارم کا مقام',
                   description: 'Improves weather and crop guidance',
                   descriptionUrdu: 'موسم اور فصل کی رہنمائی بہتر بناتا ہے',
-                  value: 'Punjab',
+                  value: farmerLocation,
                 },
               ],
             },
@@ -294,7 +437,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                   labelUrdu: 'فون نمبر',
                   description: 'Used for OTP and account recovery',
                   descriptionUrdu: 'OTP اور اکاؤنٹ ریکوری کے لیے',
-                  value: '+92 300 1234567',
+                  value: farmerPhone,
                 },
                 {
                   kind: 'value',
@@ -383,7 +526,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
               ],
             },
           ],
-    [isFarmer]
+    [farmerLocation, farmerPhone, isFarmer]
   );
 
   const goBack = () => {
@@ -441,13 +584,14 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
     english: isFarmer ? 'Manage your farm account and alerts' : 'Manage your marketplace account',
     urdu: isFarmer ? 'اپنا کسان اکاؤنٹ اور الرٹس سنبھالیں' : 'اپنا مارکیٹ پلیس اکاؤنٹ سنبھالیں',
   });
-  const profileTitle = t({
+  const defaultProfileTitle = t({
     english: isFarmer ? 'Farmer Profile' : 'Community Profile',
     urdu: isFarmer ? 'کسان پروفائل' : 'کمیونٹی پروفائل',
   });
+  const profileTitle = isFarmer && farmerName ? farmerName : defaultProfileTitle;
   const profileMeta = t({
-    english: isFarmer ? 'Rice Farmer • Punjab' : 'Marketplace Member',
-    urdu: isFarmer ? 'چاول کے کسان • پنجاب' : 'مارکیٹ پلیس ممبر',
+    english: isFarmer ? `${farmerCrop} Farmer • ${farmerLocation}` : 'Marketplace Member',
+    urdu: isFarmer ? `${farmerCrop} کسان • ${farmerLocation}` : 'مارکیٹ پلیس ممبر',
   });
   const textLanguageLabel = textLanguage === 'urdu' ? 'Urdu' : 'English';
   const voiceLanguageLabel = voiceLanguage === 'urdu' ? 'Urdu' : 'English';
@@ -499,9 +643,16 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
           <View style={[styles.contentWrap, { maxWidth: contentMaxWidth }]}>
             <View style={[styles.profileCard, isTiny ? styles.profileCardTiny : null]}>
               <View style={styles.profileTopRow}>
-                <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.profileAvatar, isTiny ? styles.profileAvatarTiny : null]}>
-                  <Feather name={isFarmer ? 'user' : 'shopping-bag'} size={isTiny ? 22 : 26} color="#ffffff" />
-                </LinearGradient>
+                {isFarmer && farmerProfile.imageUri ? (
+                  <Image
+                    source={{ uri: farmerProfile.imageUri }}
+                    style={[styles.profileAvatar, styles.profileAvatarImage, isTiny ? styles.profileAvatarTiny : null]}
+                  />
+                ) : (
+                  <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.profileAvatar, isTiny ? styles.profileAvatarTiny : null]}>
+                    <Feather name={isFarmer ? 'user' : 'shopping-bag'} size={isTiny ? 22 : 26} color="#ffffff" />
+                  </LinearGradient>
+                )}
 
                 <View style={styles.profileCopy}>
                   <Text style={styles.profileName} numberOfLines={1}>
@@ -530,7 +681,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                 <View style={styles.profileChip}>
                   <Feather name={isFarmer ? 'map-pin' : 'shopping-bag'} size={13} color="#0d5c4b" />
                   <Text style={styles.profileChipText} numberOfLines={1}>
-                    {isFarmer ? 'Punjab' : 'Community'}
+                    {isFarmer ? farmerLocation : 'Community'}
                   </Text>
                 </View>
                 <View style={styles.profileChip}>
@@ -581,6 +732,7 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                           if (item.kind === 'action') onAction(item.action);
                         }}
                         accessibilityRole={item.kind === 'toggle' ? 'switch' : 'button'}
+                        accessibilityState={item.kind === 'toggle' ? { checked: toggles[item.toggleKey] } : undefined}
                       >
                         <View style={[styles.rowIconBox, isTiny ? styles.rowIconBoxTiny : null]}>
                           <Feather name={item.icon} size={isTiny ? 16 : 18} color="#0d5c4b" />
@@ -605,7 +757,6 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                           <TogglePill
                             compact={isTiny}
                             value={toggles[item.toggleKey]}
-                            onToggle={() => setToggle(item.toggleKey)}
                           />
                         ) : null}
 
@@ -695,6 +846,7 @@ const styles = StyleSheet.create({
   profileCardTiny: { borderRadius: 18, padding: 14 },
   profileTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   profileAvatar: { width: 58, height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  profileAvatarImage: { backgroundColor: '#e5f4ef' },
   profileAvatarTiny: { width: 50, height: 50, borderRadius: 17 },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { color: '#111827', fontSize: 17, fontWeight: '900' },

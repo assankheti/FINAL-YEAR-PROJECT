@@ -1,7 +1,8 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Notification from '@/components/notification';
+import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
 export default function FarmerNotificationsPage() {
   const router = useRouter();
@@ -31,6 +32,19 @@ export default function FarmerNotificationsPage() {
     { id: '5', type: 'alert', title: 'Pest Alert for Rice', titleUrdu: 'چاول میں کیڑے کا خطرہ', description: 'Brown planthopper detected in nearby areas. Take precautions.', time: '2 days ago', isRead: true },
     { id: '6', type: 'weather', title: 'Temperature Rising', titleUrdu: 'درجہ حرارت بڑھ رہا ہے', description: 'Expected temperature of 38°C this week. Ensure irrigation.', time: '3 days ago', isRead: true },
   ], []);
+
+  useEffect(() => {
+    showMobileNotificationsOnce(
+      'farmer-notifications',
+      initial.map((item) => ({
+        id: item.id,
+        title: item.title,
+        body: item.description,
+        isRead: item.isRead,
+        data: { type: item.type },
+      }))
+    );
+  }, [initial]);
 
   return (
     <Notification

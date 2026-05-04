@@ -12,7 +12,7 @@ from app.models.collections import (
 from app.schemas.terms import TermsCreate, TermsDB
 from app.schemas.languageVoice import LanguageCreate, LanguageDB
 from app.schemas.character import CharacterCreate, CharacterDB
-from app.schemas.deviceSettings import FinalSettingsDB
+from app.schemas.deviceSettings import FinalSettingsDB, UserSettingsUpdate
 from app.schemas.id_Mobile import mobileid, mobileid_db
 from app.schemas.crop_selections import cropSelectionCreate, cropSelectionDB
 from app.db.db_connection import get_database
@@ -21,6 +21,68 @@ from app.utils.logger import logger
 
 router = APIRouter()
 db = get_database()
+
+DEFAULT_USER_SETTINGS = {
+    "selected_crops": [],
+    "voice_assistant": True,
+    "dark_mode": False,
+    "push_notifications": True,
+    "weather_alerts": True,
+    "price_updates": True,
+}
+
+
+def with_user_setting_defaults(doc: dict) -> dict:
+    return {
+        **DEFAULT_USER_SETTINGS,
+        "terms_accepted": False,
+        "language": "en",
+        "voice": "english",
+        "character_id": "farmer",
+        "created_at": datetime.utcnow(),
+        **doc,
+    }
+
+
+async def build_user_settings_doc(mobile_id: str) -> dict:
+    now = datetime.utcnow()
+    terms = await db[TERMS_COLLECTION].find_one({"mobile_id": mobile_id}, {"_id": 0})
+    lang = await db[LANGUAGEVOICE_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    char = await db[CHARACTER_COLLECTION].find_one({"mobile_id": mobile_id}, {"_id": 0})
+    crop = await db[CROP_SELECTION_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+
+    return {
+        **DEFAULT_USER_SETTINGS,
+        "mobile_id": mobile_id,
+        "terms_accepted": bool(terms.get("terms_accepted")) if terms else False,
+        "language": lang.get("language", "en") if lang else "en",
+        "voice": lang.get("voice", "english") if lang else "english",
+        "character_id": char.get("character_id", "farmer") if char else "farmer",
+        "selected_crops": crop.get("selected_crops", []) if crop else [],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+async def ensure_user_settings_doc(mobile_id: str) -> dict:
+    saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    if saved:
+        return with_user_setting_defaults(saved)
+
+    doc = await build_user_settings_doc(mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": mobile_id}, {"$setOnInsert": doc}, upsert=True
+    )
+    saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    return with_user_setting_defaults(saved or doc)
 
 
 @router.post("/generate/mobileid", response_model=mobileid_db)
@@ -65,6 +127,16 @@ async def save_terms(payload: TermsCreate):
     await db[TERMS_COLLECTION].update_one(
         {"mobile_id": payload.mobile_id}, {"$set": doc}, upsert=True
     )
+    await ensure_user_settings_doc(payload.mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": payload.mobile_id},
+        {
+            "$set": {
+                "terms_accepted": payload.terms_accepted,
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
 
     saved = await db[TERMS_COLLECTION].find_one(
         {"mobile_id": payload.mobile_id}, {"_id": 0}
@@ -83,6 +155,17 @@ async def save_language(payload: LanguageCreate):
 
     await db[LANGUAGEVOICE_COLLECTION].update_one(
         {"mobile_id": payload.mobile_id}, {"$set": doc}, upsert=True
+    )
+    await ensure_user_settings_doc(payload.mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": payload.mobile_id},
+        {
+            "$set": {
+                "language": payload.language,
+                "voice": payload.voice,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     saved = await db[LANGUAGEVOICE_COLLECTION].find_one(
@@ -113,6 +196,16 @@ async def save_character(payload: CharacterCreate):
 
     await db[CHARACTER_COLLECTION].update_one(
         {"mobile_id": payload.mobile_id}, {"$set": doc}, upsert=True
+    )
+    await ensure_user_settings_doc(payload.mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": payload.mobile_id},
+        {
+            "$set": {
+                "character_id": payload.character_id,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     saved = await db[CHARACTER_COLLECTION].find_one(
@@ -155,6 +248,22 @@ async def finalize_settings(mobile_id: str):
         "character_id": char["character_id"],
         "created_at": datetime.utcnow(),
     }
+    existing_settings = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    if existing_settings:
+        final_doc.update(
+            {
+                key: existing_settings.get(key, default)
+                for key, default in DEFAULT_USER_SETTINGS.items()
+            }
+        )
+        final_doc["created_at"] = existing_settings.get(
+            "created_at", final_doc["created_at"]
+        )
+        final_doc["updated_at"] = datetime.utcnow()
+    else:
+        final_doc.update(DEFAULT_USER_SETTINGS)
 
     await db[FINAL_SETTINGS_COLLECTION].update_one(
         {"mobile_id": mobile_id}, {"$set": final_doc}, upsert=True
@@ -163,7 +272,31 @@ async def finalize_settings(mobile_id: str):
     saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
         {"mobile_id": mobile_id}, {"_id": 0}
     )
-    return saved
+    return FinalSettingsDB(**with_user_setting_defaults(saved))
+
+
+@router.get("/devicesetting/{mobile_id}", response_model=FinalSettingsDB)
+async def get_final_settings(mobile_id: str):
+    saved = await ensure_user_settings_doc(mobile_id)
+    return FinalSettingsDB(**saved)
+
+
+@router.patch("/devicesetting/{mobile_id}", response_model=FinalSettingsDB)
+async def update_user_settings(mobile_id: str, payload: UserSettingsUpdate):
+    update_doc = payload.model_dump(exclude_unset=True)
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No settings to update")
+
+    await ensure_user_settings_doc(mobile_id)
+    update_doc["updated_at"] = datetime.utcnow()
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": mobile_id}, {"$set": update_doc}
+    )
+
+    saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    return FinalSettingsDB(**with_user_setting_defaults(saved))
 
 @router.post("/crop-selection/{mobile_id}", response_model=cropSelectionDB)
 async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
@@ -175,6 +308,16 @@ async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
 
     await db[CROP_SELECTION_COLLECTION].update_one(
         {"mobile_id": mobile_id}, {"$set": doc}, upsert=True
+    )
+    await ensure_user_settings_doc(mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": mobile_id},
+        {
+            "$set": {
+                "selected_crops": payload.selected_crops,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     saved = await db[CROP_SELECTION_COLLECTION].find_one(
