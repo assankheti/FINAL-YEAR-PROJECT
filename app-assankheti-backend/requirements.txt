@@ -16,3 +16,4 @@ tensorflow==2.16.2
 Pillow
 beautifulsoup4
 requests
+python-socketio[asgi]==5.11.4

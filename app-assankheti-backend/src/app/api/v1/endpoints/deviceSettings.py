@@ -8,6 +8,8 @@ from app.models.collections import (
     FINAL_SETTINGS_COLLECTION,
     MOBILE_DEVICES_COLLECTION,
     CROP_SELECTION_COLLECTION,
+    COMMUNITY_GROUPS_COLLECTION,
+    COMMUNITY_GROUP_MEMBERS_COLLECTION,
 )
 from app.schemas.terms import TermsCreate, TermsDB
 from app.schemas.languageVoice import LanguageCreate, LanguageDB
@@ -177,7 +179,82 @@ async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
         {"mobile_id": mobile_id}, {"$set": doc}, upsert=True
     )
 
+    # Best-effort auto-join into matching community groups (Piece 6).
+    # Crops without a matching group (Wheat etc. in v1) silently no-op.
+    # Failures here must not break the response.
+    try:
+        await _auto_join_community_groups(mobile_id, payload.selected_crops)
+    except Exception:
+        logger.exception("community_auto_join_failed mobile_id=%s", mobile_id)
+
     saved = await db[CROP_SELECTION_COLLECTION].find_one(
         {"mobile_id": mobile_id}, {"_id": 0}
     )
     return cropSelectionDB(**saved)
+
+
+async def _auto_join_community_groups(mobile_id: str, selected_crops):
+    """Add the user to every existing community_group whose `crop` matches one
+    of the selected crops. Idempotent — re-running with the same crops is a
+    no-op and does not double-increment member_count.
+    """
+    if not selected_crops:
+        return
+    crop_keys = {c.lower().strip() for c in selected_crops if isinstance(c, str)}
+    if not crop_keys:
+        return
+
+    cursor = db[COMMUNITY_GROUPS_COLLECTION].find({"crop": {"$in": list(crop_keys)}})
+    now = datetime.utcnow()
+    async for group in cursor:
+        group_id = group.get("group_id")
+        if not group_id:
+            continue
+        # Insert-if-absent; the unique (mobile_id, group_id) index prevents dupes.
+        existing = await db[COMMUNITY_GROUP_MEMBERS_COLLECTION].find_one(
+            {"group_id": group_id, "mobile_id": mobile_id}
+        )
+        if existing:
+            continue
+        try:
+            await db[COMMUNITY_GROUP_MEMBERS_COLLECTION].insert_one({
+                "group_id": group_id,
+                "mobile_id": mobile_id,
+                "joined_at": now,
+                "last_read_at": None,
+                "muted": False,
+            })
+        except Exception:
+            logger.exception(
+                "community_member_insert_failed mobile_id=%s group_id=%s",
+                mobile_id, group_id,
+            )
+            continue
+        try:
+            await db[COMMUNITY_GROUPS_COLLECTION].update_one(
+                {"group_id": group_id}, {"$inc": {"member_count": 1}}
+            )
+        except Exception:
+            logger.exception(
+                "community_member_count_increment_failed group_id=%s", group_id
+            )
+        try:
+            # Lazy import — keeps deviceSettings out of the socket-gateway dep
+            # graph at module load.
+            from app.services.notifications import notify  # noqa: WPS433
+            crop_label = (group.get("name_en") or group.get("crop") or "Crop").title()
+            await notify(
+                mobile_id,
+                "group_added",
+                data={"group_id": group_id, "crop": group.get("crop")},
+                crop=crop_label,
+            )
+        except Exception:
+            logger.exception(
+                "community_join_notification_failed mobile_id=%s group_id=%s",
+                mobile_id, group_id,
+            )
+        logger.info(
+            "community_auto_joined mobile_id=%s group_id=%s crop=%s",
+            mobile_id, group_id, group.get("crop"),
+        )

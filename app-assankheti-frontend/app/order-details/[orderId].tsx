@@ -202,7 +202,12 @@ export default function OrderDetailsPage() {
                     <TouchableOpacity
                       activeOpacity={0.9}
                       style={[styles.actionBtn, styles.actionBtnOutline]}
-                      onPress={() => router.push({ pathname: '/chat/[contactId]', params: { contactId: order.buyer } })}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/community/chat/[conversationId]',
+                          params: { conversationId: 'new', otherId: order.buyer, contextType: 'direct' },
+                        })
+                      }
                     >
                       <Feather name="message-circle" size={16} color="#0d5c4b" />
                       <Text style={styles.actionBtnOutlineText}>{t({ english: 'Message', urdu: 'پیغام' })}</Text>

@@ -1,7 +1,15 @@
 # src/app/main.py
+#
+# Note: uvicorn must serve `sio_app` (the Socket.IO ASGI wrapper around the
+# FastAPI app), not `app` directly. Run with:
+#   uvicorn app.main:sio_app --host 0.0.0.0 --port 8000 --reload
+import os
+
+import socketio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 import asyncio
 
@@ -16,9 +24,19 @@ from .api.v1.endpoints.pesticide_api import router as pesticide_router
 from .api.v1.endpoints.seed_api import router as seed_router
 from .api.v1.endpoints import calculator
 from .api.v1.endpoints.chatbot import router as chatbot_router
+from .api.v1.endpoints.media import router as media_router
+from .api.v1.endpoints.community_dm import router as community_dm_router
+from .api.v1.endpoints.community_groups import router as community_groups_router
+from .api.v1.endpoints.community_offers import router as community_offers_router
+from .api.v1.endpoints.community_notifications import router as community_notifications_router
+from .api.v1.endpoints.community_presence import router as community_presence_router
+from .services.socket_gateway import sio
 from .services.fertilizer_service import scrape_and_store_fertilizers
 from .services.pesticide_service import scrape_and_store_pesticides
 from .services.seed_service import scrape_and_store_seeds
+
+UPLOAD_ROOT = "/app/uploads"
+os.makedirs(os.path.join(UPLOAD_ROOT, "community"), exist_ok=True)
 
 
 
@@ -118,6 +136,14 @@ app.include_router(
     tags=["Smart Agriculture Calculator"]
 )
 app.include_router(chatbot_router, prefix="/api/v1/chatbot", tags=["AI Chatbot"])
+app.include_router(media_router, prefix="/api/v1/media", tags=["Media"])
+app.include_router(community_dm_router, prefix="/api/v1/community", tags=["Community DM"])
+app.include_router(community_groups_router, prefix="/api/v1/community", tags=["Community Groups"])
+app.include_router(community_offers_router, prefix="/api/v1/community", tags=["Community Offers"])
+app.include_router(community_notifications_router, prefix="/api/v1/community", tags=["Community Notifications"])
+app.include_router(community_presence_router, prefix="/api/v1/community", tags=["Community Presence"])
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
 
 
 @app.get("/health/db", tags=["health"])
@@ -164,4 +190,7 @@ async def not_found_handler(request: Request, exc):
     return JSONResponse(status_code=404, content={"detail": "Resource not found"})
 
 
-
+# Wrap FastAPI in the Socket.IO ASGI app. Uvicorn serves this object so that
+# /socket.io/ handshakes are routed to python-socketio while all HTTP routes
+# fall through to FastAPI.
+sio_app = socketio.ASGIApp(sio, app)

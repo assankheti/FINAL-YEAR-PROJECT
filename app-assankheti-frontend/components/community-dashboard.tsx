@@ -16,6 +16,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import NotificationBell from '@/components/NotificationBell';
 import OrdersList from '@/components/OrdersList';
 
 const COMMUNITY_PROFILE_KEYS = {
@@ -141,16 +143,8 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
             </View>
           </View>
 
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.bellBtn}
-            onPress={() => router.push('/user-notifications')}
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-          >
-            <Feather name="bell" size={18} color="#ffffff" />
-            <View style={styles.bellDot} />
-          </TouchableOpacity>
+          <NotificationBell onHeader />
+
         </View>
 
         <View style={styles.searchWrap}>
@@ -419,7 +413,12 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
                 key={c.id}
                 activeOpacity={0.9}
                 style={styles.chatRow}
-                onPress={() => router.push({ pathname: '/chat/[contactId]', params: { contactId: c.id } })}
+                onPress={() =>
+                  router.push({
+                    pathname: '/community/chat/[conversationId]',
+                    params: { conversationId: 'new', otherId: c.id, contextType: 'direct' },
+                  })
+                }
                 accessibilityRole="button"
                 accessibilityLabel={`Open chat with ${c.name}`}
               >

@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import OrdersList from '@/components/OrdersList';
 
 type ToggleKey = 'voiceAssistant' | 'darkMode' | 'push' | 'weather' | 'price';
-type ActionKey = 'profile' | 'language';
+type ActionKey = 'profile' | 'language' | 'blocked';
 type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 
 type SettingsItem =
@@ -126,6 +126,13 @@ export default function FarmerSettingsPage() {
           { kind: 'toggle', icon: 'bell', label: 'Push Notifications', labelUrdu: 'پش نوٹیفکیشن', toggleKey: 'push' },
         ] satisfies SettingsItem[],
       },
+      {
+        title: 'Privacy',
+        titleUrdu: 'پرائیویسی',
+        items: [
+          { kind: 'action', icon: 'slash', label: 'Blocked users', labelUrdu: 'بلاک شدہ صارفین', action: 'blocked' },
+        ] satisfies SettingsItem[],
+      },
     ],
     []
   );
@@ -142,6 +149,11 @@ export default function FarmerSettingsPage() {
 
     if (action === 'profile') {
       router.push('/farmer-profile-edit');
+      return;
+    }
+
+    if (action === 'blocked') {
+      router.push('/community/blocked-users');
       return;
     }
   };

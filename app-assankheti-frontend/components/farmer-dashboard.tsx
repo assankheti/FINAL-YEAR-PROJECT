@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MessageComposer from '@/components/MessageComposer';
+import NotificationBell from '@/components/NotificationBell';
 import { API_BASE } from '@/config/env';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
@@ -334,19 +335,8 @@ export function FarmerDashboard({
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.bellBtn}
-            activeOpacity={0.85}
-            onPress={() =>
-              router.push({
-                pathname: '/farmer-notifications',
-                params: { textLanguage, voiceLanguage },
-              })
-            }
-          >
-            <Feather name="bell" size={18} color="#ffffff" />
-            <View style={styles.bellDot} />
-          </TouchableOpacity>
+          <NotificationBell onHeader />
+
         </View>
 
         <View style={styles.cropCard}>
