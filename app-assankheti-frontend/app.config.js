@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load .env from the repository root (one level above the frontend folder)
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 // In Docker, API_URL comes from the container environment variable.
 // In local dev, dotenv reads from the local .env file.
@@ -58,6 +62,7 @@ export default {
     extra: {
       API_URL,
       // Add other env variables here as needed
+      OPENAI_KEY: process.env.OPENAI_KEY || process.env.OPENAI_API_KEY,
       // GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
     },
   },

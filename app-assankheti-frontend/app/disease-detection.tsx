@@ -19,12 +19,66 @@ import { API_BASE } from '@/config/env';
 
 const API_URL = `${API_BASE}/api/v1/disease/predict_disease`;
 
+// Component to parse and display treatment content with sections and bullet points
+function TreatmentContent({ content }: { content: string }) {
+  const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+  const sections: { title: string; items: string[] }[] = [];
+  let currentSection: { title: string; items: string[] } | null = null;
+
+  for (const line of lines) {
+    if (line.startsWith('##')) {
+      // Section header
+      if (currentSection) {
+        sections.push(currentSection);
+      }
+      currentSection = {
+        title: line.replace(/^##\s*/, '').trim(),
+        items: []
+      };
+    } else if (line.startsWith('-')) {
+      // Bullet point
+      if (currentSection) {
+        currentSection.items.push(line.replace(/^-\s*/, '').trim());
+      }
+    } else if (line && currentSection) {
+      // Regular text within section
+      currentSection.items.push(line);
+    }
+  }
+  if (currentSection) {
+    sections.push(currentSection);
+  }
+
+  return (
+    <View>
+      {sections.map((section, idx) => (
+        <View key={idx} style={styles.treatmentSection}>
+          <Text style={styles.sectionTitle}>{section.title}</Text>
+          {section.items.map((item, itemIdx) => (
+            <View key={itemIdx} style={styles.treatmentItemContainer}>
+              {item.startsWith('•') || /^\d+\./.test(item) ? (
+                <Text style={styles.bulletText}>{"• " + item.replace(/^[•\d.]\s*/, '')}</Text>
+              ) : section.title.includes('Solutions') || section.title.includes('Medicines') ? (
+                <Text style={styles.highlightedText}>{item}</Text>
+              ) : (
+                <Text style={styles.treatmentText}>{item}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function DiseaseDetection() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [image, setImage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [treatment, setTreatment] = useState<string | null>(null);
+  const [treatmentLoading, setTreatmentLoading] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const REQUEST_TIMEOUT_MS = 30000;
@@ -234,6 +288,45 @@ export default function DiseaseDetection() {
     }
 
     setResult(normalized);
+    // clear any previous treatment when new result arrives
+    setTreatment(null);
+    // automatically fetch treatment advice using configured OpenAI key
+    fetchTreatment(normalized.disease).catch((e) => console.warn('treatment fetch failed', e));
+  };
+
+  // Fetch treatment advice from backend (which calls OpenAI)
+  const fetchTreatment = async (diseaseName: string) => {
+    setTreatmentLoading(true);
+    setTreatment(null);
+    try {
+      const cropName = typeof params?.selectedCrop === 'string' ? params.selectedCrop : 'the crop';
+      
+      const treatmentApiUrl = `${API_BASE}/api/v1/disease/treatment`;
+      const res = await fetch(treatmentApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          disease: diseaseName,
+          crop_name: cropName,
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Backend error: ${res.status} ${txt}`);
+      }
+
+      const body = await res.json();
+      const treatmentText = body?.treatment || null;
+      setTreatment(treatmentText ? String(treatmentText).trim() : 'No advice returned.');
+    } catch (e) {
+      console.error('Treatment fetch error', e);
+      setTreatment(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTreatmentLoading(false);
+    }
   };
 
   return (
@@ -323,14 +416,23 @@ export default function DiseaseDetection() {
           </View>
         )}
 
+        {/* Treatment / Advice from OpenAI (auto-fetched) */}
+        {result && (
+          <View style={styles.treatmentCard}>
+            <Text style={styles.treatmentTitle}>💊 Treatment & Advice (✨ AI-Powered Analysis)</Text>
+
+            {treatmentLoading && <ActivityIndicator color="#2f6f5f" />}
+
+            {treatment && (
+              <View style={styles.treatmentOutput}>
+                <TreatmentContent content={treatment} />
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            ✨ AI-Powered Analysis
-          </Text>
-          <Text style={styles.footerSub}>
-            Our AI identifies crop diseases & suggests treatments
-          </Text>
           {result && (
             <TouchableOpacity 
               style={styles.backBtn}
@@ -557,5 +659,60 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 14,
+  },
+  treatmentCard: {
+    marginTop: 14,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e6efe9',
+  },
+  treatmentTitle: {
+    fontWeight: '800',
+    color: '#184e3f',
+    marginBottom: 8,
+  },
+  treatmentOutput: {
+    backgroundColor: '#f6fff8',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#e1f3e6',
+  },
+  treatmentText: {
+    color: '#163f33',
+    lineHeight: 20,
+  },
+  treatmentSection: {
+    marginBottom: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1f3e6',
+  },
+  sectionTitle: {
+    fontWeight: '800',
+    fontSize: 14,
+    color: '#1f4d3f',
+    marginBottom: 8,
+  },
+  treatmentItemContainer: {
+    marginBottom: 6,
+  },
+  bulletText: {
+    fontSize: 13,
+    color: '#2a6b5e',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  highlightedText: {
+    fontSize: 13,
+    color: '#0d7e3f',
+    lineHeight: 18,
+    fontWeight: '700',
+    backgroundColor: '#e8f5e9',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 4,
   },
 });

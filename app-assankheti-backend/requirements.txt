@@ -16,3 +16,4 @@ tensorflow==2.19.0
 Pillow
 beautifulsoup4
 requests
+openai
