@@ -44,7 +44,11 @@ export default function RootLayout() {
         <Stack.Screen name="user-orders" options={{ headerShown: false }} />
         <Stack.Screen name="user-notifications" options={{ headerShown: false }} />
         <Stack.Screen name="call/[contactId]" options={{ headerShown: false }} />
-        <Stack.Screen name="chat/[contactId]" options={{ headerShown: false }} />
+        <Stack.Screen name="community/inbox" options={{ headerShown: false }} />
+        <Stack.Screen name="community/chat/[conversationId]" options={{ headerShown: false }} />
+        <Stack.Screen name="community/group/[groupId]" options={{ headerShown: false }} />
+        <Stack.Screen name="community/group/[groupId]/members" options={{ headerShown: false }} />
+        <Stack.Screen name="community/blocked-users" options={{ headerShown: false }} />
         <Stack.Screen name="order-details/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="farmer-dashboard" options={{ headerShown: false }} />
         <Stack.Screen name="community-dashboard" options={{ headerShown: false }} />

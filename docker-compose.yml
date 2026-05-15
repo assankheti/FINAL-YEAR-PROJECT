@@ -21,6 +21,7 @@ services:
     volumes:
       - ./app-assankheti-backend/src:/app/src
       - backend_data:/app/shared_data
+      - community_uploads:/app/uploads
     env_file:
       - .env
     environment:
@@ -55,6 +56,9 @@ volumes:
     driver: local
 
   backend_data:
+    driver: local
+
+  community_uploads:
     driver: local
 
 networks:

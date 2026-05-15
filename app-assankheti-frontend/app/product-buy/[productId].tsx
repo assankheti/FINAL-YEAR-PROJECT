@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
+import MakeOfferModal from '@/components/community/MakeOfferModal';
 import { useT } from '@/contexts/LanguageContext';
 import {
   Alert,
@@ -49,6 +50,7 @@ export default function ProductBuyPage() {
 
   const [quantity, setQuantity] = useState(product.minOrder);
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [offerOpen, setOfferOpen] = useState(false);
 
   const totalPrice = product.price * quantity;
   const platformFee = Math.round(totalPrice * 0.02);
@@ -153,13 +155,65 @@ export default function ProductBuyPage() {
                     <TouchableOpacity
                       activeOpacity={0.9}
                       style={[styles.iconCircle, { backgroundColor: 'rgba(13,92,75,0.10)' }]}
-                      onPress={() => router.push({ pathname: '/chat/[contactId]', params: { contactId: product.farmer } })}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/community/chat/[conversationId]',
+                          params: {
+                            conversationId: 'new',
+                            otherId: product.farmer,
+                            contextType: 'product',
+                            contextRef: String(product.id),
+                            productName: product.name,
+                            productPrice: String(product.price),
+                            productUnit: product.unit,
+                            productEmoji: product.image,
+                          },
+                        })
+                      }
                       accessibilityRole="button"
-                      accessibilityLabel="Chat Farmer"
+                      accessibilityLabel={t({ english: 'Message Seller', urdu: 'فروخت کنندہ کو پیغام' })}
                     >
                       <Feather name="message-circle" size={18} color="#0d5c4b" />
                     </TouchableOpacity>
                   </View>
+                </View>
+
+                {/* Action row: Message Seller + Make Offer */}
+                <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    style={styles.messageBtn}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/community/chat/[conversationId]',
+                        params: {
+                          conversationId: 'new',
+                          otherId: product.farmer,
+                          contextType: 'product',
+                          contextRef: String(product.id),
+                          productName: product.name,
+                          productPrice: String(product.price),
+                          productUnit: product.unit,
+                          productEmoji: product.image,
+                        },
+                      })
+                    }
+                  >
+                    <Feather name="message-square" size={16} color="#0d5c4b" />
+                    <Text style={styles.messageBtnText}>
+                      {t({ english: 'Message Seller', urdu: 'فروخت کنندہ کو پیغام' })}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    style={styles.offerBtn}
+                    onPress={() => setOfferOpen(true)}
+                  >
+                    <Feather name="tag" size={16} color="#ffffff" />
+                    <Text style={styles.offerBtnText}>
+                      {t({ english: 'Make Offer', urdu: 'پیشکش بنائیں' })}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -281,6 +335,34 @@ export default function ProductBuyPage() {
           </View>
         </ScrollView>
       </View>
+
+      <MakeOfferModal
+        visible={offerOpen}
+        onClose={() => setOfferOpen(false)}
+        productId={String(product.id)}
+        sellerId={product.farmer}
+        defaultPrice={product.price}
+        defaultQuantity={quantity}
+        unit={product.unit}
+        productName={product.name}
+        onCreated={(offer) => {
+          if (offer?.conversation_id) {
+            router.push({
+              pathname: '/community/chat/[conversationId]',
+              params: {
+                conversationId: offer.conversation_id,
+                otherId: product.farmer,
+                contextType: 'offer',
+                contextRef: String(product.id),
+                productName: product.name,
+                productPrice: String(product.price),
+                productUnit: product.unit,
+                productEmoji: product.image,
+              },
+            });
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -406,4 +488,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   buyCtaText: { color: '#ffffff', fontWeight: '900', fontSize: 16 },
+
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  messageBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  messageBtnText: { color: '#0d5c4b', fontWeight: '900', fontSize: 13 },
+  offerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#0d5c4b',
+  },
+  offerBtnText: { color: '#ffffff', fontWeight: '900', fontSize: 13 },
 });

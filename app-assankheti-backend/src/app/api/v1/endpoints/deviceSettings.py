@@ -8,6 +8,8 @@ from app.models.collections import (
     FINAL_SETTINGS_COLLECTION,
     MOBILE_DEVICES_COLLECTION,
     CROP_SELECTION_COLLECTION,
+    COMMUNITY_GROUPS_COLLECTION,
+    COMMUNITY_GROUP_MEMBERS_COLLECTION,
 )
 from app.schemas.terms import TermsCreate, TermsDB
 from app.schemas.languageVoice import LanguageCreate, LanguageDB
@@ -319,6 +321,14 @@ async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
             }
         },
     )
+
+    # Best-effort auto-join into matching community groups (Piece 6).
+    # Crops without a matching group (Wheat etc. in v1) silently no-op.
+    # Failures here must not break the response.
+    try:
+        await _auto_join_community_groups(mobile_id, payload.selected_crops)
+    except Exception:
+        logger.exception("community_auto_join_failed mobile_id=%s", mobile_id)
 
     saved = await db[CROP_SELECTION_COLLECTION].find_one(
         {"mobile_id": mobile_id}, {"_id": 0}

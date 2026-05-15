@@ -9,7 +9,7 @@ import os
 
 SECRET_KEY = os.getenv("STYTCH_SECRET")  # Use env var
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Short-lived access token
+ACCESS_TOKEN_EXPIRE_MINUTES = 720  # 12 hours — long-lived for demo/test sessions
 
 
 class Token(BaseModel):
@@ -64,3 +64,21 @@ async def get_current_user(
 ) -> TokenData:
     """Dependency to extract user from Authorization header."""
     return verify_token(credentials.credentials)
+
+
+async def get_current_mobile_id(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> str:
+    """Dependency that returns the `mobile_id` extra claim from the JWT.
+
+    Community endpoints key off mobile_id, so this saves them re-decoding the
+    token themselves. 401 if the token is invalid or has no mobile_id claim.
+    """
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    mobile_id = payload.get("mobile_id")
+    if not isinstance(mobile_id, str) or not mobile_id:
+        raise HTTPException(status_code=401, detail="Invalid token: mobile_id missing")
+    return mobile_id

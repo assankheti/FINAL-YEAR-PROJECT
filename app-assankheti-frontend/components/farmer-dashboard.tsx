@@ -1,4 +1,5 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,7 +19,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MessageComposer from '@/components/MessageComposer';
+import NotificationBell from '@/components/NotificationBell';
 import { API_BASE } from '@/config/env';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
@@ -69,6 +72,37 @@ export function FarmerDashboard({
   const [location, setLocation] = useState<any>(null);
   const [lastScanTime, setLastScanTime] = useState<string>('Today');
   const [lastScanData, setLastScanData] = useState<any>(null);
+  const [communityUnread, setCommunityUnread] = useState<number>(0);
+
+  const refreshCommunityUnread = useCallback(async () => {
+    try {
+      const mobile_id = await getOrCreateMobileId();
+      const token = await AsyncStorage.getItem('auth.access_token');
+      if (!token) return;
+      const [inboxRes, groupsRes] = await Promise.all([
+        authFetch(`/api/v1/community/dm/inbox/${encodeURIComponent(mobile_id)}`),
+        authFetch(`/api/v1/community/groups/list/${encodeURIComponent(mobile_id)}`),
+      ]);
+      if (!inboxRes.ok || !groupsRes.ok) return;
+      const inbox = await inboxRes.json();
+      const groups = await groupsRes.json();
+      const dmSum = (inbox?.conversations ?? []).reduce(
+        (s: number, c: any) => s + (Number(c?.unread_count) || 0), 0
+      );
+      const grpSum = (groups?.groups ?? []).reduce(
+        (s: number, g: any) => s + (Number(g?.unread_count) || 0), 0
+      );
+      setCommunityUnread(dmSum + grpSum);
+    } catch {
+      // silent — badge is a hint, not critical
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCommunityUnread();
+    const id = setInterval(refreshCommunityUnread, 30000);
+    return () => clearInterval(id);
+  }, [refreshCommunityUnread]);
 
   const t = useCallback((obj: any) => obj[textLanguage], [textLanguage]);
 
@@ -357,19 +391,8 @@ export function FarmerDashboard({
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.bellBtn}
-            activeOpacity={0.85}
-            onPress={() =>
-              router.push({
-                pathname: '/farmer-notifications',
-                params: { textLanguage, voiceLanguage },
-              })
-            }
-          >
-            <Feather name="bell" size={18} color="#ffffff" />
-            <View style={styles.bellDot} />
-          </TouchableOpacity>
+          <NotificationBell onHeader />
+
         </View>
 
         <View style={styles.cropCard}>
@@ -1458,10 +1481,17 @@ export function FarmerDashboard({
     >
       <View style={[styles.tabBar, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         {[
-          { id: 'home' as const, label: { urdu: 'ہوم', english: 'Home' }, icon: 'home' },
-          { id: 'shop' as const, label: { urdu: 'شاپ', english: 'Shop' }, icon: 'shopping-outline' },
-          { id: 'chat' as const, label: { urdu: 'چیٹ', english: 'Chat' }, icon: 'chat-outline' },
-          { id: 'profile' as const, label: { urdu: 'پروفائل', english: 'Profile' }, icon: 'account' },
+          { id: 'home', label: { urdu: 'ہوم', english: 'Home' }, icon: 'home' },
+          { id: 'shop', label: { urdu: 'شاپ', english: 'Shop' }, icon: 'shopping-outline' },
+          { id: 'chat', label: { urdu: 'چیٹ', english: 'Chat' }, icon: 'chat-outline' },
+          {
+            id: 'community',
+            label: { english: 'Community', urdu: 'کمیونٹی' },
+            icon: 'forum-outline',
+            onPress: () => router.push('/community/inbox'),
+            badge: communityUnread,
+          },
+          { id: 'profile', label: { urdu: 'پروفائل', english: 'Profile' }, icon: 'account' },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           const showActiveMarker = isActive && tab.id !== 'chat';
@@ -2071,6 +2101,19 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: 'rgba(13,92,75,0.08)' },
   tabDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#0d5c4b', marginTop: 3 },
   tabLabel: { fontSize: 11, fontWeight: '800', marginTop: 4 },
+  tabBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    backgroundColor: '#dc2626',
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeText: { color: '#ffffff', fontSize: 10, fontWeight: '900' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(17,24,39,0.55)', justifyContent: 'flex-end' },
   modalSheet: {
