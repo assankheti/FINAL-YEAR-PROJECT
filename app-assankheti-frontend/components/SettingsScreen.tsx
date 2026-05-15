@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { coerceAppLanguage, useLanguage, useT } from '@/contexts/LanguageContext';
 import { API_BASE } from '@/config/env';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+import { clearAuthSession, readAppFlowState } from '@/lib/appFlow';
 
 type SettingsVariant = 'farmer' | 'community';
 type ToggleKey = 'voiceAssistant' | 'darkMode' | 'push' | 'weather' | 'price';
@@ -569,14 +570,13 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
   };
 
   const logout = async () => {
-    await AsyncStorage.multiRemove([
-      'auth.access_token',
-      'auth.token_type',
-      'auth.user_id',
-      'auth.phone_number',
-      'auth.otp_method_id',
-    ]);
-    router.replace({ pathname: '/user-type-selection', params: { textLanguage, voiceLanguage } });
+    const flowState = await readAppFlowState();
+    await clearAuthSession();
+    router.replace(
+      isFarmer
+        ? { pathname: '/user-type-selection', params: { textLanguage, voiceLanguage } }
+        : { pathname: '/login', params: { userType: flowState.role ?? 'simple-user', textLanguage, voiceLanguage } }
+    );
   };
 
   const title = t({ english: 'Settings', urdu: 'ترتیبات' });

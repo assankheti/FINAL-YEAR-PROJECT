@@ -19,6 +19,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import NotificationBell from '@/components/NotificationBell';
 import OrdersList from '@/components/OrdersList';
+import { getOrCreateMobileId } from '@/lib/deviceId';
+import { authFetch } from '@/lib/authFetch';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
 const COMMUNITY_PROFILE_KEYS = {

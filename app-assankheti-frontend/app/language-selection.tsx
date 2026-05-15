@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { API_BASE } from '@/config/env';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { setLanguageSelectedLocal } from '@/lib/appFlow';
 
 
 export default function LanguageSelectionPage() {
@@ -16,6 +17,7 @@ export default function LanguageSelectionPage() {
     try {
       setTextLanguage(sel.textLanguage);
       setVoiceLanguage(sel.voiceLanguage);
+      await setLanguageSelectedLocal(sel.textLanguage, sel.voiceLanguage);
 
       // 1️⃣ Get existing mobile_id
       const mobile_id = await getOrCreateMobileId();
@@ -49,6 +51,7 @@ export default function LanguageSelectionPage() {
 
     } catch (err) {
       console.error('Language save failed:', err);
+      await setLanguageSelectedLocal(sel.textLanguage, sel.voiceLanguage);
 
       // Optional fallback: still allow navigation
       router.push('/user-type-selection');

@@ -1,9 +1,9 @@
 import { Login } from '@/components/login';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { API_BASE } from '@/config/env';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { coerceAppLanguage, useLanguage } from '@/contexts/LanguageContext';
+import { normalizeRole, persistAuthSession } from '@/lib/appFlow';
 
 function tryParseJson(text: string): any | null {
   try {
@@ -18,7 +18,7 @@ export default function VerifyOtpPage() {
   const params = useLocalSearchParams();
   const { textLanguage: ctxTextLanguage, voiceLanguage: ctxVoiceLanguage } = useLanguage();
 
-  const userType = (params?.userType as string) ?? 'simple-user';
+  const userType = normalizeRole(params?.userType as string) ?? 'simple-user';
   const textLanguage = coerceAppLanguage(params?.textLanguage, ctxTextLanguage);
   const voiceLanguage = coerceAppLanguage(params?.voiceLanguage, ctxVoiceLanguage);
 
@@ -59,19 +59,22 @@ export default function VerifyOtpPage() {
 
     if (!accessToken) throw new Error('Missing access_token from server');
 
-    await AsyncStorage.setItem('auth.access_token', accessToken);
-    await AsyncStorage.setItem('auth.token_type', tokenType);
-    if (userId) await AsyncStorage.setItem('auth.user_id', String(userId));
-    await AsyncStorage.setItem('auth.phone_number', phoneNumber);
+    await persistAuthSession({
+      accessToken,
+      tokenType,
+      userId,
+      phoneNumber,
+      role: userType,
+    });
 
     router.replace({
-      pathname: '/community-dashboard',
+      pathname: userType === 'farmer' ? '/farmer/community' : '/community-dashboard',
       params: {
         userType,
         textLanguage,
         voiceLanguage,
       },
-    });
+    } as any);
   };
 
   const handleBack = () => {

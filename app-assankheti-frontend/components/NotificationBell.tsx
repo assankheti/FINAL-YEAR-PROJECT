@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +17,7 @@ import { useT, useLanguage } from '@/contexts/LanguageContext';
 import { useSocketEvent } from '@/hooks/useSocket';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+import { APP_FLOW_KEYS } from '@/lib/appFlow';
 
 type Notification = {
   notification_id: string;
@@ -59,11 +61,37 @@ export default function NotificationBell({ onHeader = true }: Props) {
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const mobileIdRef = useRef<string>('');
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    AsyncStorage.getItem(APP_FLOW_KEYS.accessToken)
+      .then((token) => {
+        if (!cancelled) setIsAuthenticated(Boolean(token));
+      })
+      .catch(() => {
+        if (!cancelled) setIsAuthenticated(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const fetchOnce = useCallback(async () => {
     try {
+      const token = await AsyncStorage.getItem(APP_FLOW_KEYS.accessToken);
+      if (!token) {
+        setItems([]);
+        setUnread(0);
+        setIsAuthenticated(false);
+        return;
+      }
+
+      setIsAuthenticated(true);
       if (!mobileIdRef.current) {
         mobileIdRef.current = await getOrCreateMobileId();
       }
@@ -85,12 +113,14 @@ export default function NotificationBell({ onHeader = true }: Props) {
 
   // Initial fetch + 30s polling fallback
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     fetchOnce();
     pollTimer.current = setInterval(fetchOnce, POLL_MS);
     return () => {
       if (pollTimer.current) clearInterval(pollTimer.current);
     };
-  }, [fetchOnce]);
+  }, [fetchOnce, isAuthenticated]);
 
   // Live updates from the server
   useSocketEvent('notification:new', (payload: any) => {
@@ -101,11 +131,12 @@ export default function NotificationBell({ onHeader = true }: Props) {
       return [n, ...prev].slice(0, PAGE_LIMIT);
     });
     if (!n.read) setUnread((u) => u + 1);
-  });
+  }, isAuthenticated);
 
   const markRead = useCallback(
     async (ids?: string[]) => {
       try {
+        if (!isAuthenticated) return;
         const body = ids?.length ? { notification_ids: ids } : { all: true };
         const res = await authFetch('/api/v1/community/notifications/read', {
           method: 'POST',
@@ -127,11 +158,12 @@ export default function NotificationBell({ onHeader = true }: Props) {
         console.warn('[NotificationBell] markRead failed', e?.message ?? e);
       }
     },
-    []
+    [isAuthenticated]
   );
 
   const handleOpen = () => {
     setOpen(true);
+    if (!isAuthenticated) return;
     setLoading(true);
     fetchOnce().finally(() => setLoading(false));
   };

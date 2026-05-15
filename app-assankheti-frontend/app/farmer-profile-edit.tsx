@@ -146,7 +146,6 @@ export default function FarmerProfileEditPage() {
 
                   {/* If we have an image, show it using an absolutely positioned Image for better cover */}
                   {form.imageUri ? (
-                    // eslint-disable-next-line react-native/no-inline-styles
                     <ImageCover uri={form.imageUri} size={112} />
                   ) : null}
 

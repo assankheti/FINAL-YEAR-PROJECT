@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { API_BASE } from '@/config/env';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { setStoredRole } from '@/lib/appFlow';
 
 type UserType = 'farmer' | 'simple-user' | 'businessman';
 
@@ -20,6 +21,7 @@ export default function UserTypeSelectionPage() {
     setSaving(true);
 
     try {
+      await setStoredRole(type);
       const mobile_id = await getOrCreateMobileId();
 
       // 1️⃣ Save character

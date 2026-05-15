@@ -4,6 +4,7 @@ import { API_BASE } from '@/config/env';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { setStoredSelectedCrop } from '@/lib/appFlow';
 
 export default function CropSelectionPage() {
   const router = useRouter();
@@ -36,6 +37,8 @@ export default function CropSelectionPage() {
         } catch {}
         throw new Error(message);
       }
+
+      await setStoredSelectedCrop(selectedCrop);
 
       router.replace({
         pathname: '/farmer-dashboard',

@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { API_BASE } from '../config/env';
 
 let _socket: Socket | null = null;
+let _lastConnectErrorLogAt = 0;
 
 function attachLifecycleLogs(socket: Socket): void {
   socket.on('connect', () => {
@@ -13,6 +14,10 @@ function attachLifecycleLogs(socket: Socket): void {
     console.log('[socket] disconnected', reason);
   });
   socket.on('connect_error', (err) => {
+    const now = Date.now();
+    if (now - _lastConnectErrorLogAt < 30000) return;
+
+    _lastConnectErrorLogAt = now;
     console.warn('[socket] connect_error', err?.message ?? err);
   });
   socket.on('error', (payload) => {
@@ -34,11 +39,13 @@ export async function connectSocket(): Promise<Socket> {
 
   const socket = io(API_BASE, {
     auth: { token },
-    transports: ['websocket'],
+    path: '/socket.io',
+    transports: ['polling', 'websocket'],
+    upgrade: true,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
+    reconnectionDelayMax: 10000,
     timeout: 10000,
   });
 

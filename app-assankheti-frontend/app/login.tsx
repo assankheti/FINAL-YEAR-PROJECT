@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { coerceAppLanguage, useLanguage } from '@/contexts/LanguageContext';
 import { API_BASE } from '@/config/env';
+import { normalizeRole } from '@/lib/appFlow';
 
 
 function tryParseJson(text: string): any | null {
@@ -17,7 +18,7 @@ export default function LoginPage() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { textLanguage: ctxTextLanguage, voiceLanguage: ctxVoiceLanguage } = useLanguage();
-  const userType = (params?.userType as string) ?? 'simple-user';
+  const userType = normalizeRole(params?.userType as string) ?? 'simple-user';
   const textLanguage = coerceAppLanguage(params?.textLanguage, ctxTextLanguage);
   const voiceLanguage = coerceAppLanguage(params?.voiceLanguage, ctxVoiceLanguage);
 

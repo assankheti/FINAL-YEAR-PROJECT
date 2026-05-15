@@ -21,7 +21,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MessageComposer from '@/components/MessageComposer';
 import NotificationBell from '@/components/NotificationBell';
 import { API_BASE } from '@/config/env';
-import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
@@ -72,37 +71,18 @@ export function FarmerDashboard({
   const [location, setLocation] = useState<any>(null);
   const [lastScanTime, setLastScanTime] = useState<string>('Today');
   const [lastScanData, setLastScanData] = useState<any>(null);
-  const [communityUnread, setCommunityUnread] = useState<number>(0);
+  const [isMarketplaceAuthenticated, setIsMarketplaceAuthenticated] = useState(false);
 
-  const refreshCommunityUnread = useCallback(async () => {
-    try {
-      const mobile_id = await getOrCreateMobileId();
-      const token = await AsyncStorage.getItem('auth.access_token');
-      if (!token) return;
-      const [inboxRes, groupsRes] = await Promise.all([
-        authFetch(`/api/v1/community/dm/inbox/${encodeURIComponent(mobile_id)}`),
-        authFetch(`/api/v1/community/groups/list/${encodeURIComponent(mobile_id)}`),
-      ]);
-      if (!inboxRes.ok || !groupsRes.ok) return;
-      const inbox = await inboxRes.json();
-      const groups = await groupsRes.json();
-      const dmSum = (inbox?.conversations ?? []).reduce(
-        (s: number, c: any) => s + (Number(c?.unread_count) || 0), 0
-      );
-      const grpSum = (groups?.groups ?? []).reduce(
-        (s: number, g: any) => s + (Number(g?.unread_count) || 0), 0
-      );
-      setCommunityUnread(dmSum + grpSum);
-    } catch {
-      // silent — badge is a hint, not critical
-    }
+  const refreshMarketplaceAuth = useCallback(async () => {
+    const token = await AsyncStorage.getItem('auth.access_token');
+    setIsMarketplaceAuthenticated(Boolean(token));
   }, []);
 
-  useEffect(() => {
-    refreshCommunityUnread();
-    const id = setInterval(refreshCommunityUnread, 30000);
-    return () => clearInterval(id);
-  }, [refreshCommunityUnread]);
+  useFocusEffect(
+    useCallback(() => {
+      void refreshMarketplaceAuth();
+    }, [refreshMarketplaceAuth])
+  );
 
   const t = useCallback((obj: any) => obj[textLanguage], [textLanguage]);
 
@@ -120,6 +100,9 @@ export function FarmerDashboard({
         marketplaceLoginTitle: { urdu: 'مارکیٹ پلیس استعمال کرنے کے لیے لاگ اِن کریں', english: 'Login required for Marketplace' },
         marketplaceLoginDesc: { urdu: 'خرید و فروخت اور پروڈکٹ مینجمنٹ کے لیے مارکیٹ پلیس اکاؤنٹ میں لاگ اِن کریں۔', english: 'Please login to your marketplace account to buy/sell and manage products.' },
         marketplaceLoginBtn: { urdu: 'مارکیٹ پلیس لاگ اِن', english: 'Login to Marketplace' },
+        marketplaceOpenTitle: { urdu: 'فارمر کمیونٹی تیار ہے', english: 'Farmer Community is ready' },
+        marketplaceOpenDesc: { urdu: 'اپنی مصنوعات اپلوڈ، منظم اور براہ راست خریداروں تک پہنچائیں۔', english: 'Upload, manage, and sell your products directly to buyers.' },
+        marketplaceOpenBtn: { urdu: 'فارمر کمیونٹی کھولیں', english: 'Open Farmer Community' },
         listNewProduct: { urdu: 'نئی پروڈکٹ لسٹ کریں', english: 'List New Product' },
         yourListings: { urdu: 'آپ کی لسٹنگز', english: 'Your Listings' },
         diseaseTitle: { urdu: 'فصل کی بیماری کی تشخیص', english: 'Crop Disease Detection' },
@@ -208,10 +191,9 @@ export function FarmerDashboard({
           icon: <Feather name="shopping-bag" size={22} color="#ffffff" />,
           gradient: ['#3b82f6', '#2563eb'] as const,
           onPress: () =>
-            // Require login first; after OTP verification the flow navigates to community dashboard
             router.push({
               pathname: '/login',
-              params: { userType: 'businessman', textLanguage, voiceLanguage },
+              params: { userType: 'farmer', textLanguage, voiceLanguage },
             }),
         },
         {
@@ -544,7 +526,7 @@ export function FarmerDashboard({
         <Text style={styles.scanTitle}>{t(strings.marketplace)}</Text>
         <Text style={styles.scanSub}>{t({ urdu: 'اپنی مصنوعات براہ راست فروخت کریں', english: 'Sell your products directly' })}</Text>
 
-        {characterType === 'farmer' ? (
+        {characterType === 'farmer' && !isMarketplaceAuthenticated ? (
           <View style={styles.marketplaceLoginCard}>
             <View style={styles.marketplaceLoginHead}>
               <Feather name="lock" size={18} color="#0d5c4b" />
@@ -557,12 +539,33 @@ export function FarmerDashboard({
               onPress={() =>
                 router.push({
                   pathname: '/login',
-                  params: { userType: 'businessman', textLanguage, voiceLanguage },
+                  params: { userType: 'farmer', textLanguage, voiceLanguage },
                 })
               }
             >
               <Feather name="log-in" size={18} color="#111827" />
               <Text style={styles.sunriseBtnText}>{t(strings.marketplaceLoginBtn)}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : characterType === 'farmer' ? (
+          <View style={styles.marketplaceLoginCard}>
+            <View style={styles.marketplaceLoginHead}>
+              <Feather name="users" size={18} color="#0d5c4b" />
+              <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceOpenTitle)}</Text>
+            </View>
+            <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceOpenDesc)}</Text>
+            <TouchableOpacity
+              style={styles.sunriseBtn}
+              activeOpacity={0.9}
+              onPress={() =>
+                router.push({
+                  pathname: '/farmer/community',
+                  params: { userType: 'farmer', textLanguage, voiceLanguage },
+                })
+              }
+            >
+              <Feather name="arrow-right-circle" size={18} color="#111827" />
+              <Text style={styles.sunriseBtnText}>{t(strings.marketplaceOpenBtn)}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1484,19 +1487,17 @@ export function FarmerDashboard({
           { id: 'home', label: { urdu: 'ہوم', english: 'Home' }, icon: 'home' },
           { id: 'shop', label: { urdu: 'شاپ', english: 'Shop' }, icon: 'shopping-outline' },
           { id: 'chat', label: { urdu: 'چیٹ', english: 'Chat' }, icon: 'chat-outline' },
-          {
-            id: 'community',
-            label: { english: 'Community', urdu: 'کمیونٹی' },
-            icon: 'forum-outline',
-            onPress: () => router.push('/community/inbox'),
-            badge: communityUnread,
-          },
           { id: 'profile', label: { urdu: 'پروفائل', english: 'Profile' }, icon: 'account' },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           const showActiveMarker = isActive && tab.id !== 'chat';
           return (
-            <TouchableOpacity key={tab.id} onPress={() => setActiveTab(tab.id)} activeOpacity={0.85} style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}>
+            <TouchableOpacity
+              key={tab.id}
+              onPress={() => setActiveTab(tab.id as Tab)}
+              activeOpacity={0.85}
+              style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}
+            >
               <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
               <Text style={[styles.tabLabel, { fontSize: r.fs(10.5), color: isActive ? '#0d5c4b' : '#9ca3af' }]}>{t(tab.label)}</Text>
               {showActiveMarker && <View style={styles.tabDot} />}

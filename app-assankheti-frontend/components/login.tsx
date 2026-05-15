@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Props = {
-  userType: 'simple-user' | 'businessman';
+  userType: 'farmer' | 'simple-user' | 'businessman';
   textLanguage?: 'urdu' | 'english';
   mode?: 'phone' | 'otp';
   initialPhoneE164?: string;
