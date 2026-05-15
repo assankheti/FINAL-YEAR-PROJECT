@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 export type MobileNotificationItem = {
@@ -14,11 +14,30 @@ const PUSH_SETTING_KEY = 'settings.pushNotifications';
 const SENT_NOTIFICATIONS_KEY = 'assanKheti.sentMobileNotifications.v1';
 const ANDROID_CHANNEL_ID = 'assan-kheti-alerts';
 
+type ExpoNotificationsModule = typeof import('expo-notifications');
+
 let handlerConfigured = false;
 let permissionPromise: Promise<boolean> | null = null;
+let notificationsModulePromise: Promise<ExpoNotificationsModule | null> | null = null;
 
-export function configureMobileNotifications() {
+async function getNotifications(): Promise<ExpoNotificationsModule | null> {
+  if (Platform.OS === 'web') return null;
+  if (Constants.appOwnership === 'expo') return null;
+
+  if (!notificationsModulePromise) {
+    notificationsModulePromise = import('expo-notifications').catch((err) => {
+      console.warn('Mobile notifications are unavailable in this runtime:', err);
+      return null;
+    });
+  }
+
+  return notificationsModulePromise;
+}
+
+export async function configureMobileNotifications() {
   if (handlerConfigured || Platform.OS === 'web') return;
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
@@ -35,7 +54,9 @@ export function configureMobileNotifications() {
 
 async function ensureNotificationPermission(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
-  configureMobileNotifications();
+  await configureMobileNotifications();
+  const Notifications = await getNotifications();
+  if (!Notifications) return false;
 
   if (!permissionPromise) {
     permissionPromise = (async () => {
@@ -54,6 +75,8 @@ async function ensureNotificationPermission(): Promise<boolean> {
 
 async function ensureAndroidChannel() {
   if (Platform.OS !== 'android') return;
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
 
   await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
     name: 'Assan Kheti Alerts',
@@ -94,6 +117,8 @@ export async function showMobileNotificationOnce(
   if (!(await ensureNotificationPermission())) return false;
 
   await ensureAndroidChannel();
+  const Notifications = await getNotifications();
+  if (!Notifications) return false;
 
   const sentKeys = await readSentNotificationKeys();
   const key = `${namespace}:${item.id}`;
