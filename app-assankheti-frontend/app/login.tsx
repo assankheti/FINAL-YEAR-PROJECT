@@ -67,7 +67,11 @@ export default function LoginPage() {
   };
 
   const handleBack = () => {
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/user-type-selection');
+    }
   };
 
   return (

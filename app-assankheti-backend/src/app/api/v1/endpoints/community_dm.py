@@ -47,6 +47,12 @@ class BlockRequest(BaseModel):
     blocked_id: str = Field(..., min_length=1)
 
 
+class ResolveRequest(BaseModel):
+    other_mobile_id: str = Field(..., min_length=1)
+    context_type: Optional[str] = "direct"
+    context_ref: Optional[str] = None
+
+
 # ---------- Helpers ----------
 
 def _strip_id(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -181,6 +187,46 @@ async def dm_send(
         sender_id, recipient_id, conversation_id, doc["message_id"],
     )
     return out
+
+
+# ---------- Resolve ----------
+
+@router.post("/dm/resolve")
+async def dm_resolve(
+    payload: ResolveRequest,
+    caller_id: str = Depends(get_current_mobile_id),
+):
+    """Return the conversation_id for a DM thread between caller and other user.
+
+    Used by deep-link entry points (e.g. product-buy "Message Seller") so the
+    chat screen can load existing history before the user sends anything.
+    Creates the conversation if it does not exist yet — idempotent on
+    (sorted participant pair).
+    """
+    other_id = (payload.other_mobile_id or "").strip()
+    if not other_id:
+        raise HTTPException(status_code=400, detail="other_mobile_id is required")
+    if other_id == caller_id:
+        raise HTTPException(status_code=400, detail="Cannot DM yourself")
+
+    participants = sorted([caller_id, other_id])
+    existing = await db[COMMUNITY_CONVERSATIONS_COLLECTION].find_one(
+        {"participants": participants}
+    )
+    if existing:
+        return {"conversation_id": existing["conversation_id"], "created": False}
+
+    try:
+        conversation_id = await get_or_create_dm_conversation(
+            caller_id, other_id, payload.context_type, payload.context_ref,
+        )
+    except Exception:
+        logger.exception(
+            "dm_resolve_failed caller_id=%s other_id=%s", caller_id, other_id
+        )
+        raise HTTPException(status_code=500, detail="Failed to resolve conversation")
+
+    return {"conversation_id": conversation_id, "created": True}
 
 
 # ---------- Inbox ----------

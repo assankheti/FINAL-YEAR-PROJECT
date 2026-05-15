@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { useT } from '@/contexts/LanguageContext';
-import { uploadImage } from '@/lib/uploadImage';
+import { SESSION_EXPIRED_ERROR, uploadImage } from '@/lib/uploadImage';
 
 type Props = {
   onUploaded: (url: string) => void;
@@ -13,6 +14,7 @@ type Props = {
 
 export default function ImagePickerButton({ onUploaded, disabled }: Props) {
   const t = useT();
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
 
   const handlePress = async () => {
@@ -30,7 +32,7 @@ export default function ImagePickerButton({ onUploaded, disabled }: Props) {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.8,
         allowsMultipleSelection: false,
       });
@@ -42,10 +44,27 @@ export default function ImagePickerButton({ onUploaded, disabled }: Props) {
       const url = await uploadImage(asset.uri);
       onUploaded(url);
     } catch (e: any) {
-      console.warn('[ImagePickerButton] failed', e?.message ?? e);
+      const msg = e?.message ?? String(e);
+      console.warn('[ImagePickerButton] failed', msg);
+      if (msg === SESSION_EXPIRED_ERROR) {
+        Alert.alert(
+          t({ english: 'Session expired', urdu: 'سیشن ختم ہو گیا' }),
+          t({
+            english: 'Please log in again to continue.',
+            urdu: 'جاری رکھنے کے لیے دوبارہ لاگ ان کریں۔',
+          }),
+          [
+            {
+              text: t({ english: 'Log in', urdu: 'لاگ ان' }),
+              onPress: () => router.replace('/login'),
+            },
+          ]
+        );
+        return;
+      }
       Alert.alert(
         t({ english: 'Upload failed', urdu: 'اپ لوڈ ناکام' }),
-        e?.message ?? t({ english: 'Please try again.', urdu: 'دوبارہ کوشش کریں۔' })
+        msg || t({ english: 'Please try again.', urdu: 'دوبارہ کوشش کریں۔' })
       );
     } finally {
       setBusy(false);

@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -15,8 +14,8 @@ import {
   View,
 } from 'react-native';
 
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
+import { authFetch } from '@/lib/authFetch';
 
 type Props = {
   visible: boolean;
@@ -34,13 +33,6 @@ type Props = {
 function formatPKR(n: number): string {
   if (!isFinite(n)) return '';
   return 'Rs ' + Math.round(n).toLocaleString('en-PK');
-}
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
 }
 
 export default function MakeOfferModal({
@@ -92,10 +84,9 @@ export default function MakeOfferModal({
     }
     setSubmitting(true);
     try {
-      const headers = await authHeaders();
-      const res = await fetch(API_BASE + '/api/v1/community/offers/create', {
+      const res = await authFetch('/api/v1/community/offers/create', {
         method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           product_id: productId,
           seller_id: sellerId,

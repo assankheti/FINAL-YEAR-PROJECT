@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,9 +21,9 @@ import ImagePickerButton from '@/components/community/ImagePickerButton';
 import MessageBubble from '@/components/community/MessageBubble';
 import PinnedProductCard from '@/components/community/PinnedProductCard';
 import PresenceDot from '@/components/community/PresenceDot';
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
 import { useChatMessages } from '@/hooks/useChatMessages';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
 export default function CommunityChatScreen() {
@@ -76,6 +75,47 @@ export default function CommunityChatScreen() {
     if (conversationId) markRead();
   }, [conversationId, markRead, messages.length]);
 
+  // Resolve the real conversation_id on mount when arriving via a deep link
+  // with conversationId="new" (e.g. product-buy → "Message Seller"). Without
+  // this, the history endpoint returns 404 and the user sees an empty chat
+  // even if previous messages with this seller exist. Replacing the URL also
+  // makes refresh + back work correctly.
+  useEffect(() => {
+    if (conversationId !== 'new') return;
+    if (!recipientId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch('/api/v1/community/dm/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            other_mobile_id: recipientId,
+            context_type: contextType ?? 'direct',
+            context_ref: contextRef ?? null,
+          }),
+        });
+        if (!res.ok) {
+          console.warn('[chat] resolve failed', res.status);
+          return;
+        }
+        const json = await res.json();
+        const realId = json?.conversation_id;
+        if (!realId || cancelled) return;
+        router.replace({
+          pathname: '/community/chat/[conversationId]',
+          params: { ...params, conversationId: realId },
+        });
+      } catch (e) {
+        console.warn('[chat] resolve error', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, recipientId, contextType, contextRef, params, router]);
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
@@ -116,12 +156,9 @@ export default function CommunityChatScreen() {
 
   const handleBlockUser = useCallback(async (blockedId: string) => {
     try {
-      const token = await AsyncStorage.getItem('auth.access_token');
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(API_BASE + '/api/v1/community/dm/block', {
+      const res = await authFetch('/api/v1/community/dm/block', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ blocked_id: blockedId }),
       });
       if (!res.ok) {
@@ -135,7 +172,8 @@ export default function CommunityChatScreen() {
           urdu: 'اب آپ کو اس صارف سے پیغامات نہیں ملیں گے۔',
         })
       );
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace('/community/inbox');
     } catch (e: any) {
       Alert.alert(t({ english: 'Block failed', urdu: 'بلاک ناکام' }), e?.message ?? '');
     }
@@ -194,7 +232,10 @@ export default function CommunityChatScreen() {
             </View>
 
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace('/community/inbox');
+              }}
               style={styles.backBtn}
               accessibilityRole="button"
               accessibilityLabel={t({ english: 'Back', urdu: 'واپس' })}

@@ -1,10 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
 import { useSocketEvent } from '@/hooks/useSocket';
+import { authFetch } from '@/lib/authFetch';
 
 type Props = {
   /** When provided, the dot subscribes to live presence for this user. */
@@ -16,13 +15,6 @@ type Props = {
   /** Show a "last seen" alert on long-press. Default true when mobileId is set. */
   longPressForLastSeen?: boolean;
 };
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
 
 function formatLastSeen(iso?: string | null): string | null {
   if (!iso) return null;
@@ -63,10 +55,8 @@ export default function PresenceDot({
     let cancelled = false;
     (async () => {
       try {
-        const headers = await authHeaders();
-        const res = await fetch(
-          API_BASE + `/api/v1/community/presence/${encodeURIComponent(mobileId)}`,
-          { headers }
+        const res = await authFetch(
+          `/api/v1/community/presence/${encodeURIComponent(mobileId)}`
         );
         if (!res.ok || cancelled) return;
         const json = await res.json();

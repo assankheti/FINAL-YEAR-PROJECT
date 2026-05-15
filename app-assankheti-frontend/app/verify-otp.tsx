@@ -75,7 +75,11 @@ export default function VerifyOtpPage() {
   };
 
   const handleBack = () => {
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/login');
+    }
   };
 
   return (

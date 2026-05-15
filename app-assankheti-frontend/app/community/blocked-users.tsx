@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -16,8 +15,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
 type Block = {
@@ -25,13 +24,6 @@ type Block = {
   blocked_id: string;
   created_at?: string;
 };
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
 
 export default function BlockedUsersScreen() {
   const router = useRouter();
@@ -50,10 +42,8 @@ export default function BlockedUsersScreen() {
     setError(null);
     try {
       const mobileId = await getOrCreateMobileId();
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/dm/blocks/${encodeURIComponent(mobileId)}`,
-        { headers }
+      const res = await authFetch(
+        `/api/v1/community/dm/blocks/${encodeURIComponent(mobileId)}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -82,10 +72,9 @@ export default function BlockedUsersScreen() {
     if (busyId) return;
     setBusyId(blockedId);
     try {
-      const headers = await authHeaders();
-      const res = await fetch(API_BASE + '/api/v1/community/dm/unblock', {
+      const res = await authFetch('/api/v1/community/dm/unblock', {
         method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ blocked_id: blockedId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -114,7 +103,13 @@ export default function BlockedUsersScreen() {
             { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
           ]}
         >
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+          <TouchableOpacity
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace('/community/inbox');
+            }}
+            style={styles.iconBtn}
+          >
             <Feather name="chevron-left" size={20} color="#ffffff" />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>

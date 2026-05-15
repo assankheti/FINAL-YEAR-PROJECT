@@ -1,8 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { API_BASE } from '@/config/env';
 import { ensureSocket, useSocketEvent } from '@/hooks/useSocket';
+import { authFetch } from '@/lib/authFetch';
 
 const ACK_TIMEOUT_MS = 5000;
 
@@ -48,13 +47,6 @@ function genTempId() {
   return 'tmp-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
-
 type Options = {
   conversationId?: string;
   /** Other DM participant — used to filter inbound events when we don't yet
@@ -76,7 +68,7 @@ export function useChatMessages(opts: Options | string | undefined): Result {
   const tempByCmid = useRef<Map<string, string>>(new Map());
 
   const refresh = useCallback(async () => {
-    if (!conversationId) {
+    if (!conversationId || conversationId === 'new') {
       setMessages([]);
       setIsLoading(false);
       return;
@@ -84,10 +76,8 @@ export function useChatMessages(opts: Options | string | undefined): Result {
     setIsLoading(true);
     setError(null);
     try {
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/dm/messages/${encodeURIComponent(conversationId)}`,
-        { headers }
+      const res = await authFetch(
+        `/api/v1/community/dm/messages/${encodeURIComponent(conversationId)}`
       );
       if (!res.ok) throw new Error(`fetch failed ${res.status}`);
       const json = await res.json();
@@ -172,10 +162,9 @@ export function useChatMessages(opts: Options | string | undefined): Result {
 
   const httpFallbackSend = useCallback(
     async (clientMessageId: string, args: SendArgs) => {
-      const headers = await authHeaders();
-      const res = await fetch(API_BASE + '/api/v1/community/dm/send', {
+      const res = await authFetch('/api/v1/community/dm/send', {
         method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipient_id: args.recipientId,
           body: args.body,
@@ -317,10 +306,9 @@ export function useChatMessages(opts: Options | string | undefined): Result {
     } catch {
       // socket unavailable; HTTP fallback
       try {
-        const headers = await authHeaders();
-        await fetch(API_BASE + '/api/v1/community/dm/read', {
+        await authFetch('/api/v1/community/dm/read', {
           method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ conversation_id: conversationId }),
         });
       } catch (err) {

@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -16,8 +15,8 @@ import {
 } from 'react-native';
 
 import PresenceDot from '@/components/community/PresenceDot';
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
 const PAGE_SIZE = 50;
@@ -29,13 +28,6 @@ type Member = {
   last_read_at?: string | null;
   muted?: boolean;
 };
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
 
 function initialsOf(mobileId: string): string {
   // mobile_id is a UUID, so "initials" are just the first two hex chars.
@@ -75,12 +67,9 @@ export default function GroupMembersScreen() {
     async (reset = false) => {
       if (!groupId) return;
       try {
-        const headers = await authHeaders();
         const nextSkip = reset ? 0 : skip;
-        const res = await fetch(
-          API_BASE +
-            `/api/v1/community/groups/${encodeURIComponent(groupId)}/members?limit=${PAGE_SIZE}&skip=${nextSkip}`,
-          { headers }
+        const res = await authFetch(
+          `/api/v1/community/groups/${encodeURIComponent(groupId)}/members?limit=${PAGE_SIZE}&skip=${nextSkip}`
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
@@ -138,7 +127,13 @@ export default function GroupMembersScreen() {
             { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
           ]}
         >
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+          <TouchableOpacity
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace('/community/inbox');
+            }}
+            style={styles.iconBtn}
+          >
             <Feather name="chevron-left" size={20} color="#ffffff" />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>

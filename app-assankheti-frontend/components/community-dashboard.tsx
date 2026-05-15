@@ -3,7 +3,10 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { authFetch } from '@/lib/authFetch';
+import { getOrCreateMobileId } from '@/lib/deviceId';
 import {
   Image,
   Platform,
@@ -60,6 +63,37 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
   const [favorites, setFavorites] = useState<string[]>([]);
   const [communityName, setCommunityName] = useState<string>('');
   const [communityAvatarUri, setCommunityAvatarUri] = useState<string>('');
+  const [communityUnread, setCommunityUnread] = useState<number>(0);
+
+  const refreshCommunityUnread = useCallback(async () => {
+    try {
+      const mobile_id = await getOrCreateMobileId();
+      const token = await AsyncStorage.getItem('auth.access_token');
+      if (!token) return;
+      const [inboxRes, groupsRes] = await Promise.all([
+        authFetch(`/api/v1/community/dm/inbox/${encodeURIComponent(mobile_id)}`),
+        authFetch(`/api/v1/community/groups/list/${encodeURIComponent(mobile_id)}`),
+      ]);
+      if (!inboxRes.ok || !groupsRes.ok) return;
+      const inbox = await inboxRes.json();
+      const groups = await groupsRes.json();
+      const dmSum = (inbox?.conversations ?? []).reduce(
+        (s: number, c: any) => s + (Number(c?.unread_count) || 0), 0
+      );
+      const grpSum = (groups?.groups ?? []).reduce(
+        (s: number, g: any) => s + (Number(g?.unread_count) || 0), 0
+      );
+      setCommunityUnread(dmSum + grpSum);
+    } catch {
+      // silent — badge is a hint, not critical
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCommunityUnread();
+    const id = setInterval(refreshCommunityUnread, 30000);
+    return () => clearInterval(id);
+  }, [refreshCommunityUnread]);
 
   const { width } = useWindowDimensions();
   const contentMaxWidth = Math.min(width - 32, 520);
@@ -523,23 +557,36 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     <View style={styles.tabBarWrap}>
       <View style={[styles.tabBar, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         {[
-          { id: 'home' as const, label: t(strings.home), icon: 'home' as const },
-          { id: 'products' as const, label: t(strings.products), icon: 'shopping-bag' as const },
-          { id: 'favorites' as const, label: t(strings.favorites), icon: 'heart' as const },
-          { id: 'messages' as const, label: t(strings.messages), icon: 'message-circle' as const },
-          { id: 'profile' as const, label: t(strings.profile), icon: 'user' as const },
+          { id: 'home', label: t(strings.home), icon: 'home' as const },
+          { id: 'products', label: t(strings.products), icon: 'shopping-bag' as const },
+          { id: 'favorites', label: t(strings.favorites), icon: 'heart' as const },
+          {
+            id: 'community',
+            label: t({ english: 'Community', urdu: 'کمیونٹی' }),
+            icon: 'users' as const,
+            onPress: () => router.push('/community/inbox'),
+            badge: communityUnread,
+          },
+          { id: 'profile', label: t(strings.profile), icon: 'user' as const },
         ].map((tab) => {
-          const isActive = activeTab === tab.id;
+          const customOnPress = (tab as any).onPress as (() => void) | undefined;
+          const badge = (tab as any).badge as number | undefined;
+          const isActive = !customOnPress && activeTab === (tab.id as Tab);
           return (
             <TouchableOpacity
               key={tab.id}
-              onPress={() => {
-                setActiveTab(tab.id);
-              }}
+              onPress={customOnPress ?? (() => setActiveTab(tab.id as Tab))}
               activeOpacity={0.9}
               style={[styles.tabBtn, isActive ? styles.tabBtnActive : null]}
             >
-              <Feather name={tab.icon} size={20} color={isActive ? '#0d5c4b' : '#6b7280'} />
+              <View>
+                <Feather name={tab.icon} size={20} color={isActive ? '#0d5c4b' : '#6b7280'} />
+                {badge && badge > 0 ? (
+                  <View style={styles.tabBadge}>
+                    <Text style={styles.tabBadgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
+                  </View>
+                ) : null}
+              </View>
               <Text style={[styles.tabLabel, { color: isActive ? '#0d5c4b' : '#6b7280' }]} numberOfLines={1}>
                 {tab.label}
               </Text>
@@ -745,4 +792,17 @@ const styles = StyleSheet.create({
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6 },
   tabBtnActive: {},
   tabLabel: { fontSize: 11, fontWeight: '800' },
+  tabBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    backgroundColor: '#dc2626',
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeText: { color: '#ffffff', fontSize: 10, fontWeight: '900' },
 });

@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -13,9 +12,9 @@ import {
   View,
 } from 'react-native';
 
-import { API_BASE } from '@/config/env';
 import { useT, useLanguage } from '@/contexts/LanguageContext';
 import { useSocketEvent } from '@/hooks/useSocket';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
 type Notification = {
@@ -33,13 +32,6 @@ type Notification = {
 
 const POLL_MS = 30_000;
 const PAGE_LIMIT = 50;
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
 
 function formatRelative(iso?: string): string {
   if (!iso) return '';
@@ -75,14 +67,11 @@ export default function NotificationBell({ onHeader = true }: Props) {
       if (!mobileIdRef.current) {
         mobileIdRef.current = await getOrCreateMobileId();
       }
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE +
-          `/api/v1/community/notifications/${encodeURIComponent(mobileIdRef.current)}?limit=${PAGE_LIMIT}`,
-        { headers }
+      const res = await authFetch(
+        `/api/v1/community/notifications/${encodeURIComponent(mobileIdRef.current)}?limit=${PAGE_LIMIT}`
       );
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403) return; // not logged in yet
+        if (res.status === 403) return; // 401 handled inside authFetch
         throw new Error(`HTTP ${res.status}`);
       }
       const json = await res.json();
@@ -117,11 +106,10 @@ export default function NotificationBell({ onHeader = true }: Props) {
   const markRead = useCallback(
     async (ids?: string[]) => {
       try {
-        const headers = await authHeaders();
         const body = ids?.length ? { notification_ids: ids } : { all: true };
-        const res = await fetch(API_BASE + '/api/v1/community/notifications/read', {
+        const res = await authFetch('/api/v1/community/notifications/read', {
           method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

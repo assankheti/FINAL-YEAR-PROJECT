@@ -37,7 +37,7 @@ export async function connectSocket(): Promise<Socket> {
     transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: Infinity,
-    reconnectionDelay: 500,
+    reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 10000,
   });

@@ -1,10 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
+import { authFetch } from '@/lib/authFetch';
 
 export type OfferStatus = 'pending' | 'accepted' | 'rejected' | 'expired';
 
@@ -32,13 +31,6 @@ function formatPKR(n?: number): string {
   return 'Rs ' + Math.round(n).toLocaleString('en-PK');
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
-
 export default function OfferCard({ offer, myMobileId, onLocalStatusChange }: Props) {
   const t = useT();
   const [busy, setBusy] = useState<null | 'accept' | 'reject' | 'withdraw'>(null);
@@ -61,10 +53,9 @@ export default function OfferCard({ offer, myMobileId, onLocalStatusChange }: Pr
     if (!offer.offer_id || busy) return;
     setBusy(action);
     try {
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/offers/${encodeURIComponent(offer.offer_id)}/${action}`,
-        { method: 'POST', headers }
+      const res = await authFetch(
+        `/api/v1/community/offers/${encodeURIComponent(offer.offer_id)}/${action}`,
+        { method: 'POST' }
       );
       if (!res.ok) {
         const text = await res.text().catch(() => '');

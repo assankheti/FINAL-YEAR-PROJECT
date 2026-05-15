@@ -1,9 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { API_BASE } from '@/config/env';
 import { ensureSocket, useSocketEvent } from '@/hooks/useSocket';
 import type { ChatMessage } from '@/hooks/useChatMessages';
+import { authFetch } from '@/lib/authFetch';
 
 const ACK_TIMEOUT_MS = 5000;
 
@@ -25,13 +24,6 @@ function genTempId() {
   return 'tmp-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
-
 export function useGroupMessages(groupId: string | undefined): Result {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -47,10 +39,8 @@ export function useGroupMessages(groupId: string | undefined): Result {
     setIsLoading(true);
     setError(null);
     try {
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/groups/${encodeURIComponent(groupId)}/messages`,
-        { headers }
+      const res = await authFetch(
+        `/api/v1/community/groups/${encodeURIComponent(groupId)}/messages`
       );
       if (!res.ok) throw new Error(`fetch failed ${res.status}`);
       const json = await res.json();
@@ -116,12 +106,11 @@ export function useGroupMessages(groupId: string | undefined): Result {
   const httpFallbackSend = useCallback(
     async (clientMessageId: string, args: SendArgs) => {
       if (!groupId) throw new Error('no groupId');
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/groups/${encodeURIComponent(groupId)}/send`,
+      const res = await authFetch(
+        `/api/v1/community/groups/${encodeURIComponent(groupId)}/send`,
         {
           method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             body: args.body,
             image_url: args.imageUrl,
@@ -232,10 +221,9 @@ export function useGroupMessages(groupId: string | undefined): Result {
       socket.emit('group:read', { group_id: groupId });
     } catch {
       try {
-        const headers = await authHeaders();
-        await fetch(
-          API_BASE + `/api/v1/community/groups/${encodeURIComponent(groupId)}/read`,
-          { method: 'POST', headers }
+        await authFetch(
+          `/api/v1/community/groups/${encodeURIComponent(groupId)}/read`,
+          { method: 'POST' }
         );
       } catch (err) {
         console.warn('[useGroupMessages] markRead failed', err);

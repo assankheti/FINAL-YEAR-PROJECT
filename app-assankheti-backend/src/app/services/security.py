@@ -9,7 +9,7 @@ import os
 
 SECRET_KEY = os.getenv("STYTCH_SECRET")  # Use env var
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Short-lived access token
+ACCESS_TOKEN_EXPIRE_MINUTES = 720  # 12 hours — long-lived for demo/test sessions
 
 
 class Token(BaseModel):

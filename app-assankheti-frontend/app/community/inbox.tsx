@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -16,8 +15,8 @@ import {
 } from 'react-native';
 
 import PresenceDot from '@/components/community/PresenceDot';
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
 type DMItem = {
@@ -42,10 +41,7 @@ type GroupItem = {
 };
 
 async function fetchJson(path: string) {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(API_BASE + path, { headers });
+  const res = await authFetch(path);
   if (!res.ok) throw new Error(`fetch ${path} failed ${res.status}`);
   return res.json();
 }
@@ -129,7 +125,10 @@ export default function CommunityInbox() {
             </Text>
           </View>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace('/farmer-dashboard');
+            }}
             style={styles.backBtn}
             accessibilityRole="button"
             accessibilityLabel={t({ english: 'Back', urdu: 'واپس' })}

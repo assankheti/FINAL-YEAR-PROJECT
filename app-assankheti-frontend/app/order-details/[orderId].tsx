@@ -89,7 +89,10 @@ export default function OrderDetailsPage() {
             </View>
 
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace('/user-orders');
+              }}
               style={styles.backBtn}
               activeOpacity={0.9}
               accessibilityRole="button"

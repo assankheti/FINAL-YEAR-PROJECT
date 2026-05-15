@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -21,9 +20,9 @@ import {
 
 import ImagePickerButton from '@/components/community/ImagePickerButton';
 import MessageBubble from '@/components/community/MessageBubble';
-import { API_BASE } from '@/config/env';
 import { useT } from '@/contexts/LanguageContext';
 import { useGroupMessages } from '@/hooks/useGroupMessages';
+import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
 type GroupDetail = {
@@ -33,13 +32,6 @@ type GroupDetail = {
   crop?: string;
   member_count?: number;
 };
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await AsyncStorage.getItem('auth.access_token');
-  const out: Record<string, string> = {};
-  if (token) out.Authorization = `Bearer ${token}`;
-  return out;
-}
 
 export default function CommunityGroupScreen() {
   const router = useRouter();
@@ -76,10 +68,8 @@ export default function CommunityGroupScreen() {
   const loadBlocks = useCallback(async () => {
     try {
       const id = await getOrCreateMobileId();
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/dm/blocks/${encodeURIComponent(id)}`,
-        { headers }
+      const res = await authFetch(
+        `/api/v1/community/dm/blocks/${encodeURIComponent(id)}`
       );
       if (!res.ok) return;
       const json = await res.json();
@@ -98,10 +88,8 @@ export default function CommunityGroupScreen() {
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
     try {
-      const headers = await authHeaders();
-      const res = await fetch(
-        API_BASE + `/api/v1/community/groups/${encodeURIComponent(groupId)}`,
-        { headers }
+      const res = await authFetch(
+        `/api/v1/community/groups/${encodeURIComponent(groupId)}`
       );
       if (!res.ok) return;
       const json = await res.json();
@@ -153,10 +141,9 @@ export default function CommunityGroupScreen() {
   const callGroupAction = useCallback(
     async (path: 'leave' | 'mute', successText: { english: string; urdu: string }) => {
       try {
-        const headers = await authHeaders();
-        const res = await fetch(
-          API_BASE + `/api/v1/community/groups/${encodeURIComponent(groupId)}/${path}`,
-          { method: 'POST', headers }
+        const res = await authFetch(
+          `/api/v1/community/groups/${encodeURIComponent(groupId)}/${path}`,
+          { method: 'POST' }
         );
         if (!res.ok) {
           const text = await res.text().catch(() => '');
@@ -165,7 +152,10 @@ export default function CommunityGroupScreen() {
         const json = await res.json().catch(() => ({}));
         if (path === 'mute' && typeof json?.muted === 'boolean') setMuted(json.muted);
         Alert.alert(t(successText));
-        if (path === 'leave') router.back();
+        if (path === 'leave') {
+          if (router.canGoBack()) router.back();
+          else router.replace('/community/inbox');
+        }
       } catch (e: any) {
         Alert.alert(t({ english: 'Failed', urdu: 'ناکام' }), e?.message ?? '');
       }
@@ -253,7 +243,13 @@ export default function CommunityGroupScreen() {
               { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
             ]}
           >
-            <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+            <TouchableOpacity
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace('/community/inbox');
+              }}
+              style={styles.iconBtn}
+            >
               <Feather name="chevron-left" size={20} color="#ffffff" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
@@ -296,10 +292,9 @@ export default function CommunityGroupScreen() {
                 myMobileId={myMobileId}
                 onBlockUser={async (blockedId) => {
                   try {
-                    const headers = await authHeaders();
-                    const res = await fetch(API_BASE + '/api/v1/community/dm/block', {
+                    const res = await authFetch('/api/v1/community/dm/block', {
                       method: 'POST',
-                      headers: { ...headers, 'Content-Type': 'application/json' },
+                      headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ blocked_id: blockedId }),
                     });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);

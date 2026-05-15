@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+import uuid
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -403,6 +404,168 @@ class SocketAuthTests(unittest.TestCase):
             room_calls = [c.args for c in fake_sio.enter_room.await_args_list]
             self.assertIn(("sid-ok", "user:mob-ok"), room_calls)
         run(go())
+
+
+class MediaUploadEndpointTests(unittest.TestCase):
+    """Regression: web FormData stringified `{uri,name,type}` to '[object Object]'
+    and the backend rejected it with 422. The real fix is in the frontend, but we
+    keep this test as a contract check that the endpoint accepts a well-formed
+    multipart file under the `file` field and returns {url}."""
+
+    # 1x1 transparent PNG
+    _PNG_BYTES = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xcf"
+        b"\xc0\x00\x00\x00\x03\x00\x01\x9a\x9c\x18\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    def _client(self, tmpdir: str):
+        # Import here so other tests are unaffected if FastAPI app import fails
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from app.api.v1.endpoints import media as media_module
+        from app.services.security import get_current_mobile_id
+
+        # Redirect uploads to a temp dir so the test doesn't need /app/uploads
+        original_dir = media_module.COMMUNITY_DIR
+        media_module.COMMUNITY_DIR = tmpdir
+
+        app = FastAPI()
+        app.include_router(media_module.router, prefix="/api/v1/media")
+        app.dependency_overrides[get_current_mobile_id] = lambda: "test-mobile-id"
+
+        return TestClient(app), media_module, original_dir
+
+    def test_upload_png_returns_url(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client, media_module, original_dir = self._client(tmp)
+            try:
+                res = client.post(
+                    "/api/v1/media/upload",
+                    files={"file": ("a.png", self._PNG_BYTES, "image/png")},
+                )
+            finally:
+                media_module.COMMUNITY_DIR = original_dir
+
+            self.assertEqual(res.status_code, 200, res.text)
+            body = res.json()
+            self.assertIn("url", body)
+            self.assertTrue(body["url"].startswith("/uploads/community/"))
+            self.assertTrue(body["url"].endswith(".png"))
+
+    def test_upload_rejects_unsupported_type(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client, media_module, original_dir = self._client(tmp)
+            try:
+                res = client.post(
+                    "/api/v1/media/upload",
+                    files={"file": ("a.txt", b"hello", "text/plain")},
+                )
+            finally:
+                media_module.COMMUNITY_DIR = original_dir
+
+            self.assertEqual(res.status_code, 400)
+
+
+class DmResolveEndpointTests(unittest.TestCase):
+    """Piece-5 follow-up: /dm/resolve returns the conversation_id for a
+    DM thread, creating it if needed. Used by deep-link entries
+    (e.g. product-buy → Message Seller) so history loads before the first
+    send."""
+
+    def _build_client(self, fake_db: FakeDB, override_mobile_id):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from app.services.security import get_current_mobile_id
+
+        app = FastAPI()
+        app.include_router(community_dm.router, prefix="/api/v1/community")
+        if override_mobile_id is not None:
+            app.dependency_overrides[get_current_mobile_id] = lambda: override_mobile_id
+        # Patch the module-level db references used inside the endpoint and
+        # the helper it calls.
+        return TestClient(app)
+
+    def test_resolve_existing_conversation_returns_same_id(self) -> None:
+        fake = FakeDB()
+        with patch.object(community_dm, "db", new=fake), \
+             patch.object(helpers_module, "db", new=fake):
+            existing_id = run(
+                helpers_module.get_or_create_dm_conversation(
+                    "user_a", "user_b", "direct", None
+                )
+            )
+            client = self._build_client(fake, override_mobile_id="user_a")
+            res = client.post(
+                "/api/v1/community/dm/resolve",
+                json={"other_mobile_id": "user_b"},
+            )
+
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertEqual(body["conversation_id"], existing_id)
+        self.assertFalse(body["created"])
+
+    def test_resolve_creates_new_conversation(self) -> None:
+        fake = FakeDB()
+        with patch.object(community_dm, "db", new=fake), \
+             patch.object(helpers_module, "db", new=fake):
+            client = self._build_client(fake, override_mobile_id="user_c")
+            res = client.post(
+                "/api/v1/community/dm/resolve",
+                json={"other_mobile_id": "user_d"},
+            )
+            self.assertEqual(res.status_code, 200, res.text)
+            body = res.json()
+            first_id = body["conversation_id"]
+            # Valid UUID
+            self.assertEqual(len(uuid.UUID(first_id).hex), 32)
+            self.assertTrue(body["created"])
+
+            # Idempotent: same caller + same other → same id, created=false
+            res2 = client.post(
+                "/api/v1/community/dm/resolve",
+                json={"other_mobile_id": "user_d"},
+            )
+            self.assertEqual(res2.status_code, 200, res2.text)
+            body2 = res2.json()
+            self.assertEqual(body2["conversation_id"], first_id)
+            self.assertFalse(body2["created"])
+
+    def test_resolve_requires_jwt(self) -> None:
+        fake = FakeDB()
+        with patch.object(community_dm, "db", new=fake), \
+             patch.object(helpers_module, "db", new=fake):
+            # No dep override → HTTPBearer rejects missing credentials.
+            client = self._build_client(fake, override_mobile_id=None)
+            res = client.post(
+                "/api/v1/community/dm/resolve",
+                json={"other_mobile_id": "user_x"},
+            )
+        # FastAPI's HTTPBearer with auto_error=True returns 403; some setups
+        # surface 401. Accept either.
+        self.assertIn(res.status_code, (401, 403))
+
+    def test_resolve_other_id_required(self) -> None:
+        fake = FakeDB()
+        with patch.object(community_dm, "db", new=fake), \
+             patch.object(helpers_module, "db", new=fake):
+            client = self._build_client(fake, override_mobile_id="user_a")
+            # missing field
+            res_missing = client.post("/api/v1/community/dm/resolve", json={})
+            self.assertEqual(res_missing.status_code, 422)
+            # empty string violates min_length=1
+            res_empty = client.post(
+                "/api/v1/community/dm/resolve",
+                json={"other_mobile_id": ""},
+            )
+            self.assertEqual(res_empty.status_code, 422)
 
 
 if __name__ == "__main__":
