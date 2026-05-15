@@ -14,7 +14,7 @@ from app.models.collections import (
 from app.schemas.terms import TermsCreate, TermsDB
 from app.schemas.languageVoice import LanguageCreate, LanguageDB
 from app.schemas.character import CharacterCreate, CharacterDB
-from app.schemas.deviceSettings import FinalSettingsDB
+from app.schemas.deviceSettings import FinalSettingsDB, UserSettingsUpdate
 from app.schemas.id_Mobile import mobileid, mobileid_db
 from app.schemas.crop_selections import cropSelectionCreate, cropSelectionDB
 from app.db.db_connection import get_database
@@ -23,6 +23,68 @@ from app.utils.logger import logger
 
 router = APIRouter()
 db = get_database()
+
+DEFAULT_USER_SETTINGS = {
+    "selected_crops": [],
+    "voice_assistant": True,
+    "dark_mode": False,
+    "push_notifications": True,
+    "weather_alerts": True,
+    "price_updates": True,
+}
+
+
+def with_user_setting_defaults(doc: dict) -> dict:
+    return {
+        **DEFAULT_USER_SETTINGS,
+        "terms_accepted": False,
+        "language": "en",
+        "voice": "english",
+        "character_id": "farmer",
+        "created_at": datetime.utcnow(),
+        **doc,
+    }
+
+
+async def build_user_settings_doc(mobile_id: str) -> dict:
+    now = datetime.utcnow()
+    terms = await db[TERMS_COLLECTION].find_one({"mobile_id": mobile_id}, {"_id": 0})
+    lang = await db[LANGUAGEVOICE_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    char = await db[CHARACTER_COLLECTION].find_one({"mobile_id": mobile_id}, {"_id": 0})
+    crop = await db[CROP_SELECTION_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+
+    return {
+        **DEFAULT_USER_SETTINGS,
+        "mobile_id": mobile_id,
+        "terms_accepted": bool(terms.get("terms_accepted")) if terms else False,
+        "language": lang.get("language", "en") if lang else "en",
+        "voice": lang.get("voice", "english") if lang else "english",
+        "character_id": char.get("character_id", "farmer") if char else "farmer",
+        "selected_crops": crop.get("selected_crops", []) if crop else [],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+async def ensure_user_settings_doc(mobile_id: str) -> dict:
+    saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    if saved:
+        return with_user_setting_defaults(saved)
+
+    doc = await build_user_settings_doc(mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": mobile_id}, {"$setOnInsert": doc}, upsert=True
+    )
+    saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    return with_user_setting_defaults(saved or doc)
 
 
 @router.post("/generate/mobileid", response_model=mobileid_db)
@@ -67,6 +129,16 @@ async def save_terms(payload: TermsCreate):
     await db[TERMS_COLLECTION].update_one(
         {"mobile_id": payload.mobile_id}, {"$set": doc}, upsert=True
     )
+    await ensure_user_settings_doc(payload.mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": payload.mobile_id},
+        {
+            "$set": {
+                "terms_accepted": payload.terms_accepted,
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
 
     saved = await db[TERMS_COLLECTION].find_one(
         {"mobile_id": payload.mobile_id}, {"_id": 0}
@@ -85,6 +157,17 @@ async def save_language(payload: LanguageCreate):
 
     await db[LANGUAGEVOICE_COLLECTION].update_one(
         {"mobile_id": payload.mobile_id}, {"$set": doc}, upsert=True
+    )
+    await ensure_user_settings_doc(payload.mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": payload.mobile_id},
+        {
+            "$set": {
+                "language": payload.language,
+                "voice": payload.voice,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     saved = await db[LANGUAGEVOICE_COLLECTION].find_one(
@@ -115,6 +198,16 @@ async def save_character(payload: CharacterCreate):
 
     await db[CHARACTER_COLLECTION].update_one(
         {"mobile_id": payload.mobile_id}, {"$set": doc}, upsert=True
+    )
+    await ensure_user_settings_doc(payload.mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": payload.mobile_id},
+        {
+            "$set": {
+                "character_id": payload.character_id,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     saved = await db[CHARACTER_COLLECTION].find_one(
@@ -157,6 +250,22 @@ async def finalize_settings(mobile_id: str):
         "character_id": char["character_id"],
         "created_at": datetime.utcnow(),
     }
+    existing_settings = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    if existing_settings:
+        final_doc.update(
+            {
+                key: existing_settings.get(key, default)
+                for key, default in DEFAULT_USER_SETTINGS.items()
+            }
+        )
+        final_doc["created_at"] = existing_settings.get(
+            "created_at", final_doc["created_at"]
+        )
+        final_doc["updated_at"] = datetime.utcnow()
+    else:
+        final_doc.update(DEFAULT_USER_SETTINGS)
 
     await db[FINAL_SETTINGS_COLLECTION].update_one(
         {"mobile_id": mobile_id}, {"$set": final_doc}, upsert=True
@@ -165,7 +274,31 @@ async def finalize_settings(mobile_id: str):
     saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
         {"mobile_id": mobile_id}, {"_id": 0}
     )
-    return saved
+    return FinalSettingsDB(**with_user_setting_defaults(saved))
+
+
+@router.get("/devicesetting/{mobile_id}", response_model=FinalSettingsDB)
+async def get_final_settings(mobile_id: str):
+    saved = await ensure_user_settings_doc(mobile_id)
+    return FinalSettingsDB(**saved)
+
+
+@router.patch("/devicesetting/{mobile_id}", response_model=FinalSettingsDB)
+async def update_user_settings(mobile_id: str, payload: UserSettingsUpdate):
+    update_doc = payload.model_dump(exclude_unset=True)
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No settings to update")
+
+    await ensure_user_settings_doc(mobile_id)
+    update_doc["updated_at"] = datetime.utcnow()
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": mobile_id}, {"$set": update_doc}
+    )
+
+    saved = await db[FINAL_SETTINGS_COLLECTION].find_one(
+        {"mobile_id": mobile_id}, {"_id": 0}
+    )
+    return FinalSettingsDB(**with_user_setting_defaults(saved))
 
 @router.post("/crop-selection/{mobile_id}", response_model=cropSelectionDB)
 async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
@@ -177,6 +310,16 @@ async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
 
     await db[CROP_SELECTION_COLLECTION].update_one(
         {"mobile_id": mobile_id}, {"$set": doc}, upsert=True
+    )
+    await ensure_user_settings_doc(mobile_id)
+    await db[FINAL_SETTINGS_COLLECTION].update_one(
+        {"mobile_id": mobile_id},
+        {
+            "$set": {
+                "selected_crops": payload.selected_crops,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     # Best-effort auto-join into matching community groups (Piece 6).
@@ -191,70 +334,3 @@ async def save_crop_selection(mobile_id: str, payload: cropSelectionCreate):
         {"mobile_id": mobile_id}, {"_id": 0}
     )
     return cropSelectionDB(**saved)
-
-
-async def _auto_join_community_groups(mobile_id: str, selected_crops):
-    """Add the user to every existing community_group whose `crop` matches one
-    of the selected crops. Idempotent — re-running with the same crops is a
-    no-op and does not double-increment member_count.
-    """
-    if not selected_crops:
-        return
-    crop_keys = {c.lower().strip() for c in selected_crops if isinstance(c, str)}
-    if not crop_keys:
-        return
-
-    cursor = db[COMMUNITY_GROUPS_COLLECTION].find({"crop": {"$in": list(crop_keys)}})
-    now = datetime.utcnow()
-    async for group in cursor:
-        group_id = group.get("group_id")
-        if not group_id:
-            continue
-        # Insert-if-absent; the unique (mobile_id, group_id) index prevents dupes.
-        existing = await db[COMMUNITY_GROUP_MEMBERS_COLLECTION].find_one(
-            {"group_id": group_id, "mobile_id": mobile_id}
-        )
-        if existing:
-            continue
-        try:
-            await db[COMMUNITY_GROUP_MEMBERS_COLLECTION].insert_one({
-                "group_id": group_id,
-                "mobile_id": mobile_id,
-                "joined_at": now,
-                "last_read_at": None,
-                "muted": False,
-            })
-        except Exception:
-            logger.exception(
-                "community_member_insert_failed mobile_id=%s group_id=%s",
-                mobile_id, group_id,
-            )
-            continue
-        try:
-            await db[COMMUNITY_GROUPS_COLLECTION].update_one(
-                {"group_id": group_id}, {"$inc": {"member_count": 1}}
-            )
-        except Exception:
-            logger.exception(
-                "community_member_count_increment_failed group_id=%s", group_id
-            )
-        try:
-            # Lazy import — keeps deviceSettings out of the socket-gateway dep
-            # graph at module load.
-            from app.services.notifications import notify  # noqa: WPS433
-            crop_label = (group.get("name_en") or group.get("crop") or "Crop").title()
-            await notify(
-                mobile_id,
-                "group_added",
-                data={"group_id": group_id, "crop": group.get("crop")},
-                crop=crop_label,
-            )
-        except Exception:
-            logger.exception(
-                "community_join_notification_failed mobile_id=%s group_id=%s",
-                mobile_id, group_id,
-            )
-        logger.info(
-            "community_auto_joined mobile_id=%s group_id=%s crop=%s",
-            mobile_id, group_id, group.get("crop"),
-        )

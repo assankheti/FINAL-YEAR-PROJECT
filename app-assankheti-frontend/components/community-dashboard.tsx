@@ -4,9 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-
-import { authFetch } from '@/lib/authFetch';
-import { getOrCreateMobileId } from '@/lib/deviceId';
 import {
   Image,
   Platform,
@@ -22,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import NotificationBell from '@/components/NotificationBell';
 import OrdersList from '@/components/OrdersList';
+import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
 const COMMUNITY_PROFILE_KEYS = {
   name: 'communityProfile.name',
@@ -123,9 +121,32 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     []
   );
 
-  const t = (obj: any) => obj[textLanguage];
+  const t = useCallback((obj: any) => obj[textLanguage], [textLanguage]);
 
   const userName = userType === 'businessman' ? 'Business User' : 'User';
+
+  useEffect(() => {
+    showMobileNotificationsOnce('community-dashboard-alerts', [
+      {
+        id: 'order-update',
+        title: t({ english: 'Order update', urdu: 'آرڈر اپڈیٹ' }),
+        body: t({
+          english: 'Your order status has changed to Shipped.',
+          urdu: 'آپ کے آرڈر کی حیثیت شپڈ ہو گئی ہے۔',
+        }),
+        data: { type: 'order' },
+      },
+      {
+        id: 'new-deals',
+        title: t({ english: 'New deals', urdu: 'نئی ڈیلز' }),
+        body: t({
+          english: 'Fresh products are available near you.',
+          urdu: 'آپ کے قریب تازہ مصنوعات دستیاب ہیں۔',
+        }),
+        data: { type: 'promo' },
+      },
+    ]);
+  }, [t]);
 
   useEffect(() => {
     if (activeTab !== 'profile') return;

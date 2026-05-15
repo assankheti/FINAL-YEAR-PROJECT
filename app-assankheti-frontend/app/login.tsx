@@ -69,9 +69,10 @@ export default function LoginPage() {
   const handleBack = () => {
     if (router.canGoBack()) {
       router.back();
-    } else {
-      router.replace('/user-type-selection');
+      return;
     }
+
+    router.replace({ pathname: '/user-type-selection', params: { textLanguage, voiceLanguage } });
   };
 
   return (

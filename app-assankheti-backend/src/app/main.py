@@ -22,6 +22,7 @@ from .api.v1.endpoints.disease_api import router as disease_router
 from .api.v1.endpoints.fertilizer_api import router as fertilizer_router
 from .api.v1.endpoints.pesticide_api import router as pesticide_router
 from .api.v1.endpoints.seed_api import router as seed_router
+from .api.v1.endpoints.products import router as products_router
 from .api.v1.endpoints import calculator
 from .api.v1.endpoints.chatbot import router as chatbot_router
 from .api.v1.endpoints.media import router as media_router
@@ -130,6 +131,7 @@ app.include_router(disease_router, prefix="/api/v1/disease", tags=["disease"])
 app.include_router(fertilizer_router, prefix="/api/v1/fertilizer", tags=["Fertilizer Management"])
 app.include_router(pesticide_router, prefix="/api/v1/pesticide", tags=["Pesticide Management"])
 app.include_router(seed_router, prefix="/api/v1/seed", tags=["Seed Management"])
+app.include_router(products_router, prefix="/api/v1/products", tags=["Product Listings"])
 app.include_router(
     calculator.router,
     prefix="/api/v1/calculator",
@@ -190,7 +192,3 @@ async def not_found_handler(request: Request, exc):
     return JSONResponse(status_code=404, content={"detail": "Resource not found"})
 
 
-# Wrap FastAPI in the Socket.IO ASGI app. Uvicorn serves this object so that
-# /socket.io/ handshakes are routed to python-socketio while all HTTP routes
-# fall through to FastAPI.
-sio_app = socketio.ASGIApp(sio, app)

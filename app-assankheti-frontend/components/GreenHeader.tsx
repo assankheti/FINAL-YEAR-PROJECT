@@ -20,7 +20,8 @@ export default function GreenHeader({
   children?: React.ReactNode;
 }) {
   const { width } = useWindowDimensions();
-  const horizontalPadding = Math.max(16, Math.round(width * 0.06));
+  const isCompact = width < 390;
+  const horizontalPadding = isCompact ? 16 : Math.max(16, Math.min(28, Math.round(width * 0.06)));
   const t = useT();
 
   const resolvedTitle = typeof title === 'string' ? title : t(title);
@@ -32,8 +33,8 @@ export default function GreenHeader({
       end={{ x: 1, y: 1 }}
       style={[styles.header, { paddingHorizontal: horizontalPadding }]}
     >
-      <View style={[styles.headerRow, { width: '100%' }]}>
-        <View style={styles.sideSlot}>
+      <View style={[styles.headerRow, isCompact ? styles.headerRowCompact : null, { width: '100%' }]}>
+        <View style={[styles.sideSlot, isCompact ? styles.sideSlotCompact : null]}>
           {showBack ? (
             <TouchableOpacity onPress={onBack} activeOpacity={0.9} style={styles.backBtn}>
               <Feather name="arrow-left" size={18} color="#ffffff" />
@@ -44,12 +45,27 @@ export default function GreenHeader({
         </View>
 
         <View style={styles.titleWrap}>
-          <Text style={[styles.headerTitle, titleLines > 1 && styles.headerTitleMultiline]} numberOfLines={titleLines}>
+          <Text
+            style={[
+              styles.headerTitle,
+              isCompact ? styles.headerTitleCompact : null,
+              titleLines > 1 && styles.headerTitleMultiline,
+            ]}
+            numberOfLines={titleLines}
+          >
             {resolvedTitle}
           </Text>
         </View>
 
-        <View style={[styles.sideSlot, styles.headerActions]}>
+        <View
+          style={[
+            styles.sideSlot,
+            isCompact ? styles.sideSlotCompact : null,
+            rightElement ? styles.rightElementSlot : null,
+            rightElement && isCompact ? styles.rightElementSlotCompact : null,
+            styles.headerActions,
+          ]}
+        >
           {rightElement ? rightElement : <View style={styles.sidePlaceholder} />}
         </View>
       </View>
@@ -72,7 +88,11 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     gap: 8,
   },
+  headerRowCompact: { gap: 6 },
   sideSlot: { width: 44, alignItems: 'flex-start', justifyContent: 'center' },
+  sideSlotCompact: { width: 40 },
+  rightElementSlot: { width: 136 },
+  rightElementSlotCompact: { width: 122 },
   sidePlaceholder: { width: 40, height: 40 },
   titleWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backBtn: {
@@ -85,6 +105,7 @@ const styles = StyleSheet.create({
   },
   headerActions: { alignItems: 'flex-end', justifyContent: 'center' },
   headerTitle: { color: '#ffffff', fontSize: 20, fontWeight: '900', textAlign: 'center' },
+  headerTitleCompact: { fontSize: 19 },
   headerTitleMultiline: { lineHeight: 24 },
   childrenWrap: { marginTop: 12, alignSelf: 'center', width: '100%', maxWidth: 520 },
 });

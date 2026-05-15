@@ -328,9 +328,7 @@ export default function SmartCropRecommendation() {
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.headerSection}>
-            <View style={styles.aiTag}>
-              <Text style={styles.aiTagText}>AI Powered</Text>
-            </View>
+            
             <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleCompact]}>
               Smart Crop Recommendation
             </Text>

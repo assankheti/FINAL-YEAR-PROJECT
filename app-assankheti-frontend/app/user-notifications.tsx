@@ -1,9 +1,10 @@
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
 type NotifType = 'order' | 'promo' | 'system';
 
@@ -31,6 +32,19 @@ export default function UserNotificationsPage() {
       ],
       []
     );
+
+  useEffect(() => {
+    showMobileNotificationsOnce(
+      'user-notifications',
+      notifs.map((item) => ({
+        id: item.id,
+        title: item.title,
+        body: item.subtitle,
+        isRead: item.isRead,
+        data: { type: item.type },
+      }))
+    );
+  }, [notifs]);
 
   const iconFor: Record<NotifType, React.ComponentProps<typeof Feather>['name']> = {
     order: 'package',

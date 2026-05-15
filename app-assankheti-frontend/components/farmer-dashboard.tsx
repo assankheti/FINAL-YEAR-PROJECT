@@ -23,6 +23,7 @@ import NotificationBell from '@/components/NotificationBell';
 import { API_BASE } from '@/config/env';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
 type Props = {
   textLanguage?: 'urdu' | 'english';
@@ -103,7 +104,7 @@ export function FarmerDashboard({
     return () => clearInterval(id);
   }, [refreshCommunityUnread]);
 
-  const t = (obj: any) => obj[textLanguage];
+  const t = useCallback((obj: any) => obj[textLanguage], [textLanguage]);
 
   const strings = useMemo(
     () =>
@@ -115,7 +116,6 @@ export function FarmerDashboard({
         features: { urdu: 'فیچرز', english: 'Features' },
         startChat: { urdu: 'چیٹ شروع کریں', english: 'Start Chat' },
         recentAlerts: { urdu: 'تازہ الرٹس', english: 'Recent Alerts' },
-        viewAll: { urdu: 'سب دیکھیں', english: 'View All' },
         marketplace: { urdu: 'مارکیٹ پلیس', english: 'Marketplace' },
         marketplaceLoginTitle: { urdu: 'مارکیٹ پلیس استعمال کرنے کے لیے لاگ اِن کریں', english: 'Login required for Marketplace' },
         marketplaceLoginDesc: { urdu: 'خرید و فروخت اور پروڈکٹ مینجمنٹ کے لیے مارکیٹ پلیس اکاؤنٹ میں لاگ اِن کریں۔', english: 'Please login to your marketplace account to buy/sell and manage products.' },
@@ -136,6 +136,29 @@ export function FarmerDashboard({
       }) as const,
     []
   );
+
+  useEffect(() => {
+    showMobileNotificationsOnce('farmer-dashboard-alerts', [
+      {
+        id: 'rain-expected',
+        title: t({ urdu: 'کل بارش متوقع', english: 'Rain expected tomorrow' }),
+        body: t({
+          urdu: 'اپنی فصل کو بارش سے بچانے کے لیے احتیاطی تدابیر اختیار کریں۔',
+          english: 'Take precautions to protect your crop from rain.',
+        }),
+        data: { type: 'weather' },
+      },
+      {
+        id: 'rice-price-up',
+        title: t({ urdu: 'چاول کی قیمت میں اضافہ', english: 'Rice price increased' }),
+        body: t({
+          urdu: 'مارکیٹ قیمت بہتر ہے۔ فروخت کا اچھا وقت ہو سکتا ہے۔',
+          english: 'Market price is better. It may be a good time to sell.',
+        }),
+        data: { type: 'price' },
+      },
+    ]);
+  }, [t]);
 
   const featureCards = useMemo(
     () =>
@@ -450,10 +473,6 @@ export function FarmerDashboard({
               })}
             </Text>
           </View>
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.85}>
-            <Text style={styles.viewAll}>{t(strings.viewAll)}</Text>
-            <Feather name="chevron-right" size={14} color="#0d5c4b" />
-          </TouchableOpacity>
         </View>
 
         {[
@@ -1038,12 +1057,6 @@ export function FarmerDashboard({
     const handleComposerFocus = () => onInputFocusChange?.(true);
     const handleComposerBlur = () => onInputFocusChange?.(false);
 
-    const quickPrompts = [
-      { english: 'My rice leaves have brown spots. What should I do?', urdu: 'چاول کے پتوں پر بھورے دھبے ہیں، کیا کروں؟' },
-      { english: 'When should I irrigate my rice crop?', urdu: 'چاول کی فصل کو پانی کب دینا چاہیے؟' },
-      { english: 'How can I upload crop image for disease detection?', urdu: 'بیماری کی تشخیص کے لیے فصل کی تصویر کیسے اپلوڈ کروں؟' },
-      { english: 'How can I check mandi prices?', urdu: 'منڈی کی قیمتیں کیسے چیک کروں؟' },
-    ] as const;
 
     const handleSend = async (overrideText?: string) => {
       const rawText = typeof overrideText === 'string' ? overrideText : messageText;
@@ -1153,28 +1166,6 @@ export function FarmerDashboard({
           </View>
         </LinearGradient>
 
-        {messages.length < 2 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[styles.quickPromptRow, { paddingHorizontal: r.wp(4) }]}
-          >
-            {quickPrompts.map((prompt) => (
-              <TouchableOpacity
-                key={prompt.english}
-                style={styles.quickPromptChip}
-                activeOpacity={0.85}
-                onPress={() => {
-                  setMessageText(t(prompt));
-                  onInputFocusChange?.(true);
-                }}
-              >
-                <Text style={styles.quickPromptText}>{t(prompt)}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
-
         {/* ── Messages ── */}
         {loadingHistory && (
           <View style={{ padding: 20, alignItems: 'center' }}>
@@ -1201,7 +1192,7 @@ export function FarmerDashboard({
         )}
         <ScrollView
           ref={(ref) => { scrollRef.current = ref; }}
-          style={{ flex: 1 }}
+          style={[styles.noWebFocusOutline, { flex: 1 }]}
           contentContainerStyle={[styles.chatBody, { paddingHorizontal: r.wp(4), paddingBottom: 12 }]}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
           keyboardShouldPersistTaps="handled"
@@ -1231,14 +1222,6 @@ export function FarmerDashboard({
                 {t({
                   english: 'Welcome to Assan Kheti AI Farming Assistant',
                   urdu: 'آسان کھیتی اے آئی فارمنگ اسسٹنٹ میں خوش آمدید',
-                })}
-              </Text>
-              <Text style={{ color: '#065f46', fontSize: r.fs(12.5), lineHeight: r.fs(18) }}>
-                {t({
-                  english:
-                    'No saved conversations yet. Ask a farming question to start your first chat.',
-                  urdu:
-                    'ابھی تک کوئی محفوظ گفتگو موجود نہیں۔ اپنی پہلی چیٹ شروع کرنے کے لیے کھیتی باڑی سے متعلق سوال کریں۔',
                 })}
               </Text>
             </View>
@@ -1469,15 +1452,6 @@ export function FarmerDashboard({
         </Text>
 
         {[
-          {
-            label: { urdu: 'کردار منتخب صفحہ پر جائیں', english: 'Back to Character Selection' },
-            icon: 'arrow-left-circle-outline',
-            onPress: () =>
-              router.replace({
-                pathname: '/user-type-selection',
-                params: { textLanguage, voiceLanguage },
-              }),
-          },
           { label: { urdu: 'میرے آرڈرز', english: 'My Orders' }, icon: 'shopping-outline', onPress: () => router.push({ pathname: '/farmer-orders', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'میری مصنوعات', english: 'My Products' }, icon: 'leaf', onPress: () => router.push({ pathname: '/farmer-products', params: { textLanguage, voiceLanguage } }) },
           { label: { urdu: 'مدد کا مرکز', english: 'Help Center' }, icon: 'help-circle-outline', onPress: () => router.push({ pathname: '/help-center', params: { textLanguage, voiceLanguage } }) },
@@ -1519,26 +1493,13 @@ export function FarmerDashboard({
           },
           { id: 'profile', label: { urdu: 'پروفائل', english: 'Profile' }, icon: 'account' },
         ].map((tab) => {
-          const customOnPress = (tab as any).onPress as (() => void) | undefined;
-          const badge = (tab as any).badge as number | undefined;
-          const isActive = !customOnPress && activeTab === (tab.id as Tab);
+          const isActive = activeTab === tab.id;
+          const showActiveMarker = isActive && tab.id !== 'chat';
           return (
-            <TouchableOpacity
-              key={tab.id}
-              onPress={customOnPress ?? (() => setActiveTab(tab.id as Tab))}
-              activeOpacity={0.85}
-              style={[styles.tabBtn, isActive && styles.tabBtnActive]}
-            >
-              <View>
-                <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
-                {badge && badge > 0 ? (
-                  <View style={styles.tabBadge}>
-                    <Text style={styles.tabBadgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
-                  </View>
-                ) : null}
-              </View>
+            <TouchableOpacity key={tab.id} onPress={() => setActiveTab(tab.id)} activeOpacity={0.85} style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}>
+              <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
               <Text style={[styles.tabLabel, { fontSize: r.fs(10.5), color: isActive ? '#0d5c4b' : '#9ca3af' }]}>{t(tab.label)}</Text>
-              {isActive && <View style={styles.tabDot} />}
+              {showActiveMarker && <View style={styles.tabDot} />}
             </TouchableOpacity>
           );
         })}
@@ -1728,18 +1689,6 @@ const styles = StyleSheet.create({
   alertHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 22, marginBottom: 10 },
   alertSectionTitle: { fontSize: 18, fontWeight: '900', color: '#111827', lineHeight: 24 },
   alertSectionSub: { marginTop: 2, fontSize: 12, color: '#6b7280', lineHeight: 17 },
-  viewAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#e9f8f2',
-    borderWidth: 1,
-    borderColor: '#cdeee2',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  viewAll: { color: '#0d5c4b', fontWeight: '800' },
   alertItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1904,6 +1853,9 @@ const styles = StyleSheet.create({
   aiBadgeText: { color: '#ffffff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
 
   // Quick prompts
+  noWebFocusOutline: {
+    outlineStyle: 'none',
+  } as any,
   quickPromptRow: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6, gap: 8 },
   quickPromptChip: {
     paddingHorizontal: 14,
