@@ -21,7 +21,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MessageComposer from '@/components/MessageComposer';
 import NotificationBell from '@/components/NotificationBell';
 import { API_BASE } from '@/config/env';
-import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 
@@ -72,37 +71,18 @@ export function FarmerDashboard({
   const [location, setLocation] = useState<any>(null);
   const [lastScanTime, setLastScanTime] = useState<string>('Today');
   const [lastScanData, setLastScanData] = useState<any>(null);
-  const [communityUnread, setCommunityUnread] = useState<number>(0);
+  const [isMarketplaceAuthenticated, setIsMarketplaceAuthenticated] = useState(false);
 
-  const refreshCommunityUnread = useCallback(async () => {
-    try {
-      const mobile_id = await getOrCreateMobileId();
-      const token = await AsyncStorage.getItem('auth.access_token');
-      if (!token) return;
-      const [inboxRes, groupsRes] = await Promise.all([
-        authFetch(`/api/v1/community/dm/inbox/${encodeURIComponent(mobile_id)}`),
-        authFetch(`/api/v1/community/groups/list/${encodeURIComponent(mobile_id)}`),
-      ]);
-      if (!inboxRes.ok || !groupsRes.ok) return;
-      const inbox = await inboxRes.json();
-      const groups = await groupsRes.json();
-      const dmSum = (inbox?.conversations ?? []).reduce(
-        (s: number, c: any) => s + (Number(c?.unread_count) || 0), 0
-      );
-      const grpSum = (groups?.groups ?? []).reduce(
-        (s: number, g: any) => s + (Number(g?.unread_count) || 0), 0
-      );
-      setCommunityUnread(dmSum + grpSum);
-    } catch {
-      // silent — badge is a hint, not critical
-    }
+  const refreshMarketplaceAuth = useCallback(async () => {
+    const token = await AsyncStorage.getItem('auth.access_token');
+    setIsMarketplaceAuthenticated(Boolean(token));
   }, []);
 
-  useEffect(() => {
-    refreshCommunityUnread();
-    const id = setInterval(refreshCommunityUnread, 30000);
-    return () => clearInterval(id);
-  }, [refreshCommunityUnread]);
+  useFocusEffect(
+    useCallback(() => {
+      void refreshMarketplaceAuth();
+    }, [refreshMarketplaceAuth])
+  );
 
   const t = useCallback((obj: any) => obj[textLanguage], [textLanguage]);
 
@@ -115,11 +95,13 @@ export function FarmerDashboard({
         healthy: { urdu: 'صحت مند', english: 'Healthy' },
         features: { urdu: 'فیچرز', english: 'Features' },
         startChat: { urdu: 'چیٹ شروع کریں', english: 'Start Chat' },
-        recentAlerts: { urdu: 'تازہ الرٹس', english: 'Recent Alerts' },
         marketplace: { urdu: 'مارکیٹ پلیس', english: 'Marketplace' },
         marketplaceLoginTitle: { urdu: 'مارکیٹ پلیس استعمال کرنے کے لیے لاگ اِن کریں', english: 'Login required for Marketplace' },
         marketplaceLoginDesc: { urdu: 'خرید و فروخت اور پروڈکٹ مینجمنٹ کے لیے مارکیٹ پلیس اکاؤنٹ میں لاگ اِن کریں۔', english: 'Please login to your marketplace account to buy/sell and manage products.' },
         marketplaceLoginBtn: { urdu: 'مارکیٹ پلیس لاگ اِن', english: 'Login to Marketplace' },
+        marketplaceOpenTitle: { urdu: 'فارمر کمیونٹی تیار ہے', english: 'Farmer Community is ready' },
+        marketplaceOpenDesc: { urdu: 'اپنی مصنوعات اپلوڈ، منظم اور براہ راست خریداروں تک پہنچائیں۔', english: 'Upload, manage, and sell your products directly to buyers.' },
+        marketplaceOpenBtn: { urdu: 'فارمر کمیونٹی کھولیں', english: 'Open Farmer Community' },
         listNewProduct: { urdu: 'نئی پروڈکٹ لسٹ کریں', english: 'List New Product' },
         yourListings: { urdu: 'آپ کی لسٹنگز', english: 'Your Listings' },
         diseaseTitle: { urdu: 'فصل کی بیماری کی تشخیص', english: 'Crop Disease Detection' },
@@ -138,27 +120,31 @@ export function FarmerDashboard({
   );
 
   useEffect(() => {
-    showMobileNotificationsOnce('farmer-dashboard-alerts', [
+    showMobileNotificationsOnce('farmer-notifications', [
       {
         id: 'rain-expected',
-        title: t({ urdu: 'کل بارش متوقع', english: 'Rain expected tomorrow' }),
-        body: t({
-          urdu: 'اپنی فصل کو بارش سے بچانے کے لیے احتیاطی تدابیر اختیار کریں۔',
-          english: 'Take precautions to protect your crop from rain.',
-        }),
-        data: { type: 'weather' },
+        type: 'weather',
+        title: 'Rain expected tomorrow',
+        titleEn: 'Rain expected tomorrow',
+        titleUr: 'کل بارش متوقع',
+        body: 'Take precautions to protect your crop from rain.',
+        bodyEn: 'Take precautions to protect your crop from rain.',
+        bodyUr: 'اپنی فصل کو بارش سے بچانے کے لیے احتیاطی تدابیر اختیار کریں۔',
+        data: { type: 'weather', route: '/farmer-notifications' },
       },
       {
         id: 'rice-price-up',
-        title: t({ urdu: 'چاول کی قیمت میں اضافہ', english: 'Rice price increased' }),
-        body: t({
-          urdu: 'مارکیٹ قیمت بہتر ہے۔ فروخت کا اچھا وقت ہو سکتا ہے۔',
-          english: 'Market price is better. It may be a good time to sell.',
-        }),
-        data: { type: 'price' },
+        type: 'price',
+        title: 'Rice price increased',
+        titleEn: 'Rice price increased',
+        titleUr: 'چاول کی قیمت میں اضافہ',
+        body: 'Market price is better. It may be a good time to sell.',
+        bodyEn: 'Market price is better. It may be a good time to sell.',
+        bodyUr: 'مارکیٹ قیمت بہتر ہے۔ فروخت کا اچھا وقت ہو سکتا ہے۔',
+        data: { type: 'price', route: '/farmer-notifications' },
       },
     ]);
-  }, [t]);
+  }, []);
 
   const featureCards = useMemo(
     () =>
@@ -190,28 +176,15 @@ export function FarmerDashboard({
         },
 
         {
-          id: 'notifications',
-          title: { urdu: 'الرٹس اور اپڈیٹس', english: 'Alerts & Updates' },
-          subtitle: { urdu: 'موسم، اسکیمیں اور قیمتیں', english: 'Weather, schemes & market prices' },
-          icon: <Feather name="bell" size={22} color="#ffffff" />,
-          gradient: ['#f59e0b', '#db2777'] as const,
-          onPress: () =>
-            router.push({
-              pathname: '/farmer-notifications',
-              params: { textLanguage, voiceLanguage },
-            }),
-        },
-        {
           id: 'marketplace',
           title: { urdu: 'مارکیٹ پلیس', english: 'Marketplace' },
           subtitle: { urdu: 'براہ راست گاہکوں کو فروخت', english: 'Sell directly to customers' },
           icon: <Feather name="shopping-bag" size={22} color="#ffffff" />,
           gradient: ['#3b82f6', '#2563eb'] as const,
           onPress: () =>
-            // Require login first; after OTP verification the flow navigates to community dashboard
             router.push({
               pathname: '/login',
-              params: { userType: 'businessman', textLanguage, voiceLanguage },
+              params: { userType: 'farmer', textLanguage, voiceLanguage },
             }),
         },
         {
@@ -307,15 +280,25 @@ export function FarmerDashboard({
     const fetchWeather = async () => {
       try {
         const response = await fetch('https://api.weatherbit.io/v2.0/current?lat=31.5204&lon=74.3587&key=529094980f6e4316be96ffc561515561');
-        const data = await response.json();
+        if (!response.ok) {
+          setWeather({ temp: 28, condition: 'Partly Cloudy' });
+          return;
+        }
+        const text = await response.text();
+        if (!text || !text.trim()) {
+          setWeather({ temp: 28, condition: 'Partly Cloudy' });
+          return;
+        }
+        const data = JSON.parse(text);
         if (data.data && data.data[0]) {
           setWeather({
             temp: Math.round(data.data[0].temp),
             condition: data.data[0].weather.description
           });
+        } else {
+          setWeather({ temp: 28, condition: 'Partly Cloudy' });
         }
-      } catch (e) {
-        console.warn('Failed to fetch weather:', e);
+      } catch {
         setWeather({ temp: 28, condition: 'Partly Cloudy' });
       }
     };
@@ -391,7 +374,7 @@ export function FarmerDashboard({
             </View>
           </View>
 
-          <NotificationBell onHeader />
+          <NotificationBell onHeader localNamespaces={['farmer-notifications']} />
 
         </View>
 
@@ -463,44 +446,6 @@ export function FarmerDashboard({
           ))}
         </View>
 
-        <View style={styles.alertHeaderRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.alertSectionTitle}>{t(strings.recentAlerts)}</Text>
-            <Text style={styles.alertSectionSub}>
-              {t({
-                urdu: 'آپ کی فصل کے لیے تازہ موسمی اور مارکیٹ اپڈیٹس',
-                english: 'Fresh weather and market updates for your crop',
-              })}
-            </Text>
-          </View>
-        </View>
-
-        {[
-          {
-            icon: 'weather-cloudy',
-            title: { urdu: 'کل بارش متوقع', english: 'Rain expected tomorrow' },
-            time: { urdu: '2 گھنٹے پہلے', english: '2h ago' },
-            color: '#06b6d4',
-          },
-          {
-            icon: 'trending-up',
-            title: { urdu: 'چاول کی قیمت میں 5% اضافہ', english: 'Rice prices increased 5%' },
-            time: { urdu: '5 گھنٹے پہلے', english: '5h ago' },
-            color: '#f59e0b',
-          },
-        ].map((a) => (
-          <View key={t(a.title)} style={styles.alertItem}>
-            <View style={[styles.alertIcon, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
-              <MaterialCommunityIcons name={a.icon as any} size={18} color={a.color} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.alertTitle}>{t(a.title)}</Text>
-              <Text style={styles.alertTime}>{t(a.time)}</Text>
-            </View>
-            <Feather name="chevron-right" size={18} color="#9ca3af" />
-          </View>
-        ))}
-        
         <Text style={styles.sectionTitle}>{t(strings.features)}</Text>
         <View style={styles.grid}>
           {featureCards.map((f) => (
@@ -544,7 +489,7 @@ export function FarmerDashboard({
         <Text style={styles.scanTitle}>{t(strings.marketplace)}</Text>
         <Text style={styles.scanSub}>{t({ urdu: 'اپنی مصنوعات براہ راست فروخت کریں', english: 'Sell your products directly' })}</Text>
 
-        {characterType === 'farmer' ? (
+        {characterType === 'farmer' && !isMarketplaceAuthenticated ? (
           <View style={styles.marketplaceLoginCard}>
             <View style={styles.marketplaceLoginHead}>
               <Feather name="lock" size={18} color="#0d5c4b" />
@@ -557,12 +502,33 @@ export function FarmerDashboard({
               onPress={() =>
                 router.push({
                   pathname: '/login',
-                  params: { userType: 'businessman', textLanguage, voiceLanguage },
+                  params: { userType: 'farmer', textLanguage, voiceLanguage },
                 })
               }
             >
               <Feather name="log-in" size={18} color="#111827" />
               <Text style={styles.sunriseBtnText}>{t(strings.marketplaceLoginBtn)}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : characterType === 'farmer' ? (
+          <View style={styles.marketplaceLoginCard}>
+            <View style={styles.marketplaceLoginHead}>
+              <Feather name="users" size={18} color="#0d5c4b" />
+              <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceOpenTitle)}</Text>
+            </View>
+            <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceOpenDesc)}</Text>
+            <TouchableOpacity
+              style={styles.sunriseBtn}
+              activeOpacity={0.9}
+              onPress={() =>
+                router.push({
+                  pathname: '/farmer/community',
+                  params: { userType: 'farmer', textLanguage, voiceLanguage },
+                })
+              }
+            >
+              <Feather name="arrow-right-circle" size={18} color="#111827" />
+              <Text style={styles.sunriseBtnText}>{t(strings.marketplaceOpenBtn)}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1484,19 +1450,17 @@ export function FarmerDashboard({
           { id: 'home', label: { urdu: 'ہوم', english: 'Home' }, icon: 'home' },
           { id: 'shop', label: { urdu: 'شاپ', english: 'Shop' }, icon: 'shopping-outline' },
           { id: 'chat', label: { urdu: 'چیٹ', english: 'Chat' }, icon: 'chat-outline' },
-          {
-            id: 'community',
-            label: { english: 'Community', urdu: 'کمیونٹی' },
-            icon: 'forum-outline',
-            onPress: () => router.push('/community/inbox'),
-            badge: communityUnread,
-          },
           { id: 'profile', label: { urdu: 'پروفائل', english: 'Profile' }, icon: 'account' },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           const showActiveMarker = isActive && tab.id !== 'chat';
           return (
-            <TouchableOpacity key={tab.id} onPress={() => setActiveTab(tab.id)} activeOpacity={0.85} style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}>
+            <TouchableOpacity
+              key={tab.id}
+              onPress={() => setActiveTab(tab.id as Tab)}
+              activeOpacity={0.85}
+              style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}
+            >
               <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
               <Text style={[styles.tabLabel, { fontSize: r.fs(10.5), color: isActive ? '#0d5c4b' : '#9ca3af' }]}>{t(tab.label)}</Text>
               {showActiveMarker && <View style={styles.tabDot} />}

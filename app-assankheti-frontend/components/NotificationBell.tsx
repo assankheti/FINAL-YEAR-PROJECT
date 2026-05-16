@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,8 +17,15 @@ import { useT, useLanguage } from '@/contexts/LanguageContext';
 import { useSocketEvent } from '@/hooks/useSocket';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+import { APP_FLOW_KEYS } from '@/lib/appFlow';
+import {
+  listLocalNotifications,
+  markLocalNotificationsRead,
+  subscribeLocalNotifications,
+  type LocalNotificationRecord,
+} from '@/lib/localNotificationsInbox';
 
-type Notification = {
+type ServerNotification = {
   notification_id: string;
   recipient_id: string;
   type: 'dm' | 'offer_received' | 'offer_accepted' | 'offer_rejected' | 'group_added' | string;
@@ -28,6 +36,10 @@ type Notification = {
   read: boolean;
   data?: Record<string, any> | null;
   created_at?: string;
+};
+
+type BellNotification = (ServerNotification | LocalNotificationRecord) & {
+  source: 'server' | 'local';
 };
 
 const POLL_MS = 30_000;
@@ -49,21 +61,50 @@ function formatRelative(iso?: string): string {
 type Props = {
   /** When true, the bell is rendered in white/translucent style for header use. */
   onHeader?: boolean;
+  localNamespaces?: string[];
 };
 
-export default function NotificationBell({ onHeader = true }: Props) {
+export default function NotificationBell({ onHeader = true, localNamespaces = [] }: Props) {
   const router = useRouter();
   const t = useT();
   const { textLanguage } = useLanguage();
-  const [items, setItems] = useState<Notification[]>([]);
-  const [unread, setUnread] = useState(0);
+  const [serverItems, setServerItems] = useState<ServerNotification[]>([]);
+  const [localItems, setLocalItems] = useState<LocalNotificationRecord[]>([]);
+  const [serverUnread, setServerUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const mobileIdRef = useRef<string>('');
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const unread = serverUnread + localItems.filter((item) => !item.read).length;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    AsyncStorage.getItem(APP_FLOW_KEYS.accessToken)
+      .then((token) => {
+        if (!cancelled) setIsAuthenticated(Boolean(token));
+      })
+      .catch(() => {
+        if (!cancelled) setIsAuthenticated(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchOnce = useCallback(async () => {
     try {
+      const token = await AsyncStorage.getItem(APP_FLOW_KEYS.accessToken);
+      if (!token) {
+        setServerItems([]);
+        setServerUnread(0);
+        setIsAuthenticated(false);
+        return;
+      }
+
+      setIsAuthenticated(true);
       if (!mobileIdRef.current) {
         mobileIdRef.current = await getOrCreateMobileId();
       }
@@ -75,70 +116,125 @@ export default function NotificationBell({ onHeader = true }: Props) {
         throw new Error(`HTTP ${res.status}`);
       }
       const json = await res.json();
-      const list: Notification[] = json?.notifications ?? [];
-      setItems(list);
-      setUnread(typeof json?.unread_count === 'number' ? json.unread_count : list.filter((n) => !n.read).length);
+      const list: ServerNotification[] = json?.notifications ?? [];
+      setServerItems(list);
+      setServerUnread(
+        typeof json?.unread_count === 'number' ? json.unread_count : list.filter((n) => !n.read).length
+      );
     } catch (e: any) {
       console.warn('[NotificationBell] fetch failed', e?.message ?? e);
     }
   }, []);
 
+  const loadLocal = useCallback(async () => {
+    if (!localNamespaces.length) {
+      setLocalItems([]);
+      return;
+    }
+
+    const items = await listLocalNotifications(localNamespaces);
+    setLocalItems(items);
+  }, [localNamespaces]);
+
   // Initial fetch + 30s polling fallback
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     fetchOnce();
     pollTimer.current = setInterval(fetchOnce, POLL_MS);
     return () => {
       if (pollTimer.current) clearInterval(pollTimer.current);
     };
-  }, [fetchOnce]);
+  }, [fetchOnce, isAuthenticated]);
+
+  useEffect(() => {
+    void loadLocal();
+    const unsubscribe = subscribeLocalNotifications(() => {
+      void loadLocal();
+    });
+    return unsubscribe;
+  }, [loadLocal]);
 
   // Live updates from the server
   useSocketEvent('notification:new', (payload: any) => {
-    const n: Notification | undefined = payload?.notification;
+    const n: ServerNotification | undefined = payload?.notification;
     if (!n?.notification_id) return;
-    setItems((prev) => {
+    setServerItems((prev) => {
       if (prev.some((x) => x.notification_id === n.notification_id)) return prev;
       return [n, ...prev].slice(0, PAGE_LIMIT);
     });
-    if (!n.read) setUnread((u) => u + 1);
-  });
+    if (!n.read) setServerUnread((u) => u + 1);
+  }, isAuthenticated);
 
   const markRead = useCallback(
-    async (ids?: string[]) => {
+    async (itemsToMark?: BellNotification[]) => {
       try {
-        const body = ids?.length ? { notification_ids: ids } : { all: true };
-        const res = await authFetch('/api/v1/community/notifications/read', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        // Optimistic local update
-        if (ids?.length) {
-          setItems((prev) =>
-            prev.map((n) => (ids.includes(n.notification_id) ? { ...n, read: true } : n))
-          );
-          setUnread((u) => Math.max(0, u - ids.length));
-        } else {
-          setItems((prev) => prev.map((n) => ({ ...n, read: true })));
-          setUnread(0);
+        const localToMark = itemsToMark?.filter((item) => item.source === 'local') ?? [];
+        const serverToMark = itemsToMark?.filter((item) => item.source === 'server') ?? [];
+
+        if (localToMark.length) {
+          await markLocalNotificationsRead({
+            notificationIds: localToMark.map((item) => item.notification_id),
+          });
+        } else if (!itemsToMark?.length && localNamespaces.length) {
+          await markLocalNotificationsRead({ namespaces: localNamespaces });
+        }
+
+        if (isAuthenticated) {
+          const body = serverToMark.length
+            ? { notification_ids: serverToMark.map((item) => item.notification_id) }
+            : itemsToMark?.length
+              ? null
+              : { all: true };
+
+          if (body) {
+            const res = await authFetch('/api/v1/community/notifications/read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          }
+
+          if (serverToMark.length) {
+            setServerItems((prev) =>
+              prev.map((n) =>
+                serverToMark.some((item) => item.notification_id === n.notification_id)
+                  ? { ...n, read: true }
+                  : n
+              )
+            );
+            setServerUnread((u) => Math.max(0, u - serverToMark.filter((item) => !item.read).length));
+          } else if (!itemsToMark?.length) {
+            setServerItems((prev) => prev.map((n) => ({ ...n, read: true })));
+            setServerUnread(0);
+          }
         }
       } catch (e: any) {
         console.warn('[NotificationBell] markRead failed', e?.message ?? e);
       }
     },
-    []
+    [isAuthenticated, localNamespaces]
   );
 
   const handleOpen = () => {
     setOpen(true);
+    if (!isAuthenticated) return;
     setLoading(true);
     fetchOnce().finally(() => setLoading(false));
   };
 
-  const handleTapItem = (n: Notification) => {
-    if (!n.read) markRead([n.notification_id]);
+  const handleTapItem = (n: BellNotification) => {
+    if (!n.read) void markRead([n]);
     setOpen(false);
+
+    if (n.source === 'local') {
+      const route = typeof n.data?.route === 'string' ? n.data.route : '';
+      if (route) {
+        router.push(route as any);
+      }
+      return;
+    }
 
     const data = n.data || {};
     if (n.type === 'dm' && data.conversation_id) {
@@ -173,8 +269,12 @@ export default function NotificationBell({ onHeader = true }: Props) {
     }
   };
 
-  const titleFor = (n: Notification) => (textLanguage === 'urdu' ? n.title_ur : n.title_en) || n.title_en;
-  const bodyFor = (n: Notification) => (textLanguage === 'urdu' ? n.body_ur : n.body_en) || n.body_en;
+  const items = [...serverItems.map((item) => ({ ...item, source: 'server' as const })), ...localItems.map((item) => ({ ...item, source: 'local' as const }))].sort(
+    (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+  );
+
+  const titleFor = (n: BellNotification) => (textLanguage === 'urdu' ? n.title_ur : n.title_en) || n.title_en;
+  const bodyFor = (n: BellNotification) => (textLanguage === 'urdu' ? n.body_ur : n.body_en) || n.body_en;
 
   const bellTint = onHeader ? '#ffffff' : '#0d5c4b';
   const bellBg = onHeader ? 'rgba(255,255,255,0.18)' : '#ecfdf5';

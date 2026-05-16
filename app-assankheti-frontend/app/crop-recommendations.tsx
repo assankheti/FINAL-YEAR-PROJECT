@@ -218,16 +218,22 @@ export default function SmartCropRecommendation() {
         const API_KEY = '529094980f6e4316be96ffc561515561';
         const url = `https://api.weatherbit.io/v2.0/forecast/daily?lat=${latitude}&lon=${longitude}&key=${API_KEY}`;
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`Weather API error: ${res.status}`);
-        const data = await res.json();
+        if (!res.ok) {
+          setWeatherForecast(buildFallbackWeather());
+          return;
+        }
+        const text = await res.text();
+        if (!text || !text.trim()) {
+          setWeatherForecast(buildFallbackWeather());
+          return;
+        }
+        const data = JSON.parse(text);
         if (data && Array.isArray(data.data)) {
           setWeatherForecast(normalizeSevenDayForecast(data.data));
         } else {
-          console.warn('Unexpected weather payload', data);
           setWeatherForecast(buildFallbackWeather());
         }
-      } catch (e) {
-        console.warn('Failed fetching weather, using defaults:', e);
+      } catch {
         setWeatherForecast(buildFallbackWeather());
       }
     };

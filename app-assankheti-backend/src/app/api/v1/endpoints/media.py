@@ -8,7 +8,18 @@ from app.utils.logger import logger
 
 router = APIRouter()
 
-UPLOAD_ROOT = "/app/uploads"
+def _resolve_upload_root() -> str:
+    configured = os.getenv("UPLOAD_ROOT")
+    if configured:
+        return configured
+    if os.path.exists("/.dockerenv"):
+        return "/app/uploads"
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "uploads")
+    )
+
+
+UPLOAD_ROOT = _resolve_upload_root()
 COMMUNITY_DIR = os.path.join(UPLOAD_ROOT, "community")
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}

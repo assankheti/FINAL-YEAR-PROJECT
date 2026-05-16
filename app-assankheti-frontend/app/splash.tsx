@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router';
 
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { API_BASE } from '@/config/env';
+import { getStartupRoute, readAppFlowState } from '@/lib/appFlow';
 //defines the screen component for this route file.
 export default function SplashPage() {
   const router = useRouter();
@@ -30,11 +31,12 @@ export default function SplashPage() {
       // Optional: verify response mobile_id
       console.log('BOOTSTRAP:', data);
 
-      router.replace('/terms-and-conditions');
-    } catch (err) {
-      // Even if backend fails, you can still proceed (your choice)
-      // console.log('Bootstrap failed', err);
-      router.replace('/terms-and-conditions');
+      const flowState = await readAppFlowState();
+      router.replace(getStartupRoute(flowState) as any);
+    } catch {
+      // Even if backend fails, local flow state is enough to continue safely.
+      const flowState = await readAppFlowState();
+      router.replace(getStartupRoute(flowState) as any);
     }
   };
 

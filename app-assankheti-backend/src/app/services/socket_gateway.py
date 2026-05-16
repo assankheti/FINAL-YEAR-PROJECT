@@ -390,6 +390,95 @@ async def on_dm_read(sid, data):
             mobile_id, conversation_id,
         )
 
+    # Broadcast seen receipt to all participants so the sender's client can
+    # show double-tick / "Seen" indicator.
+    seen_payload: Dict[str, Any] = {
+        "conversation_id": conversation_id,
+        "reader_id": mobile_id,
+        "seen_at": now.isoformat(),
+    }
+    try:
+        conv = await db[COMMUNITY_CONVERSATIONS_COLLECTION].find_one(
+            {"conversation_id": conversation_id}, {"participants": 1, "_id": 0}
+        )
+        if conv:
+            for participant in conv.get("participants", []):
+                if participant and participant != mobile_id:
+                    await sio.emit("dm:seen", seen_payload, room=_user_room(participant))
+    except Exception:
+        logger.exception(
+            "dm_seen_broadcast_failed mobile_id=%s conversation_id=%s",
+            mobile_id, conversation_id,
+        )
+
+
+# ---------- Typing indicators ----------
+
+@sio.on("typing")
+async def on_typing(sid, data):
+    """
+    Client emits: {recipient_id: str, is_typing: bool}
+    Server emits to recipient's personal room: typing:update {sender_id, is_typing}
+    """
+    session = await sio.get_session(sid) or {}
+    sender_id = session.get("mobile_id")
+    if not sender_id:
+        await _emit_error(sid, "unauthorized", "Not authenticated")
+        return
+
+    if not isinstance(data, dict):
+        return
+
+    recipient_id = (data.get("recipient_id") or "").strip()
+    if not recipient_id:
+        return
+
+    is_typing: bool = bool(data.get("is_typing", True))
+
+    try:
+        await sio.emit(
+            "typing:update",
+            {"sender_id": sender_id, "is_typing": is_typing},
+            room=_user_room(recipient_id),
+        )
+    except Exception:
+        logger.exception(
+            "typing_emit_failed sender_id=%s recipient_id=%s",
+            sender_id, recipient_id,
+        )
+
+
+@sio.on("stop_typing")
+async def on_stop_typing(sid, data):
+    """
+    Alias for typing with is_typing=false.
+    Client emits: {recipient_id: str}
+    """
+    session = await sio.get_session(sid) or {}
+    sender_id = session.get("mobile_id")
+    if not sender_id:
+        await _emit_error(sid, "unauthorized", "Not authenticated")
+        return
+
+    if not isinstance(data, dict):
+        return
+
+    recipient_id = (data.get("recipient_id") or "").strip()
+    if not recipient_id:
+        return
+
+    try:
+        await sio.emit(
+            "typing:update",
+            {"sender_id": sender_id, "is_typing": False},
+            room=_user_room(recipient_id),
+        )
+    except Exception:
+        logger.exception(
+            "stop_typing_emit_failed sender_id=%s recipient_id=%s",
+            sender_id, recipient_id,
+        )
+
 
 # ---------- Group ----------
 

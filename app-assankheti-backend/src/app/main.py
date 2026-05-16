@@ -36,7 +36,18 @@ from .services.fertilizer_service import scrape_and_store_fertilizers
 from .services.pesticide_service import scrape_and_store_pesticides
 from .services.seed_service import scrape_and_store_seeds
 
-UPLOAD_ROOT = "/app/uploads"
+def _resolve_upload_root() -> str:
+    configured = os.getenv("UPLOAD_ROOT")
+    if configured:
+        return configured
+    if os.path.exists("/.dockerenv"):
+        return "/app/uploads"
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
+    )
+
+
+UPLOAD_ROOT = _resolve_upload_root()
 os.makedirs(os.path.join(UPLOAD_ROOT, "community"), exist_ok=True)
 
 
@@ -192,3 +203,4 @@ async def not_found_handler(request: Request, exc):
     return JSONResponse(status_code=404, content={"detail": "Resource not found"})
 
 
+sio_app = socketio.ASGIApp(sio, other_asgi_app=app)

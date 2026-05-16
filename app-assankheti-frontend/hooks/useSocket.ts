@@ -13,11 +13,13 @@ type Handler = (...args: any[]) => void;
  * - The handler ref is updated on every render so callers can capture
  *   fresh state without resubscribing.
  */
-export function useSocketEvent(event: string, handler: Handler): void {
+export function useSocketEvent(event: string, handler: Handler, enabled = true): void {
   const handlerRef = useRef<Handler>(handler);
   handlerRef.current = handler;
 
   useEffect(() => {
+    if (!enabled) return;
+
     let cancelled = false;
     const wrapper: Handler = (...args) => handlerRef.current(...args);
 
@@ -27,7 +29,9 @@ export function useSocketEvent(event: string, handler: Handler): void {
         if (cancelled) return;
         socket.on(event, wrapper);
       } catch (err) {
-        console.warn('[useSocketEvent] connect failed', err);
+        if (!(err instanceof Error) || !err.message.includes('not authenticated')) {
+          console.warn('[useSocketEvent] connect failed', err);
+        }
       }
     })();
 
@@ -36,7 +40,7 @@ export function useSocketEvent(event: string, handler: Handler): void {
       const socket = getSocket();
       if (socket) socket.off(event, wrapper);
     };
-  }, [event]);
+  }, [enabled, event]);
 }
 
 /** Returns the live socket instance, connecting it lazily if needed. */

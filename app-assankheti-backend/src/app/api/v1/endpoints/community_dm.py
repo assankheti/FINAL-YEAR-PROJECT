@@ -398,6 +398,81 @@ async def dm_unblock(
     return {"ok": True, "removed": result.deleted_count}
 
 
+# ---------- Search ----------
+
+@router.get("/dm/search")
+async def dm_search(
+    q: str = Query("", description="Search query — filters by partner mobile_id or last message preview"),
+    limit: int = Query(20, ge=1, le=MAX_HISTORY_LIMIT),
+    caller_id: str = Depends(get_current_mobile_id),
+):
+    """
+    Search the caller's DM conversations by partner ID substring or last message preview.
+    Returns the same shape as /dm/inbox items so the frontend can reuse its list renderer.
+    Falls back to the most-recent conversations when `q` is empty.
+    """
+    query_str = q.strip()
+
+    mongo_filter: Dict[str, Any] = {"participants": caller_id}
+    if query_str:
+        import re
+        pattern = re.compile(re.escape(query_str), re.IGNORECASE)
+        mongo_filter = {
+            "participants": caller_id,
+            "$or": [
+                {"participants": {"$elemMatch": {"$regex": pattern.pattern, "$options": "i"}}},
+                {"last_message_preview": {"$regex": pattern.pattern, "$options": "i"}},
+            ],
+        }
+
+    cursor = (
+        db[COMMUNITY_CONVERSATIONS_COLLECTION]
+        .find(mongo_filter)
+        .sort("last_message_at", -1)
+        .limit(limit)
+    )
+
+    items: List[Dict[str, Any]] = []
+    async for conv in cursor:
+        conv = _strip_id(conv)
+        participants = conv.get("participants", [])
+        other = next((p for p in participants if p != caller_id), None)
+        last_read_map = conv.get("last_read_at") or {}
+        last_read_at = (
+            last_read_map.get(caller_id) if isinstance(last_read_map, dict) else None
+        )
+
+        unread_query: Dict[str, Any] = {
+            "conversation_id": conv["conversation_id"],
+            "sender_id": {"$ne": caller_id},
+        }
+        if last_read_at:
+            unread_query["created_at"] = {"$gt": last_read_at}
+
+        try:
+            unread_count = await db[COMMUNITY_MESSAGES_COLLECTION].count_documents(
+                unread_query
+            )
+        except Exception:
+            logger.exception(
+                "dm_search_unread_count_failed conversation_id=%s",
+                conv.get("conversation_id"),
+            )
+            unread_count = 0
+
+        items.append({
+            "conversation_id": conv["conversation_id"],
+            "other_participant": other,
+            "context_type": conv.get("context_type"),
+            "context_ref": conv.get("context_ref"),
+            "last_message_preview": conv.get("last_message_preview"),
+            "last_message_at": conv.get("last_message_at"),
+            "unread_count": unread_count,
+        })
+
+    return {"conversations": items, "query": query_str}
+
+
 @router.get("/dm/blocks/{mobile_id}")
 async def dm_blocks(
     mobile_id: str,

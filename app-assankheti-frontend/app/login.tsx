@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { coerceAppLanguage, useLanguage } from '@/contexts/LanguageContext';
 import { API_BASE } from '@/config/env';
+import { normalizeRole } from '@/lib/appFlow';
 
 
 function tryParseJson(text: string): any | null {
@@ -17,13 +18,13 @@ export default function LoginPage() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { textLanguage: ctxTextLanguage, voiceLanguage: ctxVoiceLanguage } = useLanguage();
-  const userType = (params?.userType as string) ?? 'simple-user';
+  const userType = normalizeRole(params?.userType as string) ?? 'simple-user';
   const textLanguage = coerceAppLanguage(params?.textLanguage, ctxTextLanguage);
   const voiceLanguage = coerceAppLanguage(params?.voiceLanguage, ctxVoiceLanguage);
 
   const handleSendOtp = async (phoneNumberE164: string) => {
-    if (!/^\+[1-9]\d{7,14}$/.test(phoneNumberE164)) {
-      throw new Error('Phone number must be in E.164 format (e.g., +10000000000)');
+    if (!/^\+\d{11}$/.test(phoneNumberE164)) {
+      throw new Error('Phone number must contain exactly 11 digits after + (example: +92300123456)');
     }
 
     const res = await fetch(`${API_BASE}/api/v1/auth/send-otp/`, {

@@ -2,6 +2,7 @@ import { TermsAndConditions } from '@/components/terms-and-conditions';
 import { useRouter } from 'expo-router';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { API_BASE } from '@/config/env';
+import { setTermsAcceptedLocal } from '@/lib/appFlow';
 
 export default function TermsAndConditionsPage() {
   const router = useRouter();
@@ -26,10 +27,12 @@ export default function TermsAndConditionsPage() {
         throw new Error('Failed to save terms');
       }
 
+      await setTermsAcceptedLocal(true);
       router.replace('/language-selection');
     } catch (err) {
       console.error('Accept terms error:', err);
 
+      await setTermsAcceptedLocal(true);
       router.replace('/language-selection');
     }
   };
