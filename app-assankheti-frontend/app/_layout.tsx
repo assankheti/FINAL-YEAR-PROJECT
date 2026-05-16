@@ -26,9 +26,11 @@ export default function RootLayout() {
           <Stack.Screen name="terms-and-conditions" options={{ headerShown: false }} />
           <Stack.Screen name="language-selection" options={{ headerShown: false }} />
           <Stack.Screen name="user-type-selection" options={{ headerShown: false }} />
+          <Stack.Screen name="characteristics" options={{ headerShown: false }} />
           <Stack.Screen name="crop-selection" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="verify-otp" options={{ headerShown: false }} />
+          <Stack.Screen name="community-design-preview" options={{ headerShown: false }} />
           <Stack.Screen name="add-product" options={{ headerShown: false }} />
           <Stack.Screen name="farmer-settings" options={{ headerShown: false }} />
           <Stack.Screen name="community-settings" options={{ headerShown: false }} />
@@ -54,6 +56,7 @@ export default function RootLayout() {
           <Stack.Screen name="order-details/[orderId]" options={{ headerShown: false }} />
           <Stack.Screen name="farmer-dashboard" options={{ headerShown: false }} />
           <Stack.Screen name="community-dashboard" options={{ headerShown: false }} />
+          <Stack.Screen name="farmer/community" options={{ headerShown: false }} />
         </Stack>
       </LanguageProvider>
       <StatusBar style="auto" />

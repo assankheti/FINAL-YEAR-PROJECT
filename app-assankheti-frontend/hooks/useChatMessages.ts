@@ -33,6 +33,12 @@ type Result = {
   messages: ChatMessage[];
   isLoading: boolean;
   error: string | null;
+  /**
+   * True once the remote participant has seen the last outbound message
+   * (server emits `dm:seen` when they call dm:read).
+   * Resets to false whenever a new message is sent.
+   */
+  seenByOther: boolean;
   sendMessage: (args: SendArgs) => Promise<void>;
   markRead: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -52,16 +58,25 @@ type Options = {
   /** Other DM participant — used to filter inbound events when we don't yet
    *  have a real conversation_id (e.g. on the Message Seller flow). */
   otherParticipantId?: string;
+  /**
+   * The caller's own mobile_id.  When provided the hook uses it to determine
+   * which `dm:seen` broadcasts are from the *other* participant (i.e. the
+   * remote party has seen our messages).  Falls back to comparing sender_id
+   * with the literal string `'me'` when omitted.
+   */
+  myMobileId?: string;
 };
 
 export function useChatMessages(opts: Options | string | undefined): Result {
   const optsObj: Options = typeof opts === 'string' ? { conversationId: opts } : opts ?? {};
   const conversationId = optsObj.conversationId;
   const otherParticipantId = optsObj.otherParticipantId;
+  const myMobileId = optsObj.myMobileId ?? '';
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [seenByOther, setSeenByOther] = useState<boolean>(false);
 
   // Track temp ids → real ids so we can dedupe when the same message comes
   // back via dm:received from another device.
@@ -158,6 +173,31 @@ export function useChatMessages(opts: Options | string | undefined): Result {
       copy[idx] = { ...m, status: 'sent' };
       return copy;
     });
+    // A new outbound message resets the seen state.
+    setSeenByOther(false);
+  });
+
+  // Seen receipt: server emits dm:seen when the recipient calls dm:read.
+  // We flip seenByOther to true only when the reader is NOT the current user
+  // (i.e. the other participant has now seen our last message).
+  useSocketEvent('dm:seen', (payload: any) => {
+    if (!payload) return;
+    const { conversation_id: cid, reader_id } = payload as {
+      conversation_id?: string;
+      reader_id?: string;
+      seen_at?: string;
+    };
+
+    // Filter to this conversation only.
+    if (conversationId && cid && cid !== conversationId) return;
+
+    // Ignore if we are the reader (we only care when the *other* person reads).
+    if (!reader_id) return;
+    const isSelf =
+      (myMobileId && reader_id === myMobileId) || reader_id === 'me';
+    if (isSelf) return;
+
+    setSeenByOther(true);
   });
 
   const httpFallbackSend = useCallback(
@@ -189,6 +229,8 @@ export function useChatMessages(opts: Options | string | undefined): Result {
         copy[idx] = { ...real, status: 'sent' };
         return copy;
       });
+      // New send always resets seen state.
+      setSeenByOther(false);
     },
     []
   );
@@ -202,7 +244,7 @@ export function useChatMessages(opts: Options | string | undefined): Result {
       const optimistic: ChatMessage = {
         message_id: cmid,
         conversation_id: conversationId ?? null,
-        sender_id: 'me',
+        sender_id: myMobileId || 'me',
         recipient_id: args.recipientId,
         body: args.body ?? null,
         image_url: args.imageUrl ?? null,
@@ -213,6 +255,8 @@ export function useChatMessages(opts: Options | string | undefined): Result {
       };
       tempByCmid.current.set(cmid, cmid);
       setMessages((prev) => [...prev, optimistic]);
+      // Reset seen on new outbound message.
+      setSeenByOther(false);
 
       let ackReceived = false;
       let usedFallback = false;
@@ -272,7 +316,7 @@ export function useChatMessages(opts: Options | string | undefined): Result {
 
       void usedFallback; // (kept around for future telemetry/retry UI)
     },
-    [conversationId, httpFallbackSend]
+    [conversationId, myMobileId, httpFallbackSend]
   );
 
   const applyOfferStatus = useCallback(
@@ -317,5 +361,5 @@ export function useChatMessages(opts: Options | string | undefined): Result {
     }
   }, [conversationId]);
 
-  return { messages, isLoading, error, sendMessage, markRead, refresh, applyOfferStatus };
+  return { messages, isLoading, error, seenByOther, sendMessage, markRead, refresh, applyOfferStatus };
 }

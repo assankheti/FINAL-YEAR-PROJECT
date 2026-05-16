@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import React from 'react';
-import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 
 import OfferCard, { OfferStatus } from '@/components/community/OfferCard';
 import { API_BASE } from '@/config/env';
@@ -32,6 +32,15 @@ function resolveImageUri(url?: string | null): string | undefined {
   return API_BASE + url;
 }
 
+function normalizeSystemBody(body?: string | null, t?: ReturnType<typeof useT>) {
+  const text = (body ?? '').trim();
+  if (!text) return '';
+  if (/^offer withdrew\.?$/i.test(text) || /^offer withdrawn\.?$/i.test(text)) {
+    return t ? t({ english: 'Offer withdrawn', urdu: 'پیشکش واپس لے لی گئی' }) : 'Offer withdrawn';
+  }
+  return text;
+}
+
 export default function MessageBubble({
   message,
   myMobileId,
@@ -40,8 +49,12 @@ export default function MessageBubble({
   onBlockUser,
 }: Props) {
   const t = useT();
+  const { width } = useWindowDimensions();
   const isMe = message.sender_id === myMobileId || message.sender_id === 'me';
   const time = formatTime(message.created_at);
+  const bubbleMaxWidth = Math.min(width * 0.78, 340);
+  const offerWidth = Math.min(width * 0.84, 360);
+  const imageSize = Math.min(width * 0.62, 280);
 
   const handleLongPress = () => {
     if (onLongPress) {
@@ -66,7 +79,7 @@ export default function MessageBubble({
   if (message.message_type === 'system') {
     return (
       <View style={styles.systemRow}>
-        <Text style={styles.systemText}>{message.body || ''}</Text>
+        <Text style={styles.systemText}>{normalizeSystemBody(message.body, t)}</Text>
       </View>
     );
   }
@@ -74,7 +87,7 @@ export default function MessageBubble({
   if (message.message_type === 'offer') {
     return (
       <View style={[styles.row, isMe ? styles.rowMe : styles.rowThem]}>
-        <View style={{ maxWidth: '88%' }}>
+        <View style={[styles.offerWrap, { width: offerWidth, maxWidth: '100%' }]}>
           <OfferCard
             offer={message.payload as any}
             myMobileId={myMobileId}
@@ -97,9 +110,9 @@ export default function MessageBubble({
       delayLongPress={250}
       style={[styles.row, isMe ? styles.rowMe : styles.rowThem]}
     >
-      <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+      <View style={[styles.bubble, { maxWidth: bubbleMaxWidth }, isMe ? styles.bubbleMe : styles.bubbleThem]}>
         {imgUri ? (
-          <Image source={{ uri: imgUri }} style={styles.image} resizeMode="cover" />
+          <Image source={{ uri: imgUri }} style={[styles.image, { width: imageSize, height: imageSize }]} resizeMode="cover" />
         ) : null}
         {message.body ? (
           <Text style={[styles.text, isMe ? styles.textMe : styles.textThem]}>
@@ -126,27 +139,28 @@ function StatusIcon({ status }: { status?: ChatMessage['status'] }) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', marginVertical: 4 },
+  row: { flexDirection: 'row', marginVertical: 5 },
   rowMe: { justifyContent: 'flex-end' },
   rowThem: { justifyContent: 'flex-start' },
-  bubble: { maxWidth: '84%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
-  bubbleMe: { backgroundColor: '#0d5c4b', borderTopRightRadius: 6 },
-  bubbleThem: { backgroundColor: '#ffffff', borderTopLeftRadius: 6, borderWidth: 1, borderColor: '#e5e7eb' },
+  offerWrap: { maxWidth: '100%' },
+  bubble: { borderRadius: 18, paddingHorizontal: 12, paddingVertical: 10 },
+  bubbleMe: { backgroundColor: '#0d5c4b', borderTopRightRadius: 7 },
+  bubbleThem: { backgroundColor: '#ffffff', borderTopLeftRadius: 7, borderWidth: 1, borderColor: '#e5e7eb' },
   text: { fontWeight: '700', fontSize: 14 },
   textMe: { color: '#ffffff' },
   textThem: { color: '#111827' },
-  image: { width: 220, height: 220, borderRadius: 10, marginBottom: 6, backgroundColor: '#0001' },
+  image: { borderRadius: 14, marginBottom: 8, backgroundColor: '#0001' },
   metaRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 4 },
   time: { fontWeight: '700', fontSize: 11 },
   timeMe: { color: 'rgba(255,255,255,0.75)' },
   timeThem: { color: '#9ca3af' },
 
-  systemRow: { alignItems: 'center', marginVertical: 8 },
+  systemRow: { alignItems: 'center', marginVertical: 10 },
   systemText: {
     backgroundColor: 'rgba(13,92,75,0.08)',
     color: '#4b5563',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
     fontWeight: '700',
     fontSize: 12,

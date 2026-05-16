@@ -23,8 +23,8 @@ export default function LoginPage() {
   const voiceLanguage = coerceAppLanguage(params?.voiceLanguage, ctxVoiceLanguage);
 
   const handleSendOtp = async (phoneNumberE164: string) => {
-    if (!/^\+[1-9]\d{7,14}$/.test(phoneNumberE164)) {
-      throw new Error('Phone number must be in E.164 format (e.g., +10000000000)');
+    if (!/^\+\d{11}$/.test(phoneNumberE164)) {
+      throw new Error('Phone number must contain exactly 11 digits after + (example: +92300123456)');
     }
 
     const res = await fetch(`${API_BASE}/api/v1/auth/send-otp/`, {

@@ -1,13 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { upsertLocalNotifications } from '@/lib/localNotificationsInbox';
 
 export type MobileNotificationItem = {
   id: string;
   title: string;
+  titleEn?: string;
+  titleUr?: string;
   body?: string;
+  bodyEn?: string;
+  bodyUr?: string;
   isRead?: boolean;
   data?: Record<string, unknown>;
+  type?: string;
+  createdAt?: string;
 };
 
 const PUSH_SETTING_KEY = 'settings.pushNotifications';
@@ -112,7 +119,25 @@ export async function showMobileNotificationOnce(
   namespace: string,
   item: MobileNotificationItem
 ): Promise<boolean> {
-  if (!item.title.trim() || item.isRead) return false;
+  if (!item.title.trim()) return false;
+
+  await upsertLocalNotifications(namespace, [
+    {
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      titleEn: item.titleEn,
+      titleUr: item.titleUr,
+      body: item.body,
+      bodyEn: item.bodyEn,
+      bodyUr: item.bodyUr,
+      isRead: item.isRead,
+      createdAt: item.createdAt,
+      data: item.data,
+    },
+  ]);
+
+  if (item.isRead) return false;
   if (!(await pushNotificationsEnabled())) return false;
   if (!(await ensureNotificationPermission())) return false;
 

@@ -1,9 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Animated, PanResponder, View, Text, ScrollView, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
 import GreenHeader from '@/components/GreenHeader';
 import { useLanguage, useT } from '@/contexts/LanguageContext';
+import {
+  listLocalNotifications,
+  markLocalNotificationsRead,
+  removeLocalNotification,
+  subscribeLocalNotifications,
+  upsertLocalNotifications,
+} from '@/lib/localNotificationsInbox';
 
 export type NotificationItem = {
   id: string;
@@ -17,6 +24,19 @@ export type NotificationItem = {
 };
 
 export type TypeConfig = Record<string, { icon: React.ComponentProps<typeof Feather>['name']; bg: string; fg: string }>;
+
+function formatRelative(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const diff = Math.max(0, Date.now() - d.getTime());
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 function SwipeDismissCard({
   children,
@@ -113,11 +133,15 @@ export default function Notification({
   title = { english: 'Notifications', urdu: 'اطلاعات' },
   onBack,
   typeConfig = {},
+  storageNamespaces,
+  seedNamespace,
 }: {
   initial?: NotificationItem[];
   title?: { english: string; urdu: string };
   onBack?: () => void;
   typeConfig?: TypeConfig;
+  storageNamespaces?: string[];
+  seedNamespace?: string;
 }) {
   const { width } = useWindowDimensions();
   const isCompactHeader = width < 390;
@@ -141,15 +165,72 @@ export default function Notification({
 
   const [notifs, setNotifs] = useState<NotificationItem[]>(initial);
 
+  useEffect(() => {
+    if (!seedNamespace || !initial.length) return;
+    void upsertLocalNotifications(
+      seedNamespace,
+      initial.map((item) => ({
+        id: item.id,
+        type: item.type,
+        title: item.title,
+        titleEn: item.title,
+        titleUr: item.titleUrdu ?? item.title,
+        body: item.description ?? item.subtitle,
+        bodyEn: item.description ?? item.subtitle,
+        bodyUr: item.description ?? item.subtitle,
+        isRead: item.isRead,
+      }))
+    );
+  }, [initial, seedNamespace]);
+
+  useEffect(() => {
+    if (!storageNamespaces?.length) return;
+
+    const load = async () => {
+      const items = await listLocalNotifications(storageNamespaces);
+      setNotifs(
+        items.map((item) => ({
+          id: item.notification_id,
+          type: item.type,
+          title: item.title_en,
+          titleUrdu: item.title_ur,
+          description: textLanguage === 'urdu' ? item.body_ur : item.body_en,
+          time: formatRelative(item.created_at),
+          isRead: item.read,
+        }))
+      );
+    };
+
+    void load();
+    const unsubscribe = subscribeLocalNotifications(() => {
+      void load();
+    });
+    return unsubscribe;
+  }, [storageNamespaces, textLanguage]);
+
   const unreadCount = notifs.filter((n) => !n.isRead).length;
 
-  const markAllRead = () => setNotifs((p) => p.map((n) => ({ ...n, isRead: true })));
+  const markAllRead = () => {
+    if (storageNamespaces?.length) {
+      void markLocalNotificationsRead({ namespaces: storageNamespaces });
+      return;
+    }
+    setNotifs((p) => p.map((n) => ({ ...n, isRead: true })));
+  };
 
   const handleOpenNotification = (id: string) => {
+    if (storageNamespaces?.length) {
+      void markLocalNotificationsRead({ notificationIds: [id] });
+      return;
+    }
     setNotifs((p) => p.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
   };
 
   const handleDismissNotification = (id: string) => {
+    if (storageNamespaces?.length) {
+      void removeLocalNotification(id);
+      return;
+    }
     setNotifs((p) => p.filter((n) => n.id !== id));
   };
 

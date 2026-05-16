@@ -68,7 +68,7 @@ export function Login({
         stepTwo: { urdu: 'مرحلہ 2/2', english: 'Step 2 of 2' },
         codeSent: { urdu: 'کوڈ بھیج دیا گیا', english: 'Code sent' },
         phoneFormat: { urdu: 'ملکی کوڈ کے ساتھ نمبر لکھیں، مثال +923001234567', english: 'Use country code, for example +923001234567' },
-        enterPhoneToContinue: { urdu: 'جاری رکھنے کے لیے درست فون نمبر درج کریں', english: 'Enter a valid phone number to continue' },
+        enterPhoneToContinue: { urdu: 'جاری رکھنے کے لیے + کے ساتھ 11 ہندسوں کا فون نمبر درج کریں', english: 'Enter a valid 11-digit phone number with + to continue' },
         enterOtpToContinue: { urdu: 'جاری رکھنے کے لیے 6 ہندسوں کا کوڈ درج کریں', english: 'Enter the 6-digit code to continue' },
         protectedSession: { urdu: 'آپ کا سیشن محفوظ رکھا جائے گا', english: 'Your session will be kept secure' },
         phoneStep: { urdu: 'فون', english: 'Phone' },
@@ -82,7 +82,7 @@ export function Login({
 
   const otpRefs = useRef<(TextInput | null)[]>([]);
 
-  const canSendOtp = /^\+[1-9]\d{7,14}$/.test(phone.trim());
+  const canSendOtp = /^\+\d{11}$/.test(phone.trim());
   const otpValue = otp.join('');
   const canVerifyOtp = otpValue.length === 6;
 
@@ -283,12 +283,21 @@ export function Login({
                     </View>
                     <TextInput
                       value={phone}
-                      onChangeText={(v) => setPhone(v.replace(/\s/g, ''))}
+                      onChangeText={(v) => {
+                        const normalized = v.replace(/[^\d+]/g, '');
+                        const withSinglePlus = normalized.startsWith('+')
+                          ? `+${normalized.slice(1).replace(/\+/g, '')}`
+                          : normalized.replace(/\+/g, '');
+                        const limited = withSinglePlus.startsWith('+')
+                          ? `+${withSinglePlus.slice(1, 12)}`
+                          : withSinglePlus.slice(0, 11);
+                        setPhone(limited);
+                      }}
                       placeholder={t(translations.phonePlaceholder)}
                       placeholderTextColor="#9ca3af"
                       keyboardType="phone-pad"
                       style={[styles.phoneInput, isCompact ? styles.phoneInputCompact : null]}
-                      maxLength={16}
+                      maxLength={12}
                       autoCapitalize="none"
                     />
                   </View>
@@ -340,6 +349,7 @@ export function Login({
                         keyboardType="number-pad"
                         textContentType={Platform.OS === 'ios' ? 'oneTimeCode' : 'none'}
                         maxLength={1}
+                        caretHidden
                         style={[
                           styles.otpInput,
                           digit ? styles.otpInputFilled : null,
@@ -641,9 +651,13 @@ const styles = StyleSheet.create({
     borderColor: '#d1d5db',
     backgroundColor: '#ffffff',
     textAlign: 'center',
+    textAlignVertical: 'center',
     fontSize: 22,
     fontWeight: '900',
     color: '#111827',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    includeFontPadding: false,
   },
   otpInputFilled: {
     borderColor: '#0d5c4b',

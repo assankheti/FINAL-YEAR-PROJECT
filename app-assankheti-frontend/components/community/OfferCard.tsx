@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 
 import { useT } from '@/contexts/LanguageContext';
 import { authFetch } from '@/lib/authFetch';
@@ -33,6 +33,8 @@ function formatPKR(n?: number): string {
 
 export default function OfferCard({ offer, myMobileId, onLocalStatusChange }: Props) {
   const t = useT();
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 360;
   const [busy, setBusy] = useState<null | 'accept' | 'reject' | 'withdraw'>(null);
 
   if (!offer || !offer.offer_id) {
@@ -48,6 +50,7 @@ export default function OfferCard({ offer, myMobileId, onLocalStatusChange }: Pr
   const isBuyer = !!myMobileId && offer.buyer_id === myMobileId;
   const showSellerActions = status === 'pending' && isSeller;
   const showBuyerActions = status === 'pending' && isBuyer;
+  const isWithdrawn = status === 'expired';
 
   const callAction = async (action: 'accept' | 'reject' | 'withdraw') => {
     if (!offer.offer_id || busy) return;
@@ -109,7 +112,15 @@ export default function OfferCard({ offer, myMobileId, onLocalStatusChange }: Pr
       : null;
 
   return (
-    <View style={styles.card}>
+    <View
+      style={[
+        styles.card,
+        isWithdrawn ? styles.cardMuted : null,
+        status === 'accepted' ? styles.cardAccepted : null,
+        status === 'rejected' ? styles.cardRejected : null,
+        { maxWidth: Math.min(width * 0.84, 360) },
+      ]}
+    >
       <View style={styles.row}>
         <View style={styles.iconWrap}>
           <Feather name="tag" size={16} color="#9a3412" />
@@ -129,9 +140,33 @@ export default function OfferCard({ offer, myMobileId, onLocalStatusChange }: Pr
         </Text>
       ) : null}
       {offer.message ? <Text style={styles.message}>“{offer.message}”</Text> : null}
+      {status === 'accepted' ? (
+        <View style={styles.footerNote}>
+          <Feather name="check-circle" size={14} color="#166534" />
+          <Text style={[styles.footerNoteText, { color: '#166534' }]}>
+            {t({ english: 'This offer has been accepted.', urdu: 'یہ پیشکش قبول ہو چکی ہے۔' })}
+          </Text>
+        </View>
+      ) : null}
+      {status === 'rejected' ? (
+        <View style={styles.footerNote}>
+          <Feather name="x-circle" size={14} color="#991b1b" />
+          <Text style={[styles.footerNoteText, { color: '#991b1b' }]}>
+            {t({ english: 'This offer was declined.', urdu: 'یہ پیشکش مسترد کی گئی۔' })}
+          </Text>
+        </View>
+      ) : null}
+      {isWithdrawn ? (
+        <View style={styles.footerNote}>
+          <Feather name="slash" size={14} color="#4b5563" />
+          <Text style={styles.footerNoteText}>
+            {t({ english: 'This offer is no longer active.', urdu: 'یہ پیشکش اب فعال نہیں ہے۔' })}
+          </Text>
+        </View>
+      ) : null}
 
       {showSellerActions ? (
-        <View style={styles.actionsRow}>
+        <View style={[styles.actionsRow, isNarrow ? styles.actionsRowStack : null]}>
           <TouchableOpacity
             style={[styles.btn, styles.btnReject, busy ? styles.btnDisabled : null]}
             onPress={() => confirmAndCall('reject')}
@@ -191,7 +226,7 @@ function StatusBadge({ status }: { status: OfferStatus }) {
     pending: { bg: '#fef3c7', fg: '#92400e', label: { english: 'Pending', urdu: 'زیر التواء' } },
     accepted: { bg: '#dcfce7', fg: '#166534', label: { english: 'Accepted', urdu: 'قبول' } },
     rejected: { bg: '#fee2e2', fg: '#991b1b', label: { english: 'Rejected', urdu: 'مسترد' } },
-    expired: { bg: '#e5e7eb', fg: '#374151', label: { english: 'Expired', urdu: 'ختم' } },
+    expired: { bg: '#e5e7eb', fg: '#374151', label: { english: 'Withdrawn', urdu: 'واپس لی گئی' } },
   };
   const cfg = map[status];
   return (
@@ -203,13 +238,26 @@ function StatusBadge({ status }: { status: OfferStatus }) {
 
 const styles = StyleSheet.create({
   card: {
-    minWidth: 220,
-    maxWidth: 320,
+    width: '100%',
+    minWidth: 0,
+    maxWidth: 360,
     backgroundColor: '#fff7ed',
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
     borderColor: '#fdba74',
+  },
+  cardMuted: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#d1d5db',
+  },
+  cardAccepted: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#86efac',
+  },
+  cardRejected: {
+    backgroundColor: '#fff1f2',
+    borderColor: '#fecdd3',
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconWrap: {
@@ -230,15 +278,29 @@ const styles = StyleSheet.create({
   totalText: { marginTop: 2, fontSize: 12, fontWeight: '700', color: '#9a3412' },
   message: { marginTop: 6, fontSize: 13, color: '#7c2d12', fontStyle: 'italic' },
   muted: { color: '#6b7280', fontWeight: '700' },
+  footerNote: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  footerNoteText: {
+    flex: 1,
+    color: '#4b5563',
+    fontWeight: '700',
+    fontSize: 12,
+    lineHeight: 17,
+  },
 
   actionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  actionsRowStack: { flexDirection: 'column' },
   btn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    height: 36,
+    height: 40,
     borderRadius: 10,
   },
   btnAccept: { backgroundColor: '#16a34a' },

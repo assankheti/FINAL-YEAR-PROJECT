@@ -186,6 +186,9 @@ export function getStartupRoute(state: AppFlowState): RouteTarget {
 
   if (state.role === 'farmer') {
     if (!state.selectedCrop) return route('/crop-selection', roleParams(state.role, state));
+    // Authenticated farmer → go straight to the marketplace/community dashboard
+    if (state.isAuthenticated) return route('/farmer/community', roleParams(state.role, state));
+    // Non-authenticated farmer → features hub (disease detection, crop rec, AI chat, marketplace)
     return route('/farmer-dashboard', {
       ...roleParams(state.role, state),
       selectedCrop: state.selectedCrop,
