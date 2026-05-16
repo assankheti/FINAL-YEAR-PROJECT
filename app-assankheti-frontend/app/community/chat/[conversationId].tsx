@@ -21,8 +21,11 @@ import ImagePickerButton from '@/components/community/ImagePickerButton';
 import MessageBubble from '@/components/community/MessageBubble';
 import PinnedProductCard from '@/components/community/PinnedProductCard';
 import PresenceDot from '@/components/community/PresenceDot';
+import SeenReceipt from '@/components/community/SeenReceipt';
+import TypingIndicator from '@/components/community/TypingIndicator';
 import { useT } from '@/contexts/LanguageContext';
 import { useChatMessages } from '@/hooks/useChatMessages';
+import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
@@ -54,11 +57,7 @@ export default function CommunityChatScreen() {
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
-  const { messages, isLoading, error, sendMessage, markRead, applyOfferStatus } = useChatMessages({
-    conversationId: conversationId && conversationId !== 'new' ? conversationId : undefined,
-    otherParticipantId: recipientId || undefined,
-  });
-
+  // Resolve myMobileId on mount
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -69,6 +68,16 @@ export default function CommunityChatScreen() {
       mounted = false;
     };
   }, []);
+
+  const { messages, isLoading, error, seenByOther, sendMessage, markRead, applyOfferStatus } =
+    useChatMessages({
+      conversationId: conversationId && conversationId !== 'new' ? conversationId : undefined,
+      otherParticipantId: recipientId || undefined,
+      myMobileId: myMobileId || undefined,
+    });
+
+  // Typing indicator for the remote participant
+  const { isTypingRemote, sendTyping, sendStopTyping } = useTypingIndicator(recipientId);
 
   // Mark read on mount + whenever new messages arrive
   useEffect(() => {
@@ -116,16 +125,34 @@ export default function CommunityChatScreen() {
     };
   }, [conversationId, recipientId, contextType, contextRef, params, router]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages or typing indicator toggle
   useEffect(() => {
     if (scrollRef.current) {
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     }
-  }, [messages.length]);
+  }, [messages.length, isTypingRemote]);
 
   const showPinnedProduct = useMemo(
     () => contextType === 'product' && (params?.productName || contextRef),
     [contextType, contextRef, params?.productName]
+  );
+
+  // Determine if the very last message is mine (for seen receipt positioning)
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const lastMessageIsMine =
+    lastMessage != null &&
+    (lastMessage.sender_id === myMobileId || lastMessage.sender_id === 'me');
+
+  const handleDraftChange = useCallback(
+    (text: string) => {
+      setDraft(text);
+      if (text.length > 0) {
+        sendTyping();
+      } else {
+        sendStopTyping();
+      }
+    },
+    [sendTyping, sendStopTyping]
   );
 
   const handleSend = async () => {
@@ -139,6 +166,7 @@ export default function CommunityChatScreen() {
       return;
     }
     setDraft('');
+    sendStopTyping();
     try {
       await sendMessage({
         recipientId,
@@ -154,33 +182,37 @@ export default function CommunityChatScreen() {
     }
   };
 
-  const handleBlockUser = useCallback(async (blockedId: string) => {
-    try {
-      const res = await authFetch('/api/v1/community/dm/block', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocked_id: blockedId }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status} ${text}`);
+  const handleBlockUser = useCallback(
+    async (blockedId: string) => {
+      try {
+        const res = await authFetch('/api/v1/community/dm/block', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blocked_id: blockedId }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status} ${text}`);
+        }
+        Alert.alert(
+          t({ english: 'User blocked', urdu: 'صارف بلاک ہو گیا' }),
+          t({
+            english: 'You will no longer receive messages from this user.',
+            urdu: 'اب آپ کو اس صارف سے پیغامات نہیں ملیں گے۔',
+          })
+        );
+        if (router.canGoBack()) router.back();
+        else router.replace('/community/inbox');
+      } catch (e: any) {
+        Alert.alert(t({ english: 'Block failed', urdu: 'بلاک ناکام' }), e?.message ?? '');
       }
-      Alert.alert(
-        t({ english: 'User blocked', urdu: 'صارف بلاک ہو گیا' }),
-        t({
-          english: 'You will no longer receive messages from this user.',
-          urdu: 'اب آپ کو اس صارف سے پیغامات نہیں ملیں گے۔',
-        })
-      );
-      if (router.canGoBack()) router.back();
-      else router.replace('/community/inbox');
-    } catch (e: any) {
-      Alert.alert(t({ english: 'Block failed', urdu: 'بلاک ناکام' }), e?.message ?? '');
-    }
-  }, [router, t]);
+    },
+    [router, t]
+  );
 
   const handleImageUploaded = async (url: string) => {
     if (!recipientId) return;
+    sendStopTyping();
     try {
       await sendMessage({
         recipientId,
@@ -212,7 +244,12 @@ export default function CommunityChatScreen() {
           <View
             style={[
               styles.headerInner,
-              { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
+              {
+                paddingHorizontal: horizontalPadding,
+                maxWidth: contentMaxWidth,
+                alignSelf: 'center',
+                width: '100%',
+              },
             ]}
           >
             <View style={{ flex: 1 }}>
@@ -260,7 +297,12 @@ export default function CommunityChatScreen() {
           ref={scrollRef}
           contentContainerStyle={[
             styles.messagesWrap,
-            { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
+            {
+              paddingHorizontal: horizontalPadding,
+              maxWidth: contentMaxWidth,
+              alignSelf: 'center',
+              width: '100%',
+            },
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -271,28 +313,51 @@ export default function CommunityChatScreen() {
             </View>
           ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {messages.map((m) => (
-            <MessageBubble
-              key={m.message_id}
-              message={m}
-              myMobileId={myMobileId}
-              onOfferStatusChange={applyOfferStatus}
-              onBlockUser={handleBlockUser}
-            />
-          ))}
+
+          {messages.map((m, idx) => {
+            const isLastMessage = idx === messages.length - 1;
+            const isMe = m.sender_id === myMobileId || m.sender_id === 'me';
+            return (
+              <React.Fragment key={m.message_id}>
+                <MessageBubble
+                  message={m}
+                  myMobileId={myMobileId}
+                  onOfferStatusChange={applyOfferStatus}
+                  onBlockUser={handleBlockUser}
+                />
+                {/* Show "Seen" below the last outbound message when the other
+                    participant has read it. */}
+                {isLastMessage && isMe && seenByOther ? (
+                  <SeenReceipt visible={true} />
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+
+          {/* Remote typing indicator — rendered at the bottom of the message list */}
+          {isTypingRemote ? (
+            <View style={styles.typingRow}>
+              <TypingIndicator visible={true} />
+            </View>
+          ) : null}
         </ScrollView>
 
         <View
           style={[
             styles.composerWrap,
-            { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
+            {
+              paddingHorizontal: horizontalPadding,
+              maxWidth: contentMaxWidth,
+              alignSelf: 'center',
+              width: '100%',
+            },
           ]}
         >
           <ImagePickerButton onUploaded={handleImageUploaded} disabled={!recipientId} />
           <TextInput
             style={styles.input}
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={handleDraftChange}
             placeholder={t({ english: 'Type a message…', urdu: 'پیغام لکھیں…' })}
             placeholderTextColor="#9ca3af"
             multiline
@@ -311,8 +376,18 @@ export default function CommunityChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: { paddingTop: 50, paddingBottom: 16, borderBottomLeftRadius: 22, borderBottomRightRadius: 22 },
-  headerInner: { flexDirection: 'row', alignItems: 'center', gap: 16, justifyContent: 'space-between' },
+  header: {
+    paddingTop: 50,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+  },
+  headerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    justifyContent: 'space-between',
+  },
   backBtn: {
     width: 44,
     height: 44,
@@ -327,6 +402,17 @@ const styles = StyleSheet.create({
   messagesWrap: { paddingTop: 12, paddingBottom: 12 },
   loaderRow: { paddingVertical: 24, alignItems: 'center' },
   error: { color: '#b91c1c', fontWeight: '800', marginBottom: 8 },
+
+  typingRow: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderTopLeftRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginTop: 4,
+    marginBottom: 4,
+  },
 
   composerWrap: {
     flexDirection: 'row',

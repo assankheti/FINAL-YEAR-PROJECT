@@ -398,6 +398,100 @@ async def dm_unblock(
     return {"ok": True, "removed": result.deleted_count}
 
 
+# ---------- Search ----------
+
+@router.get("/dm/search")
+async def dm_search(
+    q: str = Query("", description="Search query against partner ID and last message preview"),
+    limit: int = Query(20, ge=1, le=100),
+    caller_id: str = Depends(get_current_mobile_id),
+):
+    """
+    Search the caller's DM conversations.
+
+    Matches are ranked by last_message_at descending. The search is performed
+    on:
+      - other_participant (partner mobile_id) — prefix/contains match
+      - last_message_preview — contains match
+
+    Returns the same shape as /dm/inbox items so the client can use a single
+    unified list component.
+    """
+    query_str = (q or "").strip()
+
+    # Build a MongoDB regex for case-insensitive substring match.
+    # We search on the two fields we can access at conversation level.
+    # Group names are not stored on DM conversations so they are excluded here
+    # (group search is a separate concern).
+    if query_str:
+        import re as _re
+        pattern = _re.escape(query_str)
+        # Match conversations where:
+        #   (a) one of the participants matches the query (the caller is always
+        #       a participant, so we also match the partner's id), OR
+        #   (b) the last message preview matches the query.
+        mongo_filter = {
+            "participants": caller_id,
+            "$or": [
+                {"participants": {"$elemMatch": {"$regex": pattern, "$options": "i"}}},
+                {"last_message_preview": {"$regex": pattern, "$options": "i"}},
+            ],
+        }
+    else:
+        # No query — return the most recent conversations (same as inbox but
+        # limited by the `limit` param).
+        mongo_filter = {"participants": caller_id}
+
+    cursor = (
+        db[COMMUNITY_CONVERSATIONS_COLLECTION]
+        .find(mongo_filter)
+        .sort("last_message_at", -1)
+        .limit(limit)
+    )
+
+    items: List[Dict[str, Any]] = []
+    async for conv in cursor:
+        conv = _strip_id(conv)
+        participants = conv.get("participants", [])
+        other = next((p for p in participants if p != caller_id), None)
+        last_read_map = conv.get("last_read_at") or {}
+        last_read_at = (
+            last_read_map.get(caller_id) if isinstance(last_read_map, dict) else None
+        )
+
+        unread_query: Dict[str, Any] = {
+            "conversation_id": conv["conversation_id"],
+            "sender_id": {"$ne": caller_id},
+        }
+        if last_read_at:
+            unread_query["created_at"] = {"$gt": last_read_at}
+
+        try:
+            unread_count = await db[COMMUNITY_MESSAGES_COLLECTION].count_documents(
+                unread_query
+            )
+        except Exception:
+            logger.exception(
+                "dm_search_unread_count_failed conversation_id=%s",
+                conv.get("conversation_id"),
+            )
+            unread_count = 0
+
+        items.append(
+            {
+                "conversation_id": conv["conversation_id"],
+                "other_participant": other,
+                "context_type": conv.get("context_type"),
+                "context_ref": conv.get("context_ref"),
+                "last_message_preview": conv.get("last_message_preview"),
+                "last_message_at": conv.get("last_message_at"),
+                "unread_count": unread_count,
+            }
+        )
+
+    return {"conversations": items, "query": query_str}
+
+
 @router.get("/dm/blocks/{mobile_id}")
 async def dm_blocks(
     mobile_id: str,

@@ -1,7 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -9,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
@@ -18,6 +20,9 @@ import PresenceDot from '@/components/community/PresenceDot';
 import { useT } from '@/contexts/LanguageContext';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+
+const ROLE_KEY = 'assanKheti.role.v1';
+const SEARCH_DEBOUNCE_MS = 300;
 
 type DMItem = {
   conversation_id: string;
@@ -60,6 +65,25 @@ function formatRelative(iso?: string | null): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+function dmMatchesQuery(item: DMItem, q: string): boolean {
+  if (!q) return true;
+  const lower = q.toLowerCase();
+  return (
+    (item.other_participant ?? '').toLowerCase().includes(lower) ||
+    (item.last_message_preview ?? '').toLowerCase().includes(lower)
+  );
+}
+
+function groupMatchesQuery(item: GroupItem, q: string): boolean {
+  if (!q) return true;
+  const lower = q.toLowerCase();
+  return (
+    (item.name_en ?? '').toLowerCase().includes(lower) ||
+    (item.name_ur ?? '').toLowerCase().includes(lower) ||
+    (item.last_message_preview ?? '').toLowerCase().includes(lower)
+  );
+}
+
 export default function CommunityInbox() {
   const router = useRouter();
   const t = useT();
@@ -72,6 +96,28 @@ export default function CommunityInbox() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Search
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchText(text);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(text.trim());
+    }, SEARCH_DEBOUNCE_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, []);
+
+  const filteredDms = dms.filter((d) => dmMatchesQuery(d, debouncedSearch));
+  const filteredGroups = groups.filter((g) => groupMatchesQuery(g, debouncedSearch));
 
   const load = useCallback(async () => {
     setError(null);
@@ -104,6 +150,29 @@ export default function CommunityInbox() {
     load();
   }, [load]);
 
+  /**
+   * Back button handler with role-aware fallback.
+   * Reads the stored role from AsyncStorage so we navigate to the right
+   * dashboard if there is no screen in the back stack.
+   */
+  const handleBack = useCallback(async () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    try {
+      const role = await AsyncStorage.getItem(ROLE_KEY);
+      if (role === 'farmer') {
+        router.replace('/farmer/community');
+      } else {
+        router.replace('/community-dashboard');
+      }
+    } catch {
+      // AsyncStorage read failed; fall back to community-dashboard.
+      router.replace('/community-dashboard');
+    }
+  }, [router]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f5f1e8' }}>
       <LinearGradient
@@ -125,10 +194,7 @@ export default function CommunityInbox() {
             </Text>
           </View>
           <TouchableOpacity
-            onPress={() => {
-              if (router.canGoBack()) router.back();
-              else router.replace('/farmer-dashboard');
-            }}
+            onPress={handleBack}
             style={styles.backBtn}
             accessibilityRole="button"
             accessibilityLabel={t({ english: 'Back', urdu: 'واپس' })}
@@ -144,7 +210,24 @@ export default function CommunityInbox() {
           { paddingHorizontal: horizontalPadding, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' },
         ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        keyboardShouldPersistTaps="handled"
       >
+        {/* Search bar */}
+        <View style={styles.searchWrap}>
+          <Feather name="search" size={16} color="#9ca3af" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            value={searchText}
+            onChangeText={handleSearchChange}
+            placeholder={t({ english: 'Search messages & groups…', urdu: 'پیغامات اور گروپس تلاش کریں…' })}
+            placeholderTextColor="#9ca3af"
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+        </View>
+
         {loading && !refreshing ? (
           <View style={styles.loaderRow}>
             <ActivityIndicator size="small" color="#0d5c4b" />
@@ -155,12 +238,14 @@ export default function CommunityInbox() {
 
         {/* Groups */}
         <Text style={styles.section}>{t({ english: 'Groups', urdu: 'گروپس' })}</Text>
-        {groups.length === 0 ? (
+        {filteredGroups.length === 0 ? (
           <Text style={styles.empty}>
-            {t({ english: 'No groups yet', urdu: 'ابھی کوئی گروپ نہیں' })}
+            {debouncedSearch
+              ? t({ english: 'No matching groups', urdu: 'کوئی ملتا گروپ نہیں' })
+              : t({ english: 'No groups yet', urdu: 'ابھی کوئی گروپ نہیں' })}
           </Text>
         ) : null}
-        {groups.map((g) => (
+        {filteredGroups.map((g) => (
           <TouchableOpacity
             key={g.group_id}
             activeOpacity={0.85}
@@ -195,12 +280,14 @@ export default function CommunityInbox() {
         <Text style={[styles.section, { marginTop: 18 }]}>
           {t({ english: 'Direct Messages', urdu: 'براہ راست پیغامات' })}
         </Text>
-        {dms.length === 0 ? (
+        {filteredDms.length === 0 ? (
           <Text style={styles.empty}>
-            {t({ english: 'No conversations yet', urdu: 'ابھی کوئی گفتگو نہیں' })}
+            {debouncedSearch
+              ? t({ english: 'No matching conversations', urdu: 'کوئی ملتی گفتگو نہیں' })
+              : t({ english: 'No conversations yet', urdu: 'ابھی کوئی گفتگو نہیں' })}
           </Text>
         ) : null}
-        {dms.map((c) => (
+        {filteredDms.map((c) => (
           <TouchableOpacity
             key={c.conversation_id}
             activeOpacity={0.85}
@@ -264,6 +351,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    height: 44,
+  },
+  searchIcon: { marginRight: 8 },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
   },
 
   body: { paddingTop: 16, paddingBottom: 24 },
