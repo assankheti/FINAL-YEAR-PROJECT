@@ -1,13 +1,9 @@
 """
-Insert + broadcast notifications.
+Insert notifications.
 
 Lives in its own module so endpoint code can fire-and-forget without each file
 re-implementing the pattern. Failures here never break the caller's main flow:
 the helper logs and swallows exceptions.
-
-Avoid putting this in `community_helpers.py` — it imports from
-`socket_gateway`, and `socket_gateway` imports `community_helpers`, so the
-helper would create a cycle.
 """
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -15,7 +11,6 @@ from typing import Any, Dict, Optional
 from app.db.db_connection import get_database
 from app.models.collections import COMMUNITY_NOTIFICATIONS_COLLECTION
 from app.services.community_helpers import build_notification
-from app.services.socket_gateway import broadcast_to_user
 from app.utils.logger import logger
 
 db = get_database()
@@ -60,12 +55,3 @@ async def notify(
             recipient_id, notif_type,
         )
 
-    try:
-        await broadcast_to_user(
-            recipient_id, "notification:new", {"notification": _wire_friendly(notif)}
-        )
-    except Exception:
-        logger.exception(
-            "notification_broadcast_failed recipient_id=%s type=%s",
-            recipient_id, notif_type,
-        )

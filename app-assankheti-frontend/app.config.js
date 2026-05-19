@@ -7,6 +7,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 // In Docker, API_URL comes from the container environment variable.
 // In local dev, dotenv reads from the local .env file.
 const API_URL = process.env.API_URL || 'http://localhost:8000';
+const STREAM_API_KEY = process.env.STREAM_API_KEY || '';
 
 export default {
   expo: {
@@ -42,6 +43,8 @@ export default {
     plugins: [
       'expo-router',
       'expo-notifications',
+      'expo-video',
+      'expo-audio',
       [
         'expo-splash-screen',
         {
@@ -61,6 +64,7 @@ export default {
     },
     extra: {
       API_URL,
+      STREAM_API_KEY,
       // Add other env variables here as needed
       OPENAI_KEY: process.env.OPENAI_KEY || process.env.OPENAI_API_KEY,
       // GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,

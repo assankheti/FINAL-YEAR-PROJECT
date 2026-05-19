@@ -31,7 +31,6 @@ from app.schemas.community import OfferCreate, OfferOut, OfferStatus
 from app.services.community_helpers import get_or_create_dm_conversation, is_blocked
 from app.services.notifications import notify
 from app.services.security import get_current_mobile_id
-from app.services.socket_gateway import broadcast_to_user
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -209,7 +208,6 @@ async def offer_create(
         )
 
     wire_offer = _offer_payload(offer)
-    await broadcast_to_user(seller_id, "offer:received", {"offer": wire_offer})
     await notify(
         seller_id,
         "offer_received",
@@ -270,12 +268,8 @@ async def _transition(offer_id: str, action: str, actor_id: str) -> Dict[str, An
             payload={"offer_id": offer_id, "status": new_status},
         )
 
-    # Socket event to the counterparty
     counterparty = updated["buyer_id"] if action != "withdraw" else updated["seller_id"]
     wire_offer = _offer_payload(updated)
-    await broadcast_to_user(
-        counterparty, "offer:status_changed", {"offer": wire_offer}
-    )
 
     notif_type = {
         "accept": "offer_accepted",

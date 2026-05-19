@@ -1,9 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { listAllProducts, normalizeProductImageUrl, type ProductCategory, type ProductListing } from '@/lib/productsApi';
 
 type CategoryKey = 'grains' | 'veggies' | 'fruits' | 'others' | 'rice';
 
@@ -19,28 +21,6 @@ type Product = {
   category: Exclude<CategoryKey, 'rice'>;
 };
 
-const ALL_PRODUCTS: Product[] = [
-  // Grains
-  { id: '1', name: 'Fresh Basmati Rice', price: '₨180', unit: '/kg', farmer: 'Ahmad Ali', location: 'Gujranwala', rating: 4.8, image: '🌾', category: 'grains' },
-  { id: '2', name: 'Premium Wheat', price: '₨95', unit: '/kg', farmer: 'Hussain Khan', location: 'Multan', rating: 4.5, image: '🌾', category: 'grains' },
-  { id: '3', name: 'Organic Rice', price: '₨220', unit: '/kg', farmer: 'Kamran Farm', location: 'Lahore', rating: 4.9, image: '🌾', category: 'grains' },
-  { id: '4', name: 'Brown Rice', price: '₨250', unit: '/kg', farmer: 'Ali Traders', location: 'Faisalabad', rating: 4.6, image: '🌾', category: 'grains' },
-  // Vegetables
-  { id: '5', name: 'Fresh Tomatoes', price: '₨120', unit: '/kg', farmer: 'Rashid Farm', location: 'Sahiwal', rating: 4.7, image: '🍅', category: 'veggies' },
-  { id: '6', name: 'Green Spinach', price: '₨80', unit: '/kg', farmer: 'Hassan Farm', location: 'Lahore', rating: 4.8, image: '🥬', category: 'veggies' },
-  { id: '7', name: 'Fresh Potatoes', price: '₨60', unit: '/kg', farmer: 'Iqbal Agro', location: 'Okara', rating: 4.5, image: '🥔', category: 'veggies' },
-  { id: '8', name: 'Onions', price: '₨90', unit: '/kg', farmer: 'Khan Farm', location: 'Multan', rating: 4.4, image: '🧅', category: 'veggies' },
-  // Fruits
-  { id: '9', name: 'Fresh Mangoes', price: '₨350', unit: '/kg', farmer: 'Sweet Farms', location: 'Multan', rating: 4.9, image: '🥭', category: 'fruits' },
-  { id: '10', name: 'Apples', price: '₨280', unit: '/kg', farmer: 'Mountain Fresh', location: 'Swat', rating: 4.7, image: '🍎', category: 'fruits' },
-  { id: '11', name: 'Bananas', price: '₨100', unit: '/dozen', farmer: 'Sindh Farms', location: 'Hyderabad', rating: 4.6, image: '🍌', category: 'fruits' },
-  { id: '12', name: 'Oranges', price: '₨180', unit: '/kg', farmer: 'Citrus Valley', location: 'Sargodha', rating: 4.8, image: '🍊', category: 'fruits' },
-  // Others
-  { id: '13', name: 'Premium Cotton', price: '₨450', unit: '/kg', farmer: 'Cotton King', location: 'Faisalabad', rating: 4.7, image: '🌿', category: 'others' },
-  { id: '14', name: 'Sugarcane', price: '₨80', unit: '/kg', farmer: 'Sweet Sugar', location: 'Larkana', rating: 4.5, image: '🎋', category: 'others' },
-  { id: '15', name: 'Fresh Corn', price: '₨60', unit: '/kg', farmer: 'Golden Farms', location: 'Okara', rating: 4.4, image: '🌽', category: 'others' },
-];
-
 const CATEGORY_INFO: Record<CategoryKey, { title: string; titleUrdu: string; icon: string; gradient: [string, string] }> = {
   grains: { title: 'Grains', titleUrdu: 'اناج', icon: '🌾', gradient: ['#0d5c4b', '#10b981'] },
   veggies: { title: 'Vegetables', titleUrdu: 'سبزیاں', icon: '🥬', gradient: ['#0d5c4b', '#10b981'] },
@@ -54,6 +34,34 @@ const normalizeParam = (v: unknown): string | undefined => {
   if (typeof v === 'string') return v;
   return undefined;
 };
+
+function categoryEmoji(category?: string) {
+  if (category === 'grains') return '🌾';
+  if (category === 'veggies') return '🥬';
+  if (category === 'fruits') return '🍎';
+  return '🌿';
+}
+
+function farmerLabel(farmerId?: string) {
+  if (!farmerId) return 'Verified Farmer';
+  const digits = farmerId.replace(/\D/g, '');
+  if (digits.length >= 4) return `Farmer ···${digits.slice(-4)}`;
+  return farmerId.replace(/^device:/, 'Farmer ');
+}
+
+function toCardProduct(product: ProductListing): Product {
+  return {
+    id: product.id,
+    name: product.name,
+    price: `₨${Math.round(product.price).toLocaleString()}`,
+    unit: `/${product.unit}`,
+    farmer: farmerLabel(product.farmer_id),
+    location: product.delivery_area ?? '',
+    rating: 4.8,
+    image: normalizeProductImageUrl(product.images?.[0]) ?? categoryEmoji(product.category),
+    category: product.category,
+  };
+}
 
 export default function CategoryProductsPage() {
   const router = useRouter();
@@ -71,12 +79,34 @@ export default function CategoryProductsPage() {
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const categoryData = CATEGORY_INFO[category];
 
-  const products = useMemo(() => {
-    if (category === 'rice') return ALL_PRODUCTS.filter((p) => p.name.toLowerCase().includes('rice'));
-    return ALL_PRODUCTS.filter((p) => p.category === category);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProducts() {
+      setLoading(true);
+      setError(null);
+      try {
+        const apiCategory: ProductCategory | null = category === 'rice' ? null : category;
+        const rows = await listAllProducts({ category: apiCategory, status: 'active', limit: 200 });
+        const visibleRows = category === 'rice'
+          ? rows.filter((p) => `${p.name} ${p.category}`.toLowerCase().includes('rice'))
+          : rows;
+        if (!cancelled) setProducts(visibleRows.map(toCardProduct));
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load products');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadProducts();
+    return () => {
+      cancelled = true;
+    };
   }, [category]);
 
   const filteredProducts = useMemo(() => {
@@ -139,13 +169,33 @@ export default function CategoryProductsPage() {
 
         <ScrollView contentContainerStyle={{ paddingVertical: 16, paddingHorizontal: horizontalPadding, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
           <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
-            <Text style={styles.countText}>{filteredProducts.length} products found</Text>
+            <Text style={styles.countText}>{loading ? 'Loading products...' : `${filteredProducts.length} products found`}</Text>
 
+            {loading ? (
+              <View style={styles.stateBox}>
+                <ActivityIndicator size="large" color="#0d5c4b" />
+                <Text style={styles.stateText}>Loading farmer products...</Text>
+              </View>
+            ) : error ? (
+              <View style={styles.stateBox}>
+                <Text style={{ fontSize: 42 }}>⚠️</Text>
+                <Text style={styles.stateText}>{error}</Text>
+              </View>
+            ) : filteredProducts.length === 0 ? (
+              <View style={styles.stateBox}>
+                <Text style={{ fontSize: 42 }}>{categoryData.icon}</Text>
+                <Text style={styles.stateText}>No farmer products found in this category.</Text>
+              </View>
+            ) : (
             <View style={{ marginTop: 12, flexDirection: 'row', flexWrap: 'wrap', gap: cardGap }}>
               {filteredProducts.map((p) => (
                 <View key={p.id} style={[styles.card, { width: cardWidth }]}>
                   <View style={styles.cardTop}>
-                    <Text style={{ fontSize: 44 }}>{p.image}</Text>
+                    {p.image.startsWith('http') || p.image.startsWith('file:') ? (
+                      <Image source={{ uri: p.image }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    ) : (
+                      <Text style={{ fontSize: 44 }}>{p.image}</Text>
+                    )}
                     <TouchableOpacity
                       activeOpacity={0.9}
                       onPress={() => toggleFavorite(p.id)}
@@ -191,6 +241,7 @@ export default function CategoryProductsPage() {
                 </View>
               ))}
             </View>
+            )}
           </View>
         </ScrollView>
       </View>
@@ -239,6 +290,8 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, color: '#111827', fontWeight: '700' },
 
   countText: { color: '#6b7280', fontSize: 12, fontWeight: '700' },
+  stateBox: { minHeight: 220, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 24 },
+  stateText: { color: '#6b7280', fontSize: 13, fontWeight: '700', textAlign: 'center' },
 
   card: {
     backgroundColor: '#ffffff',

@@ -40,12 +40,14 @@ services:
       dockerfile: DockerfileFrontend
       args:
         API_URL: "http://localhost:8000"
+        STREAM_API_KEY: "${STREAM_API_KEY:-}"
     container_name: frontend
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-8081}:8081"
     environment:
       API_URL: "http://localhost:8000"
+      STREAM_API_KEY: "${STREAM_API_KEY:-}"
     depends_on:
       - backend
     networks:

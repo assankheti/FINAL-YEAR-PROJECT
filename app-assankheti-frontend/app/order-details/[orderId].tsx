@@ -2,70 +2,144 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../contexts/LanguageContext';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { authFetch } from '@/lib/authFetch';
 
-type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
+type DisplayStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
+
+type TimelineStep = { label: string; time: string; completed: boolean };
+
+type OrderDetail = {
+  id: string;
+  productName: string;
+  quantity: string;
+  totalPkr: number;
+  farmerAmountPkr: number;
+  commissionPkr: number;
+  serviceFee: number;
+  farmerId: string;
+  deliveryAddress: string;
+  status: DisplayStatus;
+  paymentStatus: string;
+  date: string;
+  timeline: TimelineStep[];
+};
+
+const STATUS_SEQUENCE: DisplayStatus[] = ['pending', 'confirmed', 'shipped', 'delivered'];
+
+function mapStatus(apiStatus: string): DisplayStatus {
+  switch (apiStatus) {
+    case 'paid':
+    case 'processing': return 'confirmed';
+    case 'shipped':    return 'shipped';
+    case 'delivered':
+    case 'completed':  return 'delivered';
+    default:           return 'pending';
+  }
+}
+
+function buildTimeline(displayStatus: DisplayStatus, createdAt: string): TimelineStep[] {
+  const idx = STATUS_SEQUENCE.indexOf(displayStatus);
+  const dateStr = new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const labels = ['Order Placed', 'Payment Confirmed', 'Shipped', 'Delivered'];
+  return STATUS_SEQUENCE.map((_, i) => ({
+    label: labels[i],
+    time: i <= idx ? dateStr : 'Pending',
+    completed: i <= idx,
+  }));
+}
+
+function formatPkr(n: number) { return `₨${n.toLocaleString()}`; }
 
 export default function OrderDetailsPage() {
   const t = useT();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const orderId = (params?.orderId as string) ?? 'ORD001';
+  const orderId = (params?.orderId as string) ?? '';
 
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
 
+  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
-  const order = useMemo(
-    () => ({
-      id: orderId,
-      productName: 'Fresh Basmati Rice',
-      quantity: '50 kg',
-      price: '₨9,000',
-      buyer: 'Ali Traders',
-      buyerPhone: '+92 300 1234567',
-      buyerAddress: 'Shop #12, Grain Market, Lahore',
-      status: 'shipped' as OrderStatus,
-      date: 'Dec 28, 2024',
-      image: '🌾',
-      timeline: [
-        { status: 'pending', label: 'Order Placed', time: 'Dec 28, 10:00 AM', completed: true },
-        { status: 'confirmed', label: 'Order Confirmed', time: 'Dec 28, 11:30 AM', completed: true },
-        { status: 'shipped', label: 'Shipped', time: 'Dec 29, 09:00 AM', completed: true },
-        { status: 'delivered', label: 'Delivered', time: 'Expected: Dec 30', completed: false },
-      ],
-      paymentMethod: 'Escrow',
-      paymentStatus: 'Held in Escrow',
-    }),
-    [orderId]
-  );
+  const loadOrder = useCallback(async () => {
+    if (!orderId) return;
+    setIsLoading(true);
+    try {
+      const res = await authFetch(`/api/v1/payments/orders/${orderId}`);
+      if (res.ok) {
+        const d = await res.json();
+        const displayStatus = mapStatus(d.status);
+        setOrder({
+          id: d.order_id,
+          productName: d.product_name,
+          quantity: `${d.quantity} units`,
+          totalPkr: d.total_pkr ?? 0,
+          farmerAmountPkr: d.farmer_amount_pkr ?? 0,
+          commissionPkr: d.commission_pkr ?? 0,
+          serviceFee: d.service_fee_pkr ?? 100,
+          farmerId: d.farmer_id,
+          deliveryAddress: d.delivery_address ?? '',
+          status: displayStatus,
+          paymentStatus: d.payment_status ?? '',
+          date: new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          timeline: buildTimeline(displayStatus, d.created_at),
+        });
+      }
+    } catch {
+      // leave null — will show error state
+    } finally {
+      setIsLoading(false);
+    }
+  }, [orderId]);
 
-  const statusConfig: Record<
-    OrderStatus,
-    { label: string; bg: string; fg: string; icon: React.ComponentProps<typeof Feather>['name'] }
-  > = {
-    pending: { label: 'Pending', bg: 'rgba(245,158,11,0.16)', fg: '#f59e0b', icon: 'clock' },
-    confirmed: { label: 'Confirmed', bg: 'rgba(16,185,129,0.18)', fg: '#10b981', icon: 'check-circle' },
-    shipped: { label: 'Shipped', bg: 'rgba(13,92,75,0.14)', fg: '#0d5c4b', icon: 'truck' },
-    delivered: { label: 'Delivered', bg: 'rgba(13,92,75,0.14)', fg: '#0d5c4b', icon: 'package' },
+  useEffect(() => { void loadOrder(); }, [loadOrder]);
+
+  const STATUS_CONFIG: Record<DisplayStatus, { label: string; fg: string; icon: React.ComponentProps<typeof Feather>['name'] }> = {
+    pending:   { label: 'Pending',   fg: '#f59e0b', icon: 'clock' },
+    confirmed: { label: 'Confirmed', fg: '#10b981', icon: 'check-circle' },
+    shipped:   { label: 'Shipped',   fg: '#0d5c4b', icon: 'truck' },
+    delivered: { label: 'Delivered', fg: '#0d5c4b', icon: 'package' },
   };
-
-  const currentStatus = statusConfig[order.status];
 
   const copyOrderId = async () => {
     try {
-      await Clipboard.setStringAsync(order.id);
+      await Clipboard.setStringAsync(order?.id ?? orderId);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       Alert.alert(t({ english: 'Copy failed', urdu: 'کاپی ناکام' }), t({ english: 'Unable to copy Order ID.', urdu: 'آرڈر آئی ڈی کی کاپی نہیں ہو سکی۔' }));
     }
   };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#0d5c4b" />
+        <Text style={{ color: '#6b7280', marginTop: 12, fontWeight: '600' }}>Loading order...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!order) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ fontSize: 40 }}>📦</Text>
+        <Text style={{ color: '#111827', fontWeight: '900', fontSize: 18, marginTop: 12 }}>Order not found</Text>
+        <TouchableOpacity onPress={() => router.replace('/user-orders')} style={{ marginTop: 16, backgroundColor: '#0d5c4b', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 }}>
+          <Text style={{ color: '#fff', fontWeight: '900' }}>My Orders</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  const currentStatus = STATUS_CONFIG[order.status];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }}>
@@ -130,14 +204,12 @@ export default function OrderDetailsPage() {
               <View style={styles.card}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <View style={styles.emojiBox}>
-                    <Text style={{ fontSize: 26 }}>{order.image}</Text>
+                    <Text style={{ fontSize: 26 }}>🌾</Text>
                   </View>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.productName} numberOfLines={2}>
-                      {order.productName}
-                    </Text>
+                    <Text style={styles.productName} numberOfLines={2}>{order.productName}</Text>
                     <Text style={styles.muted}>{order.quantity}</Text>
-                    <Text style={styles.price}>{order.price}</Text>
+                    <Text style={styles.price}>{formatPkr(order.totalPkr)}</Text>
                   </View>
                 </View>
               </View>
@@ -145,21 +217,19 @@ export default function OrderDetailsPage() {
               {/* Timeline */}
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>{t({ english: 'Order Status Timeline', urdu: 'آرڈر کی حالت ٹائم لائن' })}</Text>
-
                 <View style={{ gap: 12, marginTop: 10 }}>
                   {order.timeline.map((step, idx) => {
                     const isDone = step.completed;
                     return (
-                      <View key={`${step.status}-${idx}`} style={{ flexDirection: 'row', gap: 12 }}>
+                      <View key={`step-${idx}`} style={{ flexDirection: 'row', gap: 12 }}>
                         <View style={{ alignItems: 'center' }}>
                           <View style={[styles.stepDot, isDone ? styles.stepDotDone : styles.stepDotTodo]}>
                             <Feather name={isDone ? 'check-circle' : 'clock'} size={14} color={isDone ? '#ffffff' : '#6b7280'} />
                           </View>
-                          {idx < order.timeline.length - 1 ? (
+                          {idx < order.timeline.length - 1 && (
                             <View style={[styles.stepLine, { backgroundColor: isDone ? '#0d5c4b' : '#e5e7eb' }]} />
-                          ) : null}
+                          )}
                         </View>
-
                         <View style={{ flex: 1, paddingBottom: 6 }}>
                           <Text style={[styles.stepLabel, { color: isDone ? '#111827' : '#6b7280' }]}>{t(step.label)}</Text>
                           <Text style={styles.mutedSmall}>{step.time}</Text>
@@ -170,106 +240,90 @@ export default function OrderDetailsPage() {
                 </View>
               </View>
 
-              {/* Buyer Info */}
+              {/* Delivery Info */}
               <View style={styles.card}>
-                <Text style={styles.sectionTitle}>{t({ english: 'Buyer Information', urdu: 'خرید کنندہ کی معلومات' })}</Text>
-
+                <Text style={styles.sectionTitle}>{t({ english: 'Delivery Information', urdu: 'ترسیل کی معلومات' })}</Text>
                 <View style={{ gap: 10, marginTop: 10 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <LinearGradient colors={['#fbbf24', '#f59e0b']} style={styles.buyerAvatar}>
-                      <Text style={{ fontSize: 16 }}>👤</Text>
-                    </LinearGradient>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.bold}>{order.buyer}</Text>
-                      <Text style={styles.mutedSmall}>{order.buyerPhone}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.divider} />
-
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <Feather name="map-pin" size={18} color="#6b7280" style={{ marginTop: 2 }} />
-                    <Text style={[styles.muted, { flex: 1 }]}>{order.buyerAddress}</Text>
+                    <Text style={[styles.muted, { flex: 1 }]}>
+                      {order.deliveryAddress || t({ english: 'No address provided', urdu: 'پتہ فراہم نہیں کیا گیا' })}
+                    </Text>
                   </View>
-
-                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      style={[styles.actionBtn, styles.actionBtnOutline]}
-                      onPress={() => Alert.alert(t({ english: 'Call', urdu: 'کال' }), order.buyerPhone)}
-                    >
-                      <Feather name="phone" size={16} color="#0d5c4b" />
-                      <Text style={styles.actionBtnOutlineText}>{t({ english: 'Call', urdu: 'کال' })}</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      style={[styles.actionBtn, styles.actionBtnOutline]}
-                      onPress={() =>
-                        router.push({
-                          pathname: '/community/chat/[conversationId]',
-                          params: { conversationId: 'new', otherId: order.buyer, contextType: 'direct' },
-                        })
-                      }
-                    >
-                      <Feather name="message-circle" size={16} color="#0d5c4b" />
-                      <Text style={styles.actionBtnOutlineText}>{t({ english: 'Message', urdu: 'پیغام' })}</Text>
-                    </TouchableOpacity>
+                  <View style={styles.divider} />
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <Feather name="user" size={18} color="#6b7280" style={{ marginTop: 2 }} />
+                    <Text style={[styles.muted, { flex: 1 }]}>{t({ english: 'Farmer', urdu: 'کسان' })}: {order.farmerId}</Text>
                   </View>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    style={[styles.actionBtn, styles.actionBtnOutline]}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/community/chat/[conversationId]',
+                        params: { conversationId: 'new', otherId: order.farmerId, contextType: 'direct' },
+                      })
+                    }
+                  >
+                    <Feather name="message-circle" size={16} color="#0d5c4b" />
+                    <Text style={styles.actionBtnOutlineText}>{t({ english: 'Message Farmer', urdu: 'کسان کو پیغام' })}</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
               {/* Payment Info */}
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>{t({ english: 'Payment Details', urdu: 'ادائیگی کی تفصیلات' })}</Text>
-
                 <View style={{ gap: 8, marginTop: 10 }}>
                   <View style={styles.rowBetween}>
-                    <Text style={styles.muted}>{t({ english: 'Subtotal', urdu: 'سب ٹوٹل' })}</Text>
-                    <Text style={styles.bold}>{order.price}</Text>
+                    <Text style={styles.muted}>{t({ english: 'Platform Commission', urdu: 'پلیٹ فارم کمیشن' })}</Text>
+                    <Text style={styles.bold}>{formatPkr(order.commissionPkr)}</Text>
                   </View>
-
                   <View style={styles.rowBetween}>
-                    <Text style={styles.muted}>{t({ english: 'Platform Fee', urdu: 'پلیٹ فارم فیس' })}</Text>
-                    <Text style={styles.bold}>₨100</Text>
+                    <Text style={styles.muted}>{t({ english: 'Service Fee', urdu: 'سروس فیس' })}</Text>
+                    <Text style={styles.bold}>{formatPkr(order.serviceFee)}</Text>
                   </View>
-
                   <View style={styles.divider} />
-
                   <View style={styles.rowBetween}>
-                    <Text style={styles.sectionTitle}>{t({ english: "You'll Receive", urdu: 'آپ کو ملنے والا' })}</Text>
-                    <Text style={styles.receive}>₨8,900</Text>
+                    <Text style={styles.sectionTitle}>{t({ english: 'Total Paid', urdu: 'کل ادا کیا' })}</Text>
+                    <Text style={styles.receive}>{formatPkr(order.totalPkr)}</Text>
                   </View>
-
                   <View style={styles.paymentNote}>
-                    <Text style={styles.paymentNoteTitle}>{t({ english: `💰 Payment Status: ${order.paymentStatus}`, urdu: `💰 ادائیگی کی حیثیت: ${order.paymentStatus}` })}</Text>
-                    <Text style={styles.paymentNoteDesc}>{t({ english: 'Payment will be released after delivery confirmation.', urdu: 'ادائیگی حوالگی کی تصدیق کے بعد جاری کی جائے گی۔' })}</Text>
+                    <Text style={styles.paymentNoteTitle}>
+                      {t({ english: `💰 Payment: ${order.paymentStatus}`, urdu: `💰 ادائیگی: ${order.paymentStatus}` })}
+                    </Text>
+                    <Text style={styles.paymentNoteDesc}>
+                      {t({ english: 'Funds are held in escrow and released to the farmer after delivery.', urdu: 'فنڈز ایسکرو میں محفوظ ہیں اور ترسیل کے بعد کسان کو جاری کیے جائیں گے۔' })}
+                    </Text>
                   </View>
                 </View>
               </View>
 
-              {/* Action Buttons */}
-              {order.status === 'confirmed' ? (
+              {/* Action: buyer marks delivered when shipped */}
+              {order.status === 'shipped' && (
                 <TouchableOpacity
                   activeOpacity={0.9}
                   style={styles.primaryBtn}
-                  onPress={() => Alert.alert(t({ english: 'Marked', urdu: 'نشان زد' }), t({ english: 'Marked as shipped (mock).', urdu: 'شپ کے طور پر نشان زد کیا گیا (نمونہ).' }))}
-                >
-                  <Feather name="truck" size={18} color="#ffffff" />
-                  <Text style={styles.primaryBtnText}>{t({ english: 'Mark as Shipped', urdu: 'شپ کے طور پر نشان زد کریں' })}</Text>
-                </TouchableOpacity>
-              ) : null}
-
-              {order.status === 'shipped' ? (
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  style={styles.primaryBtn}
-                  onPress={() => Alert.alert(t({ english: 'Marked', urdu: 'نشان زد' }), t({ english: 'Marked as delivered (mock).', urdu: 'ترسیل کے طور پر نشان زد کیا گیا (نمونہ).' }))}
+                  onPress={async () => {
+                    try {
+                      const res = await authFetch(`/api/v1/payments/orders/${order.id}/status`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: 'delivered' }),
+                      });
+                      if (res.ok) {
+                        await loadOrder();
+                        Alert.alert(t({ english: 'Confirmed', urdu: 'تصدیق شدہ' }), t({ english: 'Order marked as delivered.', urdu: 'آرڈر ترسیل شدہ کے طور پر نشان زد کیا گیا۔' }));
+                      }
+                    } catch {
+                      Alert.alert(t({ english: 'Error', urdu: 'خرابی' }), t({ english: 'Could not update status.', urdu: 'حالت تازہ نہیں ہو سکی۔' }));
+                    }
+                  }}
                 >
                   <Feather name="package" size={18} color="#ffffff" />
-                  <Text style={styles.primaryBtnText}>{t({ english: 'Mark as Delivered', urdu: 'ترسیل کے طور پر نشان زد کریں' })}</Text>
+                  <Text style={styles.primaryBtnText}>{t({ english: 'Confirm Delivery', urdu: 'ترسیل کی تصدیق کریں' })}</Text>
                 </TouchableOpacity>
-              ) : null}
+              )}
 
               <View style={{ height: 6 }} />
             </View>

@@ -1,8 +1,5 @@
 """
-HTTP endpoints for community groups (Piece 6).
-
-Mirrors the Socket.IO `group:*` events from `services/socket_gateway.py` so the
-HTTP fallback persists identical state.
+HTTP endpoints for community groups.
 """
 
 import uuid
@@ -21,7 +18,6 @@ from app.models.collections import (
 )
 from app.schemas.community import MessageCreate
 from app.services.security import get_current_mobile_id
-from app.services.socket_gateway import broadcast_to_group
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -263,8 +259,6 @@ async def group_send(
     serializable = dict(out)
     if isinstance(serializable.get("created_at"), datetime):
         serializable["created_at"] = serializable["created_at"].isoformat()
-    await broadcast_to_group(group_id, "group:received", {"message": serializable})
-
     logger.info(
         "group_http_sent group_id=%s sender_id=%s message_id=%s",
         group_id, sender_id, doc["message_id"],

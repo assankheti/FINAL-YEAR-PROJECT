@@ -20,3 +20,13 @@ COMMUNITY_NOTIFICATIONS_COLLECTION = "community_notifications"
 COMMUNITY_OFFERS_COLLECTION = "community_offers"
 COMMUNITY_PRESENCE_COLLECTION = "community_presence"
 COMMUNITY_BLOCKS_COLLECTION = "community_blocks"
+
+# ── Stripe / Payments ─────────────────────────────────────────────────────────
+STRIPE_ACCOUNTS_COLLECTION = "stripe_accounts"
+ORDERS_COLLECTION = "orders"
+PAYMENTS_COLLECTION = "payments"
+ESCROW_TRANSACTIONS_COLLECTION = "escrow_transactions"
+PAYOUTS_COLLECTION = "payouts"
+REFUNDS_COLLECTION = "refunds"
+DISPUTES_COLLECTION = "disputes"
+WEBHOOK_LOGS_COLLECTION = "webhook_logs"

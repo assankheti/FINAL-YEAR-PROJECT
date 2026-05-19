@@ -26,6 +26,7 @@ import {
   type ProductCategory,
   type ProductUnit,
 } from '@/lib/productsApi';
+import { uploadImage } from '@/lib/uploadImage';
 
 export default function AddProductPage() {
   const router = useRouter();
@@ -192,6 +193,12 @@ export default function AddProductPage() {
     setIsSubmitting(true);
     try {
       const ownerId = farmerIdParam || (await getProductOwnerId());
+      const uploadedImages = await Promise.all(
+        images.map((uri) => {
+          if (uri.startsWith('http') || uri.startsWith('/uploads/')) return Promise.resolve(uri);
+          return uploadImage(uri);
+        })
+      );
       const payload = {
         farmer_id: ownerId,
         name,
@@ -202,7 +209,7 @@ export default function AddProductPage() {
         min_order: formData.minOrder.trim(),
         delivery_area: formData.deliveryArea.trim(),
         description: formData.description.trim(),
-        images,
+        images: uploadedImages,
         status: stock <= 0 ? 'sold' as const : 'active' as const,
       };
 

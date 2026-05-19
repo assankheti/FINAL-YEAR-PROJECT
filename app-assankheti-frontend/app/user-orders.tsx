@@ -2,11 +2,12 @@ import { Feather } from '@expo/vector-icons';
 import GreenHeader from '@/components/GreenHeader';
 import OrdersList from '@/components/OrdersList';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { authFetch } from '@/lib/authFetch';
 
-type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
+type DisplayStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
 
 type Order = {
   id: string;
@@ -14,10 +15,25 @@ type Order = {
   quantity: string;
   price: string;
   seller: string;
-  status: OrderStatus;
+  status: DisplayStatus;
   date: string;
   image: string;
 };
+
+function mapStatus(apiStatus: string): DisplayStatus {
+  switch (apiStatus) {
+    case 'paid':
+    case 'processing': return 'confirmed';
+    case 'shipped':    return 'shipped';
+    case 'delivered':
+    case 'completed':  return 'delivered';
+    default:           return 'pending';
+  }
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 export default function UserOrdersPage() {
   const router = useRouter();
@@ -25,15 +41,36 @@ export default function UserOrdersPage() {
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
 
-  const orders = useMemo<Order[]>(
-    () => [
-      { id: 'UORD001', productName: 'Fresh Basmati Rice', quantity: '20 kg', price: '₨3,600', seller: 'Hassan Farm', status: 'pending', date: 'Dec 30, 2024', image: '🌾' },
-      { id: 'UORD002', productName: 'Premium Rice', quantity: '10 kg', price: '₨1,800', seller: 'Green Fields', status: 'confirmed', date: 'Dec 29, 2024', image: '🌾' },
-      { id: 'UORD003', productName: 'Rice Bran', quantity: '25 kg', price: '₨800', seller: 'Punjab Agro', status: 'shipped', date: 'Dec 28, 2024', image: '🌾' },
-      { id: 'UORD004', productName: 'Fresh Rice - 50kg', quantity: '50 kg', price: '₨2,250', seller: 'Sialkot Farms', status: 'delivered', date: 'Dec 26, 2024', image: '🌾' },
-    ],
-    []
-  );
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadOrders = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await authFetch('/api/v1/payments/orders?role=buyer&limit=100');
+      if (res.ok) {
+        const data: any[] = await res.json();
+        setOrders(
+          data.map((o) => ({
+            id: o.order_id,
+            productName: o.product_name,
+            quantity: `${o.quantity} units`,
+            price: `₨${(o.total_pkr ?? 0).toLocaleString()}`,
+            seller: o.farmer_id,
+            status: mapStatus(o.status),
+            date: formatDate(o.created_at),
+            image: '🌾',
+          }))
+        );
+      }
+    } catch {
+      // network error — keep empty list, user can pull to retry
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
 
   const filters = useMemo(
     () => [
@@ -83,7 +120,12 @@ export default function UserOrdersPage() {
             </View>
 
             <View style={{ marginTop: 14 }}>
-              {filteredOrders.length === 0 ? (
+              {isLoading ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="large" color="#0d5c4b" />
+                  <Text style={styles.emptySub}>Loading your orders...</Text>
+                </View>
+              ) : filteredOrders.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Feather name="package" size={22} color="#0d5c4b" />
                   <Text style={styles.emptyTitle}>No orders</Text>
