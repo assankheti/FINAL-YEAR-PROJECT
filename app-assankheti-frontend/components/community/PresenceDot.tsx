@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { useT } from '@/contexts/LanguageContext';
-import { useSocketEvent } from '@/hooks/useSocket';
 import { authFetch } from '@/lib/authFetch';
 
 type Props = {
@@ -71,13 +70,6 @@ export default function PresenceDot({
     };
   }, [liveMode, mobileId]);
 
-  // Live updates
-  useSocketEvent('presence:update', (payload: any) => {
-    if (!liveMode || !mobileId) return;
-    if (payload?.mobile_id !== mobileId) return;
-    setIsOnline(payload.status === 'online');
-    if (payload.last_seen_at) setLastSeen(payload.last_seen_at);
-  });
 
   // In static mode, mirror the prop on every render.
   useEffect(() => {

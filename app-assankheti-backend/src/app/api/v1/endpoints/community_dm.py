@@ -1,9 +1,5 @@
 """
-HTTP endpoints for direct messages (Piece 5).
-
-These mirror the Socket.IO `dm:*` events from `services/socket_gateway.py`.
-Send-via-HTTP must produce identical persisted state to send-via-socket so the
-client's HTTP fallback is safe to use.
+HTTP endpoints for direct messages.
 """
 
 import uuid
@@ -27,7 +23,6 @@ from app.services.community_helpers import (
 )
 from app.services.security import get_current_mobile_id
 from app.services.notifications import notify
-from app.services.socket_gateway import broadcast_to_user
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -163,8 +158,6 @@ async def dm_send(
     serializable = dict(out)
     if isinstance(serializable.get("created_at"), datetime):
         serializable["created_at"] = serializable["created_at"].isoformat()
-    await broadcast_to_user(recipient_id, "dm:received", {"message": serializable})
-
     try:
         await notify(
             recipient_id,

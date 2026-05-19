@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 
 import { useT, useLanguage } from '@/contexts/LanguageContext';
-import { useSocketEvent } from '@/hooks/useSocket';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { APP_FLOW_KEYS } from '@/lib/appFlow';
@@ -44,6 +43,7 @@ type BellNotification = (ServerNotification | LocalNotificationRecord) & {
 
 const POLL_MS = 30_000;
 const PAGE_LIMIT = 50;
+const EMPTY_NAMESPACES: string[] = [];
 
 function formatRelative(iso?: string): string {
   if (!iso) return '';
@@ -64,7 +64,7 @@ type Props = {
   localNamespaces?: string[];
 };
 
-export default function NotificationBell({ onHeader = true, localNamespaces = [] }: Props) {
+export default function NotificationBell({ onHeader = true, localNamespaces = EMPTY_NAMESPACES }: Props) {
   const router = useRouter();
   const t = useT();
   const { textLanguage } = useLanguage();
@@ -95,24 +95,15 @@ export default function NotificationBell({ onHeader = true, localNamespaces = []
   }, []);
 
   const fetchOnce = useCallback(async () => {
+    if (!mobileIdRef.current) {
+      mobileIdRef.current = await getOrCreateMobileId();
+    }
     try {
-      const token = await AsyncStorage.getItem(APP_FLOW_KEYS.accessToken);
-      if (!token) {
-        setServerItems([]);
-        setServerUnread(0);
-        setIsAuthenticated(false);
-        return;
-      }
-
-      setIsAuthenticated(true);
-      if (!mobileIdRef.current) {
-        mobileIdRef.current = await getOrCreateMobileId();
-      }
       const res = await authFetch(
         `/api/v1/community/notifications/${encodeURIComponent(mobileIdRef.current)}?limit=${PAGE_LIMIT}`
       );
       if (!res.ok) {
-        if (res.status === 403) return; // 401 handled inside authFetch
+        if (res.status === 403 || res.status === 401) return;
         throw new Error(`HTTP ${res.status}`);
       }
       const json = await res.json();
@@ -128,7 +119,7 @@ export default function NotificationBell({ onHeader = true, localNamespaces = []
 
   const loadLocal = useCallback(async () => {
     if (!localNamespaces.length) {
-      setLocalItems([]);
+      setLocalItems((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -155,16 +146,6 @@ export default function NotificationBell({ onHeader = true, localNamespaces = []
     return unsubscribe;
   }, [loadLocal]);
 
-  // Live updates from the server
-  useSocketEvent('notification:new', (payload: any) => {
-    const n: ServerNotification | undefined = payload?.notification;
-    if (!n?.notification_id) return;
-    setServerItems((prev) => {
-      if (prev.some((x) => x.notification_id === n.notification_id)) return prev;
-      return [n, ...prev].slice(0, PAGE_LIMIT);
-    });
-    if (!n.read) setServerUnread((u) => u + 1);
-  }, isAuthenticated);
 
   const markRead = useCallback(
     async (itemsToMark?: BellNotification[]) => {

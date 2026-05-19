@@ -38,6 +38,13 @@ export type ProductPayload = {
   status?: ProductStatus;
 };
 
+export function normalizeProductImageUrl(uri?: string | null): string | null {
+  if (!uri) return null;
+  if (uri.startsWith('http') || uri.startsWith('file:') || uri.startsWith('data:') || uri.startsWith('blob:')) return uri;
+  if (uri.startsWith('/')) return `${API_BASE}${uri}`;
+  return uri;
+}
+
 function parseJson(text: string): any {
   try {
     return JSON.parse(text);
@@ -77,6 +84,26 @@ export async function getProductOwnerId() {
 export async function listFarmerProducts(farmerId: string): Promise<ProductListing[]> {
   const json = await apiRequest(`/api/v1/products/farmer/${encodeURIComponent(farmerId)}`);
   return (json?.data ?? []) as ProductListing[];
+}
+
+export async function listAllProducts(input?: {
+  category?: string | null;
+  status?: ProductStatus | null;
+  limit?: number;
+}): Promise<ProductListing[]> {
+  const params = new URLSearchParams();
+  if (input?.category) params.set('category', input.category);
+  if (input?.status) params.set('status', input.status);
+  if (input?.limit) params.set('limit', String(input.limit));
+
+  const query = params.toString();
+  const json = await apiRequest(`/api/v1/products/all${query ? `?${query}` : ''}`);
+  return (json?.data ?? []) as ProductListing[];
+}
+
+export async function getProduct(productId: string): Promise<ProductListing> {
+  const json = await apiRequest(`/api/v1/products/${encodeURIComponent(productId)}`);
+  return json.data as ProductListing;
 }
 
 export async function createProduct(payload: ProductPayload): Promise<ProductListing> {

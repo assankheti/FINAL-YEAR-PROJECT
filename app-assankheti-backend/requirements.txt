@@ -17,4 +17,5 @@ Pillow
 beautifulsoup4
 requests
 openai
-python-socketio>=5,<6
+stream-chat
+stripe>=10.0.0

@@ -190,6 +190,33 @@ Health check:
 - `DELETE /api/v1/chatbot/session/{mobile_id}/{session_id}`
 - `DELETE /api/v1/chatbot/history/{mobile_id}`
 
+### Stream Chat
+- `GET /api/v1/stream/config`
+- `POST /api/v1/stream/token`
+- `POST /api/v1/stream/channels/direct`
+- `POST /api/v1/stream/channels/community`
+
+Local setup:
+
+```bash
+# Backend
+cd app-assankheti-backend
+source venv/bin/activate
+pip install -r requirements.txt
+PYTHONPATH=src uvicorn app.main:sio_app --host 0.0.0.0 --port 8000 --reload
+
+# Frontend
+cd app-assankheti-frontend
+npm install
+API_URL=http://YOUR_LAPTOP_IP:8000 STREAM_API_KEY=your_stream_public_api_key npm start
+```
+
+Required Stream env vars:
+- `STREAM_APP_ID`: Stream app id from your dashboard.
+- `STREAM_API_KEY`: public Stream API key, safe for the Expo client.
+- `STREAM_API_SECRET`: server-only Stream secret, never expose this in frontend code.
+- `STREAM_ADMIN_MOBILE_IDS`: optional comma-separated mobile ids that should receive admin Stream role.
+
 ### Scraped Data APIs
 - `POST /api/v1/fertilizer/scrape-and-store`
 - `GET /api/v1/fertilizer/all`

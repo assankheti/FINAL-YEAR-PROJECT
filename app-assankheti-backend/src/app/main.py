@@ -1,11 +1,9 @@
 # src/app/main.py
 #
-# Note: uvicorn must serve `sio_app` (the Socket.IO ASGI wrapper around the
-# FastAPI app), not `app` directly. Run with:
-#   uvicorn app.main:sio_app --host 0.0.0.0 --port 8000 --reload
+# Run with:
+#   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 import os
 
-import socketio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,7 +29,13 @@ from .api.v1.endpoints.community_groups import router as community_groups_router
 from .api.v1.endpoints.community_offers import router as community_offers_router
 from .api.v1.endpoints.community_notifications import router as community_notifications_router
 from .api.v1.endpoints.community_presence import router as community_presence_router
-from .services.socket_gateway import sio
+from .api.v1.endpoints.stream_chat import router as stream_chat_router
+from .api.v1.endpoints.stripe_connect import router as stripe_connect_router
+from .api.v1.endpoints.stripe_payments import router as stripe_payments_router
+from .api.v1.endpoints.stripe_webhook import router as stripe_webhook_router
+from .api.v1.endpoints.stripe_admin import router as stripe_admin_router
+from .core.stripe_client import init_stripe
+from .services.escrow_service import _ensure_indexes as _ensure_stripe_indexes
 from .services.fertilizer_service import scrape_and_store_fertilizers
 from .services.pesticide_service import scrape_and_store_pesticides
 from .services.seed_service import scrape_and_store_seeds
@@ -67,6 +71,18 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Run scrapers when the application starts"""
+    try:
+        init_stripe()
+        logger.info("Stripe initialised")
+    except RuntimeError as exc:
+        logger.warning("Stripe not initialised: %s", exc)
+
+    try:
+        await _ensure_stripe_indexes()
+        logger.info("Stripe DB indexes ensured")
+    except Exception as exc:
+        logger.warning("Stripe index creation failed: %s", exc)
+
     logger.info("Application startup: Running scrapers...")
     try:
         # Fertilizer scraper
@@ -155,6 +171,12 @@ app.include_router(community_groups_router, prefix="/api/v1/community", tags=["C
 app.include_router(community_offers_router, prefix="/api/v1/community", tags=["Community Offers"])
 app.include_router(community_notifications_router, prefix="/api/v1/community", tags=["Community Notifications"])
 app.include_router(community_presence_router, prefix="/api/v1/community", tags=["Community Presence"])
+app.include_router(stream_chat_router, prefix="/api/v1/stream", tags=["Stream Chat"])
+app.include_router(stripe_connect_router, prefix="/api/v1/stripe", tags=["Stripe Connect"])
+app.include_router(stripe_payments_router, prefix="/api/v1/payments", tags=["Payments"])
+# Webhook must be registered BEFORE any body-parsing middleware touches it
+app.include_router(stripe_webhook_router, prefix="/api/v1/stripe", tags=["Stripe Webhook"])
+app.include_router(stripe_admin_router, prefix="/api/v1/admin", tags=["Admin Payouts"])
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
 
@@ -203,4 +225,3 @@ async def not_found_handler(request: Request, exc):
     return JSONResponse(status_code=404, content={"detail": "Resource not found"})
 
 
-sio_app = socketio.ASGIApp(sio, other_asgi_app=app)

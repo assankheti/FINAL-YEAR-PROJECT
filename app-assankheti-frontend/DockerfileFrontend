@@ -2,9 +2,11 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Accept build-time API_URL
+# Accept build-time public frontend config
 ARG API_URL=http://localhost:8000
+ARG STREAM_API_KEY=
 ENV API_URL=${API_URL}
+ENV STREAM_API_KEY=${STREAM_API_KEY}
 
 # Copy package files first for better layer caching
 COPY package.json package-lock.json* ./

@@ -35,9 +35,11 @@ function buildApiUrlFromHost(host?: string | null): string | null {
 }
 
 function getDevApiUrl(): string {
-  // If explicitly set via env variable, use that
-  if (extra.API_URL && extra.API_URL !== 'http://localhost:8000') {
-    return extra.API_URL as string;
+  // If explicitly set via env variable, use that (ignore localhost/loopback)
+  if (extra.API_URL) {
+    const url = extra.API_URL as string;
+    const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(url);
+    if (!isLoopback) return url;
   }
 
   // Auto-detect from Expo/Dev Client hosts first.

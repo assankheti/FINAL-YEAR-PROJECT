@@ -72,5 +72,6 @@ export async function uploadImage(uri: string): Promise<string> {
 
   const json = await res.json();
   if (!json?.url) throw new Error('Upload response missing url');
-  return json.url as string;
+  const url = String(json.url);
+  return url.startsWith('/') ? `${API_BASE}${url}` : url;
 }

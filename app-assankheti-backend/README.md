@@ -51,7 +51,7 @@ Assan Kheti Backend is a FastAPI application designed to manage agricultural dat
 To run the FastAPI application, execute the following command:
 
 ```
-uvicorn src.app.main:app --reload
+PYTHONPATH=src uvicorn app.main:sio_app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Running Tests
@@ -59,8 +59,28 @@ uvicorn src.app.main:app --reload
 To run the tests, use:
 
 ```
-pytest
+PYTHONPATH=src python -m unittest discover -s tests -v
 ```
+
+### Stream Chat
+
+Install dependencies and set Stream credentials in the repository root `.env`:
+
+```
+pip install -r requirements.txt
+```
+
+Required variables:
+
+```
+STREAM_APP_ID=your_stream_app_id
+STREAM_API_KEY=your_stream_public_api_key
+STREAM_API_SECRET=your_stream_server_secret
+STREAM_ADMIN_MOBILE_IDS=optional,mobile,ids
+```
+
+The frontend only receives `STREAM_API_KEY`. `STREAM_API_SECRET` is used only by
+the protected `/api/v1/stream/token` backend endpoint.
 
 ### Docker
 

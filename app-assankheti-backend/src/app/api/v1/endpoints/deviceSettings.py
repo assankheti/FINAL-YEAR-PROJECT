@@ -87,6 +87,57 @@ async def ensure_user_settings_doc(mobile_id: str) -> dict:
     return with_user_setting_defaults(saved or doc)
 
 
+async def _auto_join_community_groups(mobile_id: str, selected_crops: list[str]) -> None:
+    if not mobile_id or not selected_crops:
+        return
+
+    now = datetime.utcnow()
+    for crop in selected_crops:
+        normalized_crop = str(crop).strip().lower()
+        if not normalized_crop:
+            continue
+
+        group = await db[COMMUNITY_GROUPS_COLLECTION].find_one({"crop": normalized_crop})
+        if not group:
+            continue
+
+        group_id = group.get("group_id")
+        if not group_id:
+            continue
+
+        key = {"group_id": group_id, "mobile_id": mobile_id}
+        existing = await db[COMMUNITY_GROUP_MEMBERS_COLLECTION].find_one(key)
+        if existing:
+            continue
+
+        await db[COMMUNITY_GROUP_MEMBERS_COLLECTION].insert_one({
+            **key,
+            "joined_at": now,
+            "last_read_at": None,
+            "muted": False,
+        })
+        await db[COMMUNITY_GROUPS_COLLECTION].update_one(
+            {"group_id": group_id},
+            {"$inc": {"member_count": 1}},
+        )
+
+        try:
+            from app.services.notifications import notify
+
+            await notify(
+                mobile_id,
+                "group_added",
+                data={"group_id": group_id, "crop": normalized_crop},
+                crop=group.get("name_en") or normalized_crop.title(),
+            )
+        except Exception:
+            logger.exception(
+                "community_auto_join_notify_failed mobile_id=%s group_id=%s",
+                mobile_id,
+                group_id,
+            )
+
+
 @router.post("/generate/mobileid", response_model=mobileid_db)
 async def bootstrap(payload: mobileid):
     now = datetime.utcnow()

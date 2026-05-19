@@ -21,19 +21,24 @@ import ImagePickerButton from '@/components/community/ImagePickerButton';
 import MessageBubble from '@/components/community/MessageBubble';
 import PinnedProductCard from '@/components/community/PinnedProductCard';
 import PresenceDot from '@/components/community/PresenceDot';
-import SeenReceipt from '@/components/community/SeenReceipt';
-import TypingIndicator from '@/components/community/TypingIndicator';
 import { useT } from '@/contexts/LanguageContext';
 import { useChatMessages } from '@/hooks/useChatMessages';
-import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
+
+function formatFarmerLabel(id?: string): string {
+  if (!id) return 'Farmer';
+  const clean = id.replace(/^device:/, '');
+  const hex = clean.replace(/[^a-fA-F0-9]/g, '');
+  if (hex.length >= 4) return `Farmer ···${hex.slice(-4).toUpperCase()}`;
+  return 'Farmer';
+}
 
 function getInitials(value?: string) {
   const cleaned = (value ?? '')
     .replace(/[^a-zA-Z0-9\s]/g, ' ')
     .trim();
-  if (!cleaned) return 'CH';
+  if (!cleaned) return 'FM';
   const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   return parts[0].slice(0, 2).toUpperCase();
@@ -84,15 +89,12 @@ export default function CommunityChatScreen() {
     };
   }, []);
 
-  const { messages, isLoading, error, seenByOther, sendMessage, markRead, applyOfferStatus } =
+  const { messages, isLoading, error, sendMessage, markRead, applyOfferStatus } =
     useChatMessages({
       conversationId: conversationId && conversationId !== 'new' ? conversationId : undefined,
       otherParticipantId: recipientId || undefined,
       myMobileId: myMobileId || undefined,
     });
-
-  // Typing indicator for the remote participant
-  const { isTypingRemote, sendTyping, sendStopTyping } = useTypingIndicator(recipientId);
 
   // Mark read on mount + whenever new messages arrive
   useEffect(() => {
@@ -145,13 +147,13 @@ export default function CommunityChatScreen() {
     if (scrollRef.current) {
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     }
-  }, [messages.length, isTypingRemote]);
+  }, [messages.length]);
 
   const showPinnedProduct = useMemo(
     () => contextType === 'product' && (params?.productName || contextRef),
     [contextType, contextRef, params?.productName]
   );
-  const chatTitle = recipientId || t({ english: 'Community Chat', urdu: 'کمیونٹی چیٹ' });
+  const chatTitle = recipientId ? formatFarmerLabel(recipientId) : t({ english: 'Community Chat', urdu: 'کمیونٹی چیٹ' });
   const chatSubline = useMemo(() => {
     if (contextType === 'product') {
       return t({ english: 'Discussing a product listing', urdu: 'مصنوع کی فہرست پر گفتگو' });
@@ -163,17 +165,9 @@ export default function CommunityChatScreen() {
   }, [contextType, t]);
   const canSend = !!draft.trim() && !!recipientId;
 
-  const handleDraftChange = useCallback(
-    (text: string) => {
-      setDraft(text);
-      if (text.length > 0) {
-        sendTyping();
-      } else {
-        sendStopTyping();
-      }
-    },
-    [sendTyping, sendStopTyping]
-  );
+  const handleDraftChange = useCallback((text: string) => {
+    setDraft(text);
+  }, []);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -187,7 +181,6 @@ export default function CommunityChatScreen() {
     }
     const previousDraft = text;
     setDraft('');
-    sendStopTyping();
     try {
       await sendMessage({
         recipientId,
@@ -257,7 +250,6 @@ export default function CommunityChatScreen() {
       );
       return;
     }
-    sendStopTyping();
     try {
       await sendMessage({
         recipientId,
@@ -379,32 +371,16 @@ export default function CommunityChatScreen() {
           ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          {messages.map((m, idx) => {
-            const isLastMessage = idx === messages.length - 1;
-            const isMe = m.sender_id === myMobileId || m.sender_id === 'me';
-            return (
-              <React.Fragment key={m.message_id}>
-                <MessageBubble
-                  message={m}
-                  myMobileId={myMobileId}
-                  onOfferStatusChange={applyOfferStatus}
-                  onBlockUser={handleBlockUser}
-                />
-                {/* Show "Seen" below the last outbound message when the other
-                    participant has read it. */}
-                {isLastMessage && isMe && seenByOther ? (
-                  <SeenReceipt visible={true} />
-                ) : null}
-              </React.Fragment>
-            );
-          })}
+          {messages.map((m) => (
+            <MessageBubble
+              key={m.message_id}
+              message={m}
+              myMobileId={myMobileId}
+              onOfferStatusChange={applyOfferStatus}
+              onBlockUser={handleBlockUser}
+            />
+          ))}
 
-          {/* Remote typing indicator — rendered at the bottom of the message list */}
-          {isTypingRemote ? (
-            <View style={styles.typingRow}>
-              <TypingIndicator visible={true} />
-            </View>
-          ) : null}
         </ScrollView>
 
         <View
@@ -529,17 +505,6 @@ const styles = StyleSheet.create({
   messagesWrap: { paddingTop: 16, paddingBottom: 18, gap: 2 },
   loaderRow: { paddingVertical: 24, alignItems: 'center' },
   error: { color: '#b91c1c', fontWeight: '800', marginBottom: 8 },
-
-  typingRow: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    borderTopLeftRadius: 6,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginTop: 4,
-    marginBottom: 4,
-  },
 
   composerArea: {
     paddingTop: 8,

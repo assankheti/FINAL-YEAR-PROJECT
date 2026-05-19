@@ -897,7 +897,7 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
     { id: 'home', icon: 'home', label: t('Home', 'ہوم') },
     { id: 'myshop', icon: 'tag', label: t('My Shop', 'دکان') },
     { id: 'favorites', icon: 'heart', label: t('Saved', 'محفوظ') },
-    { id: 'community', icon: 'message-circle', label: t('Chat', 'چیٹ'), customPress: () => router.push('/community/inbox'), badge: communityUnread },
+    { id: 'community', icon: 'message-circle', label: t('Chat', 'چیٹ'), customPress: () => router.push('/community/inbox' as any), badge: communityUnread },
     { id: 'profile', icon: 'user', label: t('Profile', 'پروفائل') },
   ];
 

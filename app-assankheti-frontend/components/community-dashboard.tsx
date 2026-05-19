@@ -23,6 +23,7 @@ import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { clearAuthSession } from '@/lib/appFlow';
+import { listAllProducts, normalizeProductImageUrl, type ProductListing } from '@/lib/productsApi';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -54,19 +55,6 @@ type Tab = 'home' | 'products' | 'favorites' | 'messages' | 'profile';
 export type Props = {
   userType: 'simple-user' | 'businessman';
   textLanguage?: 'urdu' | 'english';
-};
-
-type ApiProduct = {
-  product_id: string;
-  name_en: string;
-  name_ur?: string;
-  price_per_unit?: number;
-  unit?: string;
-  farmer_id?: string;
-  location_text?: string;
-  image_url?: string;
-  category?: string;
-  status?: string;
 };
 
 type DisplayProduct = {
@@ -111,16 +99,13 @@ function SkeletonBox({ w, h, r = RADIUS.md }: { w: number | string; h: number; r
 
 const CATEGORY_EMOJI: Record<string, string> = {
   grains: '🌾',
-  vegetables: '🥬',
+  veggies: '🥬',
   fruits: '🍎',
-  cotton: '🌿',
-  sugarcane: '🎋',
-  dairy: '🥛',
-  other: '📦',
+  others: '🌿',
 };
 
 function categoryEmoji(cat?: string): string {
-  const key = (cat ?? 'other').toLowerCase();
+  const key = (cat ?? 'others').toLowerCase();
   return CATEGORY_EMOJI[key] ?? '📦';
 }
 
@@ -129,17 +114,24 @@ function formatPrice(p?: number): string {
   return `₨${p.toLocaleString()}`;
 }
 
-function toDisplayProduct(p: ApiProduct): DisplayProduct {
+function farmerLabel(farmerId?: string): string {
+  if (!farmerId) return 'Verified Farmer';
+  const digits = farmerId.replace(/\D/g, '');
+  if (digits.length >= 4) return `Farmer ···${digits.slice(-4)}`;
+  return farmerId.replace(/^device:/, 'Farmer ');
+}
+
+function toDisplayProduct(p: ProductListing, index = 0): DisplayProduct {
   return {
-    id: p.product_id,
-    name: p.name_en,
-    price: formatPrice(p.price_per_unit),
+    id: p.id,
+    name: p.name,
+    price: formatPrice(p.price),
     unit: p.unit ? `/${p.unit}` : '',
-    farmer: p.farmer_id ?? 'Unknown Farmer',
-    location: p.location_text ?? '',
-    image: p.image_url ?? categoryEmoji(p.category),
-    category: p.category ?? 'other',
-    isFeatured: Math.random() < 0.3,
+    farmer: farmerLabel(p.farmer_id),
+    location: p.delivery_area ?? '',
+    image: normalizeProductImageUrl(p.images?.[0]) ?? categoryEmoji(p.category),
+    category: p.category ?? 'others',
+    isFeatured: index < 8,
   };
 }
 
@@ -183,16 +175,7 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     (async () => {
       setProductsLoading(true);
       try {
-        const res = await authFetch('/api/v1/products/all?status=active&limit=40');
-        if (!res.ok || cancelled) return;
-        const json = await res.json();
-        const raw: ApiProduct[] = Array.isArray(json)
-          ? json
-          : Array.isArray(json?.products)
-          ? json.products
-          : Array.isArray(json?.items)
-          ? json.items
-          : [];
+        const raw = await listAllProducts({ status: 'active', limit: 200 });
         if (!cancelled) setProducts(raw.map(toDisplayProduct));
       } catch {
         // network error — show empty state
@@ -365,10 +348,9 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     const cats = [
       { key: 'all', label: t('All', 'سب'), icon: '🛒' },
       { key: 'grains', label: t('Grains', 'اناج'), icon: '🌾' },
-      { key: 'vegetables', label: t('Veggies', 'سبزیاں'), icon: '🥬' },
+      { key: 'veggies', label: t('Veggies', 'سبزیاں'), icon: '🥬' },
       { key: 'fruits', label: t('Fruits', 'پھل'), icon: '🍎' },
-      { key: 'dairy', label: t('Dairy', 'دودھ'), icon: '🥛' },
-      { key: 'cotton', label: t('Cotton', 'کپاس'), icon: '🌿' },
+      { key: 'others', label: t('Others', 'دیگر'), icon: '🌿' },
     ];
     return (
       <ScrollView
@@ -546,34 +528,6 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
         )}
       </View>
 
-      {/* Top Farmers */}
-      <View style={{ paddingHorizontal: 16, marginTop: 20, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
-        <Text style={[S.sectionTitle, { marginBottom: 12 }]}>{t('Top Farmers', 'بہترین کسان')}</Text>
-        {[
-          { name: 'Ahmad Ali', location: 'Gujranwala', products: 12, rating: 4.9 },
-          { name: 'Hussain Khan', location: 'Multan', products: 8, rating: 4.7 },
-          { name: 'Rashid Farm', location: 'Lahore', products: 15, rating: 4.8 },
-        ].map((f) => (
-          <View key={f.name} style={S.farmerCard}>
-            <LinearGradient colors={[C.gradStart, C.gradEnd]} style={S.farmerAvatar}>
-              <Text style={{ fontSize: 18 }}>👨‍🌾</Text>
-            </LinearGradient>
-            <View style={{ flex: 1 }}>
-              <Text style={S.farmerName}>{f.name}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <Feather name="map-pin" size={11} color={C.sub} />
-                <Text style={S.farmerMeta}>{f.location}</Text>
-                <Text style={{ color: C.muted }}>•</Text>
-                <Text style={S.farmerMeta}>{f.products} {t('products', 'مصنوعات')}</Text>
-              </View>
-            </View>
-            <View style={S.ratingPill}>
-              <Feather name="star" size={12} color={C.accentDark} />
-              <Text style={S.ratingVal}>{f.rating}</Text>
-            </View>
-          </View>
-        ))}
-      </View>
     </ScrollView>
   );
 
@@ -644,10 +598,10 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     </ScrollView>
   );
 
-  // Messages tab → just redirect to real inbox
+  // Messages tab → redirect to real inbox
   const MessagesTab = () => {
     useEffect(() => {
-      router.push('/community/inbox');
+      router.push('/community/inbox' as any);
     }, []);
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -697,7 +651,7 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
 
         {[
           { key: 'orders', label: t('My Orders', 'میرے آرڈرز'), icon: 'shopping-bag' as const, onPress: () => router.push('/user-orders') },
-          { key: 'messages', label: t('Messages', 'پیغامات'), icon: 'message-circle' as const, onPress: () => router.push('/community/inbox') },
+          { key: 'messages', label: t('Messages', 'پیغامات'), icon: 'message-circle' as const, onPress: () => router.push('/community/inbox' as any) },
           { key: 'settings', label: t('Settings', 'ترتیبات'), icon: 'settings' as const, onPress: () => router.push('/community-settings') },
           { key: 'notifications', label: t('Notifications', 'اطلاعات'), icon: 'bell' as const, onPress: () => router.push('/user-notifications') },
           { key: 'privacy', label: t('Privacy Policy', 'پرائیویسی پالیسی'), icon: 'shield' as const, onPress: () => router.push('/privacy-policy') },
@@ -740,7 +694,7 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
       { id: 'home', label: t('Home', 'ہوم'), icon: 'home' },
       { id: 'products', label: t('Products', 'مصنوعات'), icon: 'shopping-bag' },
       { id: 'favorites', label: t('Saved', 'محفوظ'), icon: 'heart' },
-      { id: 'messages', label: t('Messages', 'پیغامات'), icon: 'message-circle', badge: communityUnread, customPress: () => router.push('/community/inbox') },
+      { id: 'messages', label: t('Messages', 'پیغامات'), icon: 'message-circle', badge: communityUnread, customPress: () => router.push('/community/inbox' as any) },
       { id: 'profile', label: t('Profile', 'پروفائل'), icon: 'user' },
     ];
 

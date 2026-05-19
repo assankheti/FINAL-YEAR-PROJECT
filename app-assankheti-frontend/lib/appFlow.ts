@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { chatClient } from '@/lib/stream';
+import { useStreamChatStore } from '@/stores/streamChatStore';
 
 export type AppRole = 'farmer' | 'businessman' | 'simple-user';
 export type AppLanguage = 'english' | 'urdu';
@@ -50,6 +52,10 @@ const FARMER_MARKETPLACE_PREFIXES = [
   '/farmer-products',
   '/add-product',
   '/product-actions',
+];
+
+const SHARED_AUTH_PREFIXES = [
+  '/stream-chat',
 ];
 
 const COMMUNITY_ONLY_PREFIXES = [
@@ -165,6 +171,13 @@ export async function persistAuthSession(input: {
 }
 
 export async function clearAuthSession() {
+  try {
+    if (chatClient.userID) await chatClient.disconnectUser();
+    useStreamChatStore.getState().setDisconnected();
+  } catch {
+    // Auth state should still clear even if the chat socket is already gone.
+  }
+
   await AsyncStorage.multiRemove([
     APP_FLOW_KEYS.accessToken,
     APP_FLOW_KEYS.tokenType,
@@ -221,6 +234,14 @@ export function getRedirectForPath(pathname: string, state: AppFlowState): Route
 
   const isFarmerOnly = FARMER_ONLY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isCommunityOnly = COMMUNITY_ONLY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const isSharedAuthOnly = SHARED_AUTH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
+  if (isSharedAuthOnly) {
+    if (!state.role) return startupRoute;
+    if (state.role === 'farmer' && !state.selectedCrop) return route('/crop-selection', roleParams(state.role, state));
+    if (!state.isAuthenticated) return route('/login', roleParams(state.role, state));
+    return null;
+  }
 
   if (isFarmerOnly) {
     if (state.role !== 'farmer') return startupRoute;
