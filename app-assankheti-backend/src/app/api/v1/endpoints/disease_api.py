@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import requests
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
@@ -9,13 +10,9 @@ from app.models.collections import DISEASE_SCANS_COLLECTION
 import traceback
 from app.utils.logger import logger
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
 router = APIRouter()
 db = get_database()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 @router.post("/predict_disease")
 async def predict_disease(file: UploadFile = File(...), mobile_id: str = Form(...), crop_name: str | None = Form(None)):
@@ -114,19 +111,15 @@ class TreatmentRequest(BaseModel):
 
 @router.post("/treatment")
 async def get_disease_treatment(request: TreatmentRequest):
-    """Get treatment advice for a detected disease using OpenAI"""
+    """Get treatment advice for a detected disease using Gemini."""
     try:
         if not request.disease or not request.disease.strip():
             raise HTTPException(status_code=400, detail="disease name is required")
         
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise HTTPException(status_code=500, detail="OpenAI API key not configured on backend")
-        
-        if not OpenAI:
-            raise HTTPException(status_code=500, detail="OpenAI library not installed")
-        
-        client = OpenAI(api_key=api_key)
+            raise HTTPException(status_code=500, detail="Gemini API key not configured on backend")
+
         crop_name = request.crop_name or "the crop"
         
         prompt = f"""You are an agricultural expert. Provide treatment and preventative measures for the following crop disease in structured format:
@@ -157,19 +150,53 @@ Highlight the most effective medicines and treatments here in 2-3 sentences. Inc
 - Prevention tip 4
 
 Keep it concise and practical."""
-        
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful agricultural expert."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.2
+
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            headers={
+                "x-goog-api-key": api_key,
+                "Content-Type": "application/json",
+            },
+            json={
+                "system_instruction": {
+                    "parts": [
+                        {"text": "You are a helpful agricultural expert."}
+                    ]
+                },
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt}
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 500,
+                },
+            },
+            timeout=30,
         )
-        
-        treatment_text = response.choices[0].message.content
-        logger.info(f"OpenAI treatment advice for {request.disease}: {treatment_text[:100]}...")
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Gemini API request failed: {response.text}",
+            )
+
+        body = response.json()
+        candidates = body.get("candidates") or []
+        parts = (((candidates[0] or {}).get("content") or {}).get("parts") or []) if candidates else []
+        treatment_text = "\n".join(
+            part.get("text", "").strip()
+            for part in parts
+            if isinstance(part, dict) and part.get("text")
+        ).strip()
+
+        if not treatment_text:
+            raise HTTPException(status_code=502, detail="Gemini returned no treatment text")
+
+        logger.info(f"Gemini treatment advice for {request.disease}: {treatment_text[:100]}...")
         
         return {"treatment": treatment_text}
     

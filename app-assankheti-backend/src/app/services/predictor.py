@@ -85,6 +85,31 @@ def prepare_image(img_bytes):
     img_array = np.expand_dims(img_array, axis=0)
     return img_array
 
+
+def _ensure_interpreter():
+    global interpreter, input_details, output_details
+
+    if interpreter is not None:
+        return interpreter, input_details, output_details
+
+    if tf is None:
+        raise RuntimeError(f"TensorFlow is unavailable: {_tf_import_error}")
+
+    if not os.path.exists(MODEL_PATH):
+        raise RuntimeError(f"Offline model file not found at {MODEL_PATH}")
+
+    try:
+        interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+        interpreter.allocate_tensors()
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+        return interpreter, input_details, output_details
+    except Exception as exc:
+        interpreter = None
+        input_details = None
+        output_details = None
+        raise RuntimeError(f"Failed to initialize TFLite interpreter: {exc}") from exc
+
 def predict(img_bytes):
    
    
@@ -121,9 +146,10 @@ def predict(img_bytes):
     # Fallback to offline model
     print("[INFO] Using OFFLINE model")
     img = prepare_image(img_bytes)
-    interpreter.set_tensor(input_details[0]['index'], img)
-    interpreter.invoke()
-    output_data = interpreter.get_tensor(output_details[0]['index'])
+    local_interpreter, local_input_details, local_output_details = _ensure_interpreter()
+    local_interpreter.set_tensor(local_input_details[0]['index'], img)
+    local_interpreter.invoke()
+    output_data = local_interpreter.get_tensor(local_output_details[0]['index'])
     class_idx = int(np.argmax(output_data))
     confidence = confidence_to_percent(np.max(output_data))
     disease = class_names[class_idx]

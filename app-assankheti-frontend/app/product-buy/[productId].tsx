@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authFetch } from '@/lib/authFetch';
-import { getProduct, normalizeProductImageUrl, type ProductListing } from '@/lib/productsApi';
+import { getProduct, normalizeProductImageUrl, productFallbackImage, type ProductListing } from '@/lib/productsApi';
 
 type BuyProduct = {
   id: string;
@@ -71,7 +71,8 @@ function getAppRedirectUrl(): string {
 
 function parseMinimumOrder(value?: string | null) {
   const parsed = Number(String(value ?? '').match(/\d+/)?.[0]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  if (!Number.isFinite(parsed) || parsed <= 0) return 10;
+  return Math.max(parsed, 10);
 }
 
 function toBuyProduct(product: ProductListing): BuyProduct {
@@ -89,7 +90,7 @@ function toBuyProduct(product: ProductListing): BuyProduct {
     minOrder,
     maxOrder: stock,
     stock,
-    image: normalizeProductImageUrl(product.images?.[0]) ?? categoryEmoji(product.category),
+    image: normalizeProductImageUrl(product.images?.[0]) ?? productFallbackImage(product.name, product.category),
     description: product.description || 'Fresh farm product listed directly by a verified Assan Kheti farmer.',
     deliveryTime: '2-3 days',
     deliveryFee: 200,
@@ -109,7 +110,7 @@ export default function ProductBuyPage() {
   const [product, setProduct] = useState<BuyProduct | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(10);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
@@ -140,6 +141,7 @@ export default function ProductBuyPage() {
   const totalPrice = product ? product.price * quantity : 0;
   const platformFee = Math.round(totalPrice * 0.02);
   const grandTotal = totalPrice + (product?.deliveryFee ?? 0) + platformFee;
+  const stockRemaining = Math.max(0, (product?.stock ?? 0) - quantity);
 
   const handleQuantityChange = (delta: number) => {
     if (!product) return;
@@ -300,6 +302,21 @@ export default function ProductBuyPage() {
                   ) : (
                     <Text style={{ fontSize: 64 }}>{product.image}</Text>
                   )}
+                  <LinearGradient
+                    colors={['transparent', 'rgba(6, 78, 59, 0.82)']}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={styles.productImgOverlay}
+                  />
+                  <View style={styles.productTopBadges}>
+                    <View style={styles.photoBadge}>
+                      <Feather name="shield" size={12} color="#ffffff" />
+                      <Text style={styles.photoBadgeText}>Verified Listing</Text>
+                    </View>
+                    <View style={styles.stockBadge}>
+                      <Text style={styles.stockBadgeText}>{product.stock} {product.unit} in stock</Text>
+                    </View>
+                  </View>
                 </View>
 
                 <View style={{ padding: 14 }}>
@@ -318,26 +335,52 @@ export default function ProductBuyPage() {
                   </Text>
 
                   <Text style={styles.desc}>{product.description}</Text>
+
+                  <View style={styles.quickInfoRow}>
+                    <View style={styles.quickInfoCard}>
+                      <Text style={styles.quickInfoLabel}>Minimum order</Text>
+                      <Text style={styles.quickInfoValue}>{product.minOrder} {product.unit}</Text>
+                    </View>
+                    <View style={styles.quickInfoCard}>
+                      <Text style={styles.quickInfoLabel}>Delivery</Text>
+                      <Text style={styles.quickInfoValue}>{product.deliveryTime}</Text>
+                    </View>
+                  </View>
                 </View>
               </View>
 
               {/* Farmer Info */}
               <View style={styles.cardPad}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.blockEyebrow}>SELLER</Text>
+                  <Text style={styles.blockTitle}>Farmer details</Text>
+                </View>
+                <View style={styles.sellerTopRow}>
                   <LinearGradient colors={['#0d5c4b', '#10b981']} style={styles.farmerAvatar}>
                     <Text style={{ fontSize: 18 }}>👨‍🌾</Text>
                   </LinearGradient>
 
-                  <View style={{ flex: 1 }}>
+                  <View style={styles.sellerIdentityCol}>
                     <Text style={styles.farmerName}>{product.farmer}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <View style={styles.sellerMetaRow}>
                       <Feather name="star" size={12} color="#f59e0b" />
                       <Text style={styles.farmerMeta}>{product.farmerRating} Rating</Text>
                       <Text style={styles.metaDot}>•</Text>
                       <Text style={styles.farmerMeta}>Verified Farmer</Text>
                     </View>
+                    <Text style={styles.sellerSubline}>{product.location}</Text>
                   </View>
+                </View>
 
+                <View style={styles.sellerStatsRow}>
+                  <View style={styles.sellerStatCard}>
+                    <Text style={styles.sellerStatLabel}>Seller ID</Text>
+                    <Text style={styles.sellerStatValue} numberOfLines={1}>{product.farmerId || 'Protected'}</Text>
+                  </View>
+                  <View style={styles.sellerStatCard}>
+                    <Text style={styles.sellerStatLabel}>Delivery</Text>
+                    <Text style={styles.sellerStatValue}>{product.deliveryTime}</Text>
+                  </View>
                 </View>
 
                 {/* Message Farmer */}
@@ -371,6 +414,10 @@ export default function ProductBuyPage() {
 
               {/* Quantity Selector */}
               <View style={styles.cardPad}>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.blockEyebrow}>ORDER SIZE</Text>
+                  <Text style={styles.blockTitle}>Choose quantity</Text>
+                </View>
                 <Text style={styles.label}>
                   Quantity <Text style={styles.labelMuted}>/ مقدار</Text>
                 </Text>
@@ -408,10 +455,22 @@ export default function ProductBuyPage() {
                     </Text>
                   </View>
                 </View>
+
+                <View style={styles.qtyInfoBar}>
+                  <View style={styles.qtyInfoPill}>
+                    <Feather name="package" size={13} color="#0d5c4b" />
+                    <Text style={styles.qtyInfoPillText}>You are ordering {quantity} {product.unit}</Text>
+                  </View>
+                  <Text style={styles.qtyInfoSub}>Remaining after order: {stockRemaining} {product.unit}</Text>
+                </View>
               </View>
 
               {/* Delivery Address */}
               <View style={styles.cardPad}>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.blockEyebrow}>DELIVERY</Text>
+                  <Text style={styles.blockTitle}>Where should we deliver?</Text>
+                </View>
                 <Text style={styles.label}>
                   Delivery Address <Text style={styles.labelMuted}>/ پتہ</Text>
                 </Text>
@@ -429,15 +488,38 @@ export default function ProductBuyPage() {
                   />
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                  <Feather name="truck" size={14} color="#6b7280" />
-                  <Text style={styles.deliveryMeta}>Delivery in {product.deliveryTime}</Text>
+                <View style={styles.deliveryInfoCard}>
+                  <View style={styles.deliveryInfoIconWrap}>
+                    <Feather name="truck" size={16} color="#0d5c4b" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.deliveryInfoTitle}>Estimated delivery</Text>
+                    <Text style={styles.deliveryMeta}>Delivery in {product.deliveryTime}</Text>
+                  </View>
                 </View>
               </View>
 
               {/* Order Summary */}
               <View style={styles.cardPad}>
-                <Text style={styles.summaryTitle}>Order Summary</Text>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.blockEyebrow}>CHECKOUT</Text>
+                  <Text style={styles.blockTitle}>Order summary</Text>
+                </View>
+
+                <View style={styles.summaryTopCard}>
+                  <View style={styles.summaryTopRow}>
+                    <Text style={styles.summaryTopLabel}>Product</Text>
+                    <Text style={styles.summaryTopValue} numberOfLines={1}>{product.name}</Text>
+                  </View>
+                  <View style={styles.summaryTopRow}>
+                    <Text style={styles.summaryTopLabel}>Unit price</Text>
+                    <Text style={styles.summaryTopValue}>₨{product.price}/{product.unit}</Text>
+                  </View>
+                  <View style={styles.summaryTopRow}>
+                    <Text style={styles.summaryTopLabel}>Order quantity</Text>
+                    <Text style={styles.summaryTopValue}>{quantity} {product.unit}</Text>
+                  </View>
+                </View>
 
                 <View style={{ gap: 8 }}>
                   <View style={styles.summaryRow}>
@@ -464,32 +546,38 @@ export default function ProductBuyPage() {
                     <Text style={styles.summaryTotalValue}>₨{grandTotal.toLocaleString()}</Text>
                   </View>
                 </View>
-              </View>
 
-              {/* Escrow Info */}
-              <View style={styles.escrowCard}>
-                <Feather name="shield" size={20} color="#10b981" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.escrowTitle}>Secure Escrow Payment</Text>
-                  <Text style={styles.escrowDesc}>
-                    Your payment is held securely until you confirm receipt of the product. Full protection against fraud.
-                  </Text>
+                <View style={styles.summaryHelpCard}>
+                  <View style={styles.summaryHelpRow}>
+                    <Feather name="info" size={14} color="#0d5c4b" />
+                    <Text style={styles.summaryHelpText}>Escrow protects your payment until delivery is confirmed.</Text>
+                  </View>
+                  <View style={styles.summaryHelpRow}>
+                    <Feather name="clock" size={14} color="#0d5c4b" />
+                    <Text style={styles.summaryHelpText}>Estimated arrival: {product.deliveryTime}</Text>
+                  </View>
                 </View>
               </View>
 
               {/* Buy Button */}
-              <TouchableOpacity
-                activeOpacity={0.9}
-                style={[styles.buyCta, isPlacingOrder && { opacity: 0.7 }]}
-                onPress={handleBuy}
-                disabled={isPlacingOrder}
-              >
-                {isPlacingOrder ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text style={styles.buyCtaText}>Place Order • ₨{grandTotal.toLocaleString()}</Text>
-                )}
-              </TouchableOpacity>
+              <View style={styles.buyFooterCard}>
+                <View>
+                  <Text style={styles.buyFooterLabel}>Total payable</Text>
+                  <Text style={styles.buyFooterAmount}>₨{grandTotal.toLocaleString()}</Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={[styles.buyCta, isPlacingOrder && { opacity: 0.7 }]}
+                  onPress={handleBuy}
+                  disabled={isPlacingOrder}
+                >
+                  {isPlacingOrder ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.buyCtaText}>Place Order</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
 
               <View style={{ height: 6 }} />
             </View>
@@ -554,6 +642,36 @@ const styles = StyleSheet.create({
   },
 
   productImgArea: { height: 160, backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center' },
+  productImgOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  productTopBadges: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  photoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(15, 23, 42, 0.36)',
+  },
+  photoBadgeText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
+  stockBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#ecfdf5',
+  },
+  stockBadgeText: { color: '#0d5c4b', fontSize: 11, fontWeight: '900' },
   productName: { fontSize: 18, fontWeight: '900', color: '#111827' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' },
   metaText: { color: '#6b7280', fontSize: 12, fontWeight: '600' },
@@ -561,10 +679,41 @@ const styles = StyleSheet.create({
   price: { marginTop: 10, fontSize: 22, fontWeight: '900', color: '#0d5c4b' },
   unit: { fontSize: 12, color: '#6b7280', fontWeight: '700' },
   desc: { marginTop: 10, color: '#6b7280', fontSize: 12, lineHeight: 18 },
+  quickInfoRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  quickInfoCard: {
+    flex: 1,
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  quickInfoLabel: { color: '#64748b', fontSize: 11, fontWeight: '700' },
+  quickInfoValue: { color: '#0f172a', fontSize: 13, fontWeight: '900', marginTop: 4 },
 
   farmerAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  sellerTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginTop: 4 },
+  sellerIdentityCol: { flex: 1, paddingTop: 2 },
   farmerName: { fontWeight: '900', color: '#111827' },
   farmerMeta: { color: '#6b7280', fontSize: 11, fontWeight: '600' },
+  sellerMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 },
+  sellerSubline: { marginTop: 6, color: '#475569', fontSize: 12, fontWeight: '600' },
+  sellerStatsRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  sellerStatCard: {
+    flex: 1,
+    borderRadius: 18,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  sellerStatLabel: { color: '#64748b', fontSize: 11, fontWeight: '700' },
+  sellerStatValue: { color: '#0f172a', fontSize: 13, fontWeight: '900', marginTop: 8 },
+  blockHeader: { marginBottom: 12 },
+  blockEyebrow: { color: '#64748b', fontSize: 11, fontWeight: '800', letterSpacing: 0.7 },
+  blockTitle: { color: '#0f172a', fontSize: 16, fontWeight: '900', marginTop: 3 },
   label: { fontWeight: '800', color: '#111827', fontSize: 13 },
   labelMuted: { color: '#6b7280', fontWeight: '700' },
 
@@ -582,47 +731,116 @@ const styles = StyleSheet.create({
   qtyUnit: { fontSize: 12, color: '#6b7280', marginTop: 2, fontWeight: '700' },
   qtyPrice: { fontSize: 18, fontWeight: '900', color: '#0d5c4b' },
   qtyHint: { fontSize: 11, color: '#6b7280', marginTop: 4, fontWeight: '600' },
+  qtyInfoBar: {
+    marginTop: 14,
+    borderRadius: 14,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#d1fae5',
+    padding: 12,
+  },
+  qtyInfoPill: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qtyInfoPillText: { color: '#0d5c4b', fontSize: 12, fontWeight: '800' },
+  qtyInfoSub: { marginTop: 6, color: '#64748b', fontSize: 11, fontWeight: '700' },
 
   addressWrap: {
-    marginTop: 10,
+    marginTop: 12,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 16,
+    borderRadius: 18,
     backgroundColor: '#ffffff',
     paddingLeft: 40,
-    paddingRight: 12,
-    paddingVertical: 10,
-    minHeight: 86,
+    paddingRight: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
+    minHeight: 112,
   },
-  addressIcon: { position: 'absolute', left: 12, top: 12 },
-  addressInput: { fontSize: 13, color: '#111827', flex: 1 },
+  addressIcon: { position: 'absolute', left: 14, top: 16 },
+  addressInput: { fontSize: 14, color: '#111827', flex: 1, lineHeight: 22 },
+  deliveryInfoCard: {
+    marginTop: 14,
+    borderRadius: 16,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  deliveryInfoIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ecfdf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deliveryInfoTitle: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
   deliveryMeta: { color: '#6b7280', fontSize: 12, fontWeight: '600' },
 
-  summaryTitle: { fontWeight: '900', color: '#111827', marginBottom: 10 },
+  summaryTopCard: {
+    borderRadius: 16,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+    marginBottom: 14,
+  },
+  summaryTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  summaryTopLabel: { color: '#64748b', fontSize: 11, fontWeight: '700' },
+  summaryTopValue: { flex: 1, textAlign: 'right', color: '#0f172a', fontSize: 12, fontWeight: '800' },
   summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   summaryLabel: { color: '#6b7280', fontSize: 12, fontWeight: '600' },
   summaryValue: { color: '#111827', fontSize: 12, fontWeight: '800' },
   summaryDivider: { height: 1, backgroundColor: '#e5e7eb', marginTop: 6 },
   summaryTotal: { color: '#111827', fontSize: 14, fontWeight: '900' },
   summaryTotalValue: { color: '#0d5c4b', fontSize: 16, fontWeight: '900' },
-
-  escrowCard: {
-    backgroundColor: 'rgba(16,185,129,0.12)',
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
+  summaryHelpCard: {
+    marginTop: 14,
+    borderRadius: 14,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#d1fae5',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 10,
   },
-  escrowTitle: { fontWeight: '900', color: '#111827' },
-  escrowDesc: { color: '#6b7280', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  summaryHelpRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  summaryHelpText: { flex: 1, color: '#0d5c4b', fontSize: 12, lineHeight: 18, fontWeight: '700' },
 
+  buyFooterCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  buyFooterLabel: { color: '#64748b', fontSize: 11, fontWeight: '700' },
+  buyFooterAmount: { color: '#0d5c4b', fontSize: 22, fontWeight: '900', marginTop: 2 },
   buyCta: {
     height: 54,
     borderRadius: 18,
     backgroundColor: '#0d5c4b',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 20,
+    minWidth: 170,
   },
   buyCtaText: { color: '#ffffff', fontWeight: '900', fontSize: 16 },
 
@@ -631,13 +849,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    height: 42,
-    borderRadius: 12,
+    height: 48,
+    borderRadius: 16,
     backgroundColor: '#ecfdf5',
     borderWidth: 1,
     borderColor: '#a7f3d0',
-    marginHorizontal: 14,
-    marginBottom: 14,
+    marginTop: 18,
   },
   messageBtnText: { color: '#0d5c4b', fontWeight: '900', fontSize: 13 },
 });

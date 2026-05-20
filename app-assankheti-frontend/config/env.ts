@@ -3,7 +3,8 @@ import { NativeModules, Platform } from 'react-native';
 
 /**
  * Environment configuration
- * Auto-detects the dev machine's IP from Expo so it works on any network.
+ * Expo Go on a real phone should talk to the laptop over LAN.
+ * Android emulator should fall back to 10.0.2.2 only when no LAN host is known.
  */
 
 const extra = Constants.expoConfig?.extra ?? {};
@@ -34,15 +35,17 @@ function buildApiUrlFromHost(host?: string | null): string | null {
   return `http://${parsedHost}:8000`;
 }
 
-function getDevApiUrl(): string {
-  // If explicitly set via env variable, use that (ignore localhost/loopback)
-  if (extra.API_URL) {
-    const url = extra.API_URL as string;
-    const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(url);
-    if (!isLoopback) return url;
-  }
+function getExplicitApiUrl(): string | null {
+  const configured = typeof extra.API_URL === 'string' ? extra.API_URL.trim() : '';
+  if (!configured) return null;
 
-  // Auto-detect from Expo/Dev Client hosts first.
+  const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?\/?$/i.test(configured);
+  if (isLoopback) return null;
+
+  return configured;
+}
+
+function getExpoLanApiUrl(): string | null {
   const candidateHosts: (string | null | undefined)[] = [
     Constants.expoGoConfig?.debuggerHost,
     (Constants as any).manifest?.debuggerHost,
@@ -55,6 +58,16 @@ function getDevApiUrl(): string {
     const url = buildApiUrlFromHost(candidate);
     if (url) return url;
   }
+
+  return null;
+}
+
+function getDevApiUrl(): string {
+  const explicitUrl = getExplicitApiUrl();
+  if (explicitUrl) return explicitUrl;
+
+  const expoLanUrl = getExpoLanApiUrl();
+  if (expoLanUrl) return expoLanUrl;
 
   // Final emulator/simulator fallback.
   if (Platform.OS === 'android') {

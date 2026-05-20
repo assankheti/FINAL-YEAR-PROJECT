@@ -11,6 +11,7 @@ import {
   deleteProduct as deleteProductApi,
   getProductOwnerId,
   listFarmerProducts,
+  productFallbackImage,
   type ProductListing,
   type ProductStatus,
 } from '@/lib/productsApi';
@@ -244,8 +245,8 @@ export default function FarmerProductsPage() {
                     <View key={p.id} style={[styles.card, isTiny ? styles.cardTiny : null]}>
                       <View style={[styles.cardRow, isTiny ? styles.cardRowTiny : null]}>
                         <View style={[styles.emojiBox, isTiny ? styles.emojiBoxTiny : null]}>
-                          {p.images?.[0] ? (
-                            <Image source={{ uri: p.images[0] }} style={styles.productImage} />
+                          {(p.images?.[0] || p.name) ? (
+                            <Image source={{ uri: p.images?.[0] || productFallbackImage(p.name, p.category) }} style={styles.productImage} />
                           ) : (
                             <Text style={{ fontSize: isTiny ? 24 : 28 }}>{p.image ?? '🌾'}</Text>
                           )}

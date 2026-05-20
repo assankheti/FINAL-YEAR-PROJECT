@@ -58,6 +58,13 @@ const SHARED_AUTH_PREFIXES = [
   '/stream-chat',
 ];
 
+const SHARED_MARKETPLACE_PREFIXES = [
+  '/category-products',
+  '/product-buy',
+  '/product/',
+  '/order-details',
+];
+
 const COMMUNITY_ONLY_PREFIXES = [
   '/community-dashboard',
   '/community/',
@@ -235,8 +242,16 @@ export function getRedirectForPath(pathname: string, state: AppFlowState): Route
   const isFarmerOnly = FARMER_ONLY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isCommunityOnly = COMMUNITY_ONLY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isSharedAuthOnly = SHARED_AUTH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const isSharedMarketplace = SHARED_MARKETPLACE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
   if (isSharedAuthOnly) {
+    if (!state.role) return startupRoute;
+    if (state.role === 'farmer' && !state.selectedCrop) return route('/crop-selection', roleParams(state.role, state));
+    if (!state.isAuthenticated) return route('/login', roleParams(state.role, state));
+    return null;
+  }
+
+  if (isSharedMarketplace) {
     if (!state.role) return startupRoute;
     if (state.role === 'farmer' && !state.selectedCrop) return route('/crop-selection', roleParams(state.role, state));
     if (!state.isAuthenticated) return route('/login', roleParams(state.role, state));

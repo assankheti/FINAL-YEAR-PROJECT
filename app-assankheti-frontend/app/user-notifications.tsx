@@ -42,6 +42,7 @@ export default function UserNotificationsPage() {
         body: item.subtitle,
         isRead: item.isRead,
         data: { type: item.type },
+        deliverPush: false,
       }))
     );
   }, [notifs]);

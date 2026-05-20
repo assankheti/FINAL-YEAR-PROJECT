@@ -26,7 +26,7 @@ import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { clearAuthSession } from '@/lib/appFlow';
-import { getProductOwnerId, listFarmerProducts } from '@/lib/productsApi';
+import { getProductOwnerId, listFarmerProducts, normalizeProductImageUrl, productFallbackImage } from '@/lib/productsApi';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 
@@ -118,12 +118,13 @@ function SkeletonBox({ width, height, radius = 10, style }: {
 
 // ─── Product card (grid) ────────────────────────────────────────────────────────
 
-function ProductCard({ item, onBuy, onFav, isFav, lang }: {
+function ProductCard({ item, onBuy, onFav, isFav, lang, compact = false }: {
   item: APIProduct;
   onBuy: () => void;
   onFav: () => void;
   isFav: boolean;
   lang: 'english' | 'urdu';
+  compact?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const press = () => {
@@ -133,7 +134,7 @@ function ProductCard({ item, onBuy, onFav, isFav, lang }: {
     ]).start(onBuy);
   };
   const { main, sub } = formatPrice(item.price, item.unit);
-  const img = item.images?.[0];
+  const img = normalizeProductImageUrl(item.images?.[0]) ?? productFallbackImage(item.name, item.category);
 
   return (
     <Animated.View style={[styles.productCard, { transform: [{ scale }] }]}>
@@ -143,6 +144,9 @@ function ProductCard({ item, onBuy, onFav, isFav, lang }: {
             ? <Image source={{ uri: img }} style={styles.productCardImg} resizeMode="cover" />
             : <Text style={{ fontSize: 42 }}>{categoryEmoji(item.category)}</Text>
           }
+          <View style={styles.productCategoryBadge}>
+            <Text style={styles.productCategoryBadgeText}>{item.category || 'product'}</Text>
+          </View>
           {item.status === 'active' && item.stock > 0 ? null : (
             <View style={styles.soldOverlay}><Text style={styles.soldText}>Sold Out</Text></View>
           )}
@@ -155,15 +159,22 @@ function ProductCard({ item, onBuy, onFav, isFav, lang }: {
           <Text style={styles.productCardFarmer} numberOfLines={1}>
             <Feather name="user" size={10} color={C.textSub} /> {farmerLabel(item.farmer_id)}
           </Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceMain}>{main}<Text style={styles.priceSub}>{sub}</Text></Text>
+          <View style={styles.productMetaPill}>
+            <Feather name="package" size={11} color={C.primary} />
+            <Text style={styles.productMetaPillText}>{item.stock} {item.unit} available</Text>
+          </View>
+          <View style={[styles.priceRow, compact ? styles.priceRowCompact : null]}>
+            <View style={styles.priceStack}>
+              <Text style={styles.priceCaption}>Price</Text>
+              <Text style={styles.priceMain}>{main}<Text style={styles.priceSub}>{sub}</Text></Text>
+            </View>
             <TouchableOpacity
               activeOpacity={0.85}
-              style={[styles.buyChip, item.stock <= 0 && { opacity: 0.4 }]}
+              style={[styles.buyChip, compact ? styles.buyChipCompact : null, item.stock <= 0 && { opacity: 0.4 }]}
               onPress={onBuy}
               disabled={item.stock <= 0}
             >
-              <Text style={styles.buyChipText}>{lang === 'urdu' ? 'خریدیں' : 'Buy'}</Text>
+              <Text style={styles.buyChipText}>{lang === 'urdu' ? 'ابھی خریدیں' : 'Buy Now'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -172,42 +183,15 @@ function ProductCard({ item, onBuy, onFav, isFav, lang }: {
   );
 }
 
-// ─── Featured card (horizontal) ───────────────────────────────────────────────
-
-function FeaturedCard({ item, onPress }: { item: APIProduct; onPress: () => void }) {
-  const img = item.images?.[0];
-  const { main, sub } = formatPrice(item.price, item.unit);
-  return (
-    <TouchableOpacity activeOpacity={0.88} onPress={onPress} style={styles.featCard}>
-      <LinearGradient
-        colors={[C.primary, C.primaryLight]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.featCardGradient}
-      >
-        {img
-          ? <Image source={{ uri: img }} style={styles.featCardImg} resizeMode="cover" />
-          : <Text style={{ fontSize: 52 }}>{categoryEmoji(item.category)}</Text>
-        }
-      </LinearGradient>
-      <View style={styles.featCardBody}>
-        <Text style={styles.featCardName} numberOfLines={2}>{item.name}</Text>
-        <Text style={styles.featCardFarmer} numberOfLines={1}>{farmerLabel(item.farmer_id)}</Text>
-        <Text style={styles.featCardPrice}>
-          {main}<Text style={{ fontSize: 12, fontWeight: '600', color: C.textSub }}>{sub}</Text>
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const contentMaxWidth = Math.min(width - 0, 600);
-  const cardW = (Math.min(width, contentMaxWidth) - 48) / 2;
+  const contentMaxWidth = Math.min(width - 32, 600);
+  const isCompactGrid = width < 410;
+  const gridContentWidth = contentMaxWidth - 32;
+  const cardW = (gridContentWidth - 12) / 2;
 
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -329,11 +313,12 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
         title: t('New offer received', 'نئی پیشکش موصول ہوئی'),
         body: t('A buyer made an offer on your product.', 'ایک خریدار نے آپ کی مصنوع پر پیشکش کی ہے۔'),
         data: { type: 'offer' },
+        deliverPush: false,
       },
     ]);
   }, [t]);
 
-  // ─── Filtered / featured ─────────────────────────────────────────────────────
+  // ─── Filtered / favorites ────────────────────────────────────────────────────
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -342,11 +327,6 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
       `${p.name} ${p.category} ${farmerLabel(p.farmer_id)}`.toLowerCase().includes(q)
     );
   }, [searchQuery, browseProducts]);
-
-  const featuredProducts = useMemo(
-    () => browseProducts.slice(0, 6),
-    [browseProducts]
-  );
 
   const favoriteProducts = useMemo(
     () => browseProducts.filter((p) => favorites.has(p.id)),
@@ -422,13 +402,6 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
               </TouchableOpacity>
             )}
           </View>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={styles.filterPill}
-            onPress={() => router.push('/category-products/grains' as any)}
-          >
-            <Feather name="sliders" size={16} color="#fff" />
-          </TouchableOpacity>
         </View>
       </View>
     </LinearGradient>
@@ -453,37 +426,6 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
       </ScrollView>
     </View>
   );
-
-  // ─── Featured (horizontal) ────────────────────────────────────────────────────
-
-  const Featured = () => {
-    if (browseLoading || featuredProducts.length === 0) return null;
-    return (
-      <View style={[{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t('Featured Products', 'نمایاں مصنوعات')}</Text>
-          <TouchableOpacity onPress={() => router.push('/category-products/grains' as any)}>
-            <Text style={styles.seeAll}>{t('See all', 'سب دیکھیں')}</Text>
-          </TouchableOpacity>
-        </View>
-        <FlatList
-          data={featuredProducts}
-          keyExtractor={(p) => p.id + '_feat'}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-          renderItem={({ item }) => (
-            <FeaturedCard
-              item={item}
-              onPress={() =>
-                router.push({ pathname: '/product-buy/[productId]', params: { productId: item.id } })
-              }
-            />
-          )}
-        />
-      </View>
-    );
-  };
 
   // ─── Browse grid ─────────────────────────────────────────────────────────────
 
@@ -554,6 +496,7 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
                 onFav={() => toggleFav(p.id)}
                 isFav={favorites.has(p.id)}
                 lang={textLanguage}
+                compact={isCompactGrid}
               />
             </View>
           ))}
@@ -586,7 +529,6 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
         </View>
       </View>
       <Categories />
-      <Featured />
       <BrowseGrid />
     </ScrollView>
   );
@@ -664,7 +606,7 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
                 const statusColor = p.status === 'active' ? '#10b981' : p.status === 'sold' ? '#f59e0b' : '#64748b';
                 const statusBg = p.status === 'active' ? '#d1fae5' : p.status === 'sold' ? '#fef3c7' : '#f1f5f9';
                 const statusLabel = p.status === 'active' ? t('Active', 'فعال') : p.status === 'sold' ? t('Sold', 'فروخت') : t('Draft', 'مسودہ');
-                const img = p.images?.[0];
+                const img = normalizeProductImageUrl(p.images?.[0]) ?? productFallbackImage(p.name, p.category);
 
                 return (
                   <View key={p.id} style={styles.myProductCard}>
@@ -778,7 +720,7 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
         ) : (
           <View style={{ gap: 12 }}>
             {favoriteProducts.map((p) => {
-              const img = p.images?.[0];
+              const img = normalizeProductImageUrl(p.images?.[0]) ?? productFallbackImage(p.name, p.category);
               const { main, sub } = formatPrice(p.price, p.unit);
               return (
                 <View key={p.id} style={styles.favRow}>
@@ -958,11 +900,10 @@ const styles = StyleSheet.create({
   logoCircle: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
   headerSub: { color: 'rgba(255,255,255,0.72)', fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
   headerTitle: { color: '#fff', fontSize: 17, fontWeight: '900', marginTop: 2 },
-  searchRow: { flexDirection: 'row', gap: 10 },
+  searchRow: { flexDirection: 'row' },
   searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: RADIUS.md, height: 46 },
   searchInput: { flex: 1, paddingHorizontal: 10, color: C.text, fontSize: 14, fontWeight: '600' },
   searchClear: { paddingHorizontal: 12 },
-  filterPill: { width: 46, height: 46, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
 
   // Stats bar
   statsBar: { flexDirection: 'row', backgroundColor: C.card, borderRadius: RADIUS.lg, marginHorizontal: 16, padding: 16, shadowColor: C.shadow, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 20, elevation: 5, gap: 0 },
@@ -981,30 +922,29 @@ const styles = StyleSheet.create({
   categoryChip: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderRadius: RADIUS.md },
   categoryChipLabel: { fontWeight: '700', fontSize: 13, color: C.text },
 
-  // Featured card
-  featCard: { width: 200, backgroundColor: C.card, borderRadius: RADIUS.lg, overflow: 'hidden', shadowColor: C.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
-  featCardGradient: { height: 130, alignItems: 'center', justifyContent: 'center' },
-  featCardImg: { position: 'absolute', width: '100%', height: '100%', opacity: 0.75 },
-  featCardBody: { padding: 12 },
-  featCardName: { fontWeight: '900', fontSize: 14, color: C.text, marginBottom: 4 },
-  featCardFarmer: { fontSize: 11, color: C.textSub, fontWeight: '600', marginBottom: 6 },
-  featCardPrice: { fontSize: 15, fontWeight: '900', color: C.primary },
-
   // Product grid card
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
-  productCard: { backgroundColor: C.card, borderRadius: RADIUS.lg, overflow: 'hidden', shadowColor: C.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4 },
-  productCardTop: { height: 130, backgroundColor: C.greenTint2, alignItems: 'center', justifyContent: 'center' },
+  productCard: { backgroundColor: C.card, borderRadius: RADIUS.xl, overflow: 'hidden', shadowColor: C.shadow, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.08, shadowRadius: 18, elevation: 5 },
+  productCardTop: { height: 138, backgroundColor: C.greenTint2, alignItems: 'center', justifyContent: 'center' },
   productCardImg: { position: 'absolute', width: '100%', height: '100%' },
+  productCategoryBadge: { position: 'absolute', left: 10, top: 10, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 5 },
+  productCategoryBadgeText: { color: C.primary, fontSize: 10, fontWeight: '900', textTransform: 'capitalize' },
   soldOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.38)', alignItems: 'center', justifyContent: 'center' },
   soldText: { color: '#fff', fontWeight: '900', fontSize: 13, backgroundColor: 'rgba(239,68,68,0.85)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   favChip: { position: 'absolute', top: 9, right: 9, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' },
-  productCardBody: { padding: 12 },
-  productCardName: { fontWeight: '800', color: C.text, fontSize: 13, lineHeight: 18 },
+  productCardBody: { padding: 14, gap: 8 },
+  productCardName: { fontWeight: '900', color: C.text, fontSize: 14, lineHeight: 20, minHeight: 40 },
   productCardFarmer: { fontSize: 11, color: C.textSub, fontWeight: '600', marginTop: 4 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
-  priceMain: { fontSize: 15, fontWeight: '900', color: C.primary },
-  priceSub: { fontSize: 11, fontWeight: '600', color: C.textSub },
-  buyChip: { backgroundColor: C.primary, borderRadius: RADIUS.sm, paddingVertical: 7, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+  productMetaPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.greenTint, borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 6 },
+  productMetaPillText: { color: C.primary, fontSize: 10, fontWeight: '800' },
+  priceRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 6, gap: 12 },
+  priceRowCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  priceStack: { flex: 1 },
+  priceCaption: { color: C.textSub, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
+  priceMain: { fontSize: 17, fontWeight: '900', color: C.primary },
+  priceSub: { fontSize: 11, fontWeight: '700', color: C.textSub },
+  buyChip: { backgroundColor: C.primary, borderRadius: RADIUS.md, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', minWidth: 88 },
+  buyChipCompact: { width: '100%' },
   buyChipText: { color: '#fff', fontWeight: '900', fontSize: 12 },
 
   // Shared plain header

@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { listAllProducts, normalizeProductImageUrl, type ProductCategory, type ProductListing } from '@/lib/productsApi';
+import { listAllProducts, normalizeProductImageUrl, productFallbackImage, type ProductCategory, type ProductListing } from '@/lib/productsApi';
 
 type CategoryKey = 'grains' | 'veggies' | 'fruits' | 'others' | 'rice';
 
@@ -58,7 +58,7 @@ function toCardProduct(product: ProductListing): Product {
     farmer: farmerLabel(product.farmer_id),
     location: product.delivery_area ?? '',
     rating: 4.8,
-    image: normalizeProductImageUrl(product.images?.[0]) ?? categoryEmoji(product.category),
+    image: normalizeProductImageUrl(product.images?.[0]) ?? productFallbackImage(product.name, product.category),
     category: product.category,
   };
 }

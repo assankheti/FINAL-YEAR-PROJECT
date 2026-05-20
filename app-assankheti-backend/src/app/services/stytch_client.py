@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 STYTCH_PROJECT_ID = os.getenv("STYTCH_PROJECT_ID")
 STYTCH_SECRET = os.getenv("STYTCH_SECRET")
-STYTCH_ENV = os.getenv("STYTCH_ENV", "test")  # "test" or "live"
+STYTCH_ENV = os.getenv("STYTCH_ENV") or os.getenv("STYTCH_ENVIRONMENT") or "test"
 
 # Initialize Stytch client (official SDK)
 _client = stytch.Client(project_id=STYTCH_PROJECT_ID, secret=STYTCH_SECRET)
