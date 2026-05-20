@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 
 import { useT, useLanguage } from '@/contexts/LanguageContext';
-import { authFetch } from '@/lib/authFetch';
+import { authFetch, SESSION_EXPIRED_ERROR } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { APP_FLOW_KEYS } from '@/lib/appFlow';
 import {
@@ -76,6 +76,7 @@ export default function NotificationBell({ onHeader = true, localNamespaces = EM
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const mobileIdRef = useRef<string>('');
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const notifiedNetworkFailureRef = useRef(false);
   const unread = serverUnread + localItems.filter((item) => !item.read).length;
 
   useEffect(() => {
@@ -100,7 +101,8 @@ export default function NotificationBell({ onHeader = true, localNamespaces = EM
     }
     try {
       const res = await authFetch(
-        `/api/v1/community/notifications/${encodeURIComponent(mobileIdRef.current)}?limit=${PAGE_LIMIT}`
+        `/api/v1/community/notifications/${encodeURIComponent(mobileIdRef.current)}?limit=${PAGE_LIMIT}`,
+        { suppress401Redirect: true }
       );
       if (!res.ok) {
         if (res.status === 403 || res.status === 401) return;
@@ -112,8 +114,30 @@ export default function NotificationBell({ onHeader = true, localNamespaces = EM
       setServerUnread(
         typeof json?.unread_count === 'number' ? json.unread_count : list.filter((n) => !n.read).length
       );
+      notifiedNetworkFailureRef.current = false;
     } catch (e: any) {
-      console.warn('[NotificationBell] fetch failed', e?.message ?? e);
+      const message = e?.message ?? String(e);
+      if (message === SESSION_EXPIRED_ERROR) {
+        setIsAuthenticated(false);
+        setServerItems([]);
+        setServerUnread(0);
+        return;
+      }
+      const isNetworkFailure =
+        typeof message === 'string' &&
+        (message.includes('Network request failed') || message.includes('Cannot reach backend server'));
+
+      if (isNetworkFailure) {
+        setServerItems([]);
+        setServerUnread(0);
+        if (!notifiedNetworkFailureRef.current) {
+          console.warn('[NotificationBell] backend unreachable, using local notifications only');
+          notifiedNetworkFailureRef.current = true;
+        }
+        return;
+      }
+
+      console.warn('[NotificationBell] fetch failed', message);
     }
   }, []);
 
@@ -171,6 +195,7 @@ export default function NotificationBell({ onHeader = true, localNamespaces = EM
           if (body) {
             const res = await authFetch('/api/v1/community/notifications/read', {
               method: 'POST',
+              suppress401Redirect: true,
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             });
@@ -192,6 +217,12 @@ export default function NotificationBell({ onHeader = true, localNamespaces = EM
           }
         }
       } catch (e: any) {
+        if ((e?.message ?? String(e)) === SESSION_EXPIRED_ERROR) {
+          setIsAuthenticated(false);
+          setServerItems([]);
+          setServerUnread(0);
+          return;
+        }
         console.warn('[NotificationBell] markRead failed', e?.message ?? e);
       }
     },

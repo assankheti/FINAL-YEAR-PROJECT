@@ -38,11 +38,27 @@ export type ProductPayload = {
   status?: ProductStatus;
 };
 
+function slugifyProductTerm(value?: string | null): string {
+  const cleaned = String(value ?? '')
+    .toLowerCase()
+    .replace(/[()]/g, ' ')
+    .replace(/[^a-z0-9]+/g, ',')
+    .replace(/^,+|,+$/g, '');
+  return cleaned || 'farm,produce';
+}
+
 export function normalizeProductImageUrl(uri?: string | null): string | null {
   if (!uri) return null;
   if (uri.startsWith('http') || uri.startsWith('file:') || uri.startsWith('data:') || uri.startsWith('blob:')) return uri;
   if (uri.startsWith('/')) return `${API_BASE}${uri}`;
   return uri;
+}
+
+export function productFallbackImage(name?: string | null, category?: string | null): string {
+  const tags = slugifyProductTerm(name) || slugifyProductTerm(category);
+  const lockBase = `${name ?? ''}-${category ?? ''}`;
+  const lock = Array.from(lockBase).reduce((sum, char) => sum + char.charCodeAt(0), 0) || 999;
+  return `https://loremflickr.com/640/480/${tags}?lock=${lock}`;
 }
 
 function parseJson(text: string): any {

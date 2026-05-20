@@ -16,6 +16,10 @@ from app.models.collections import PRODUCT_LISTINGS_COLLECTION
 
 NOW = datetime.now(timezone.utc)
 
+
+def photo_url(tags: str, lock: int) -> str:
+    return f"https://loremflickr.com/640/480/{tags}?lock={lock}"
+
 # ── Products per farmer ────────────────────────────────────────────────────────
 PRODUCTS = [
     # ── Ali Hassan (farmer-ali-001) ─ wheat & rice ──────────────────────────
@@ -29,7 +33,7 @@ PRODUCTS = [
         "min_order": "10 kg",
         "delivery_area": "Lahore, Sheikhupura, Narowal",
         "description": "Long-grain aged Basmati, naturally fragrant. Harvested Oct 2024.",
-        "images": [],
+        "images": [photo_url("basmati,rice", 101)],
         "status": "active",
     },
     {
@@ -42,7 +46,7 @@ PRODUCTS = [
         "min_order": "20 kg",
         "delivery_area": "Lahore, Sheikhupura",
         "description": "Stone-ground whole wheat flour. No additives.",
-        "images": [],
+        "images": [photo_url("wheat,flour", 102)],
         "status": "active",
     },
 
@@ -57,7 +61,7 @@ PRODUCTS = [
         "min_order": "5 bags",
         "delivery_area": "Multan, Bahawalpur, Khanewal",
         "description": "High-staple Bt cotton. Each bag ~40 kg. Clean picked.",
-        "images": [],
+        "images": [photo_url("cotton,bolls", 103)],
         "status": "active",
     },
     {
@@ -70,7 +74,7 @@ PRODUCTS = [
         "min_order": "100 kg",
         "delivery_area": "Multan, Sahiwal",
         "description": "Sweet sugarcane, ideal for juice stalls and mills.",
-        "images": [],
+        "images": [photo_url("sugarcane,farm", 104)],
         "status": "active",
     },
 
@@ -85,7 +89,7 @@ PRODUCTS = [
         "min_order": "50 kg",
         "delivery_area": "Faisalabad, Jhang, Toba Tek Singh",
         "description": "Yellow hybrid maize, suitable for poultry feed and flour.",
-        "images": [],
+        "images": [photo_url("maize,corn", 105)],
         "status": "active",
     },
     {
@@ -98,7 +102,7 @@ PRODUCTS = [
         "min_order": "5 kg",
         "delivery_area": "Faisalabad, Chiniot",
         "description": "Desi red tomatoes, farm-fresh, no pesticide residue.",
-        "images": [],
+        "images": [photo_url("tomatoes,vegetable", 106)],
         "status": "active",
     },
     {
@@ -111,7 +115,7 @@ PRODUCTS = [
         "min_order": "2 kg",
         "delivery_area": "Faisalabad",
         "description": "Long green chilies, medium heat. Great for cooking.",
-        "images": [],
+        "images": [photo_url("green,chili", 107)],
         "status": "active",
     },
 
@@ -126,7 +130,7 @@ PRODUCTS = [
         "min_order": "25 kg",
         "delivery_area": "Gujranwala, Sialkot, Hafizabad",
         "description": "Medium-grain Irri-6, ideal for everyday cooking and biryani.",
-        "images": [],
+        "images": [photo_url("rice,grain", 108)],
         "status": "active",
     },
     {
@@ -139,7 +143,7 @@ PRODUCTS = [
         "min_order": "10 bags",
         "delivery_area": "Gujranwala",
         "description": "Dry rice husk, used as fuel or animal bedding.",
-        "images": [],
+        "images": [photo_url("rice,husk", 109)],
         "status": "active",
     },
 
@@ -154,7 +158,7 @@ PRODUCTS = [
         "min_order": "10 kg",
         "delivery_area": "Okara, Pakpattan, Sahiwal",
         "description": "Certified wheat seed for next season sowing. High germination rate.",
-        "images": [],
+        "images": [photo_url("wheat,grain", 110)],
         "status": "active",
     },
     {
@@ -167,7 +171,7 @@ PRODUCTS = [
         "min_order": "3 bags",
         "delivery_area": "Okara, Sahiwal",
         "description": "Oil-extracted cotton seed cake, high protein animal feed.",
-        "images": [],
+        "images": [photo_url("cotton,seed,cake", 111)],
         "status": "active",
     },
 
@@ -182,7 +186,7 @@ PRODUCTS = [
         "min_order": "20 pieces",
         "delivery_area": "Rawalpindi, Attock, Chakwal",
         "description": "Fresh sweet corn harvested daily. Perfect for grilling.",
-        "images": [],
+        "images": [photo_url("sweet,corn", 112)],
         "status": "active",
     },
     {
@@ -195,7 +199,7 @@ PRODUCTS = [
         "min_order": "50 bundles",
         "delivery_area": "Rawalpindi, Attock",
         "description": "Dry wheat straw bundles for animal fodder.",
-        "images": [],
+        "images": [photo_url("wheat,straw", 113)],
         "status": "active",
     },
 
@@ -210,7 +214,7 @@ PRODUCTS = [
         "min_order": "5 kg",
         "delivery_area": "Sheikhupura, Nankana Sahib",
         "description": "Super Kernel variety, extra-long grain, export quality.",
-        "images": [],
+        "images": [photo_url("basmati,rice", 114)],
         "status": "active",
     },
     {
@@ -223,7 +227,7 @@ PRODUCTS = [
         "min_order": "2 kg",
         "delivery_area": "Sheikhupura",
         "description": "Tender baby spinach leaves. Harvested twice a week.",
-        "images": [],
+        "images": [photo_url("spinach,leaf", 115)],
         "status": "active",
     },
     {
@@ -236,7 +240,7 @@ PRODUCTS = [
         "min_order": "2 kg",
         "delivery_area": "Sheikhupura",
         "description": "Fresh bitter gourd, small variety, ideal for cooking.",
-        "images": [],
+        "images": [photo_url("bitter,gourd", 116)],
         "status": "active",
     },
 
@@ -251,7 +255,7 @@ PRODUCTS = [
         "min_order": "2 bags",
         "delivery_area": "Sargodha, Khushab, Mianwali",
         "description": "Assorted grain bag: 15 kg wheat + 10 kg rice + 10 kg maize.",
-        "images": [],
+        "images": [photo_url("mixed,grain,sack", 117)],
         "status": "active",
     },
     {
@@ -264,7 +268,7 @@ PRODUCTS = [
         "min_order": "10 kg",
         "delivery_area": "Sargodha, Khushab",
         "description": "Traditional Chakwal-50 variety, strong gluten, great for bread.",
-        "images": [],
+        "images": [photo_url("wheat,farm", 118)],
         "status": "active",
     },
 
@@ -279,7 +283,7 @@ PRODUCTS = [
         "min_order": "6 pieces",
         "delivery_area": "Rahim Yar Khan, Sadiqabad",
         "description": "Fresh-pressed sugarcane juice, 1-litre sealed jars. No preservatives.",
-        "images": [],
+        "images": [photo_url("sugarcane,juice", 119)],
         "status": "active",
     },
     {
@@ -292,7 +296,7 @@ PRODUCTS = [
         "min_order": "20 kg",
         "delivery_area": "Rahim Yar Khan",
         "description": "Sun-dried, cleaned whole wheat. Ready for milling.",
-        "images": [],
+        "images": [photo_url("wheat,grain", 120)],
         "status": "active",
     },
 
@@ -307,7 +311,7 @@ PRODUCTS = [
         "min_order": "5 kg",
         "delivery_area": "Hyderabad, Mirpurkhas, Badin",
         "description": "Red onions, medium-large size, firm skin, long shelf life.",
-        "images": [],
+        "images": [photo_url("onion,vegetable", 121)],
         "status": "active",
     },
     {
@@ -320,7 +324,7 @@ PRODUCTS = [
         "min_order": "2 kg",
         "delivery_area": "Hyderabad",
         "description": "Desi garlic, strong aroma, large cloves. Naturally dried.",
-        "images": [],
+        "images": [photo_url("garlic,bulb", 122)],
         "status": "active",
     },
     {
@@ -333,7 +337,7 @@ PRODUCTS = [
         "min_order": "3 kg",
         "delivery_area": "Hyderabad, Badin",
         "description": "Tender bottle gourds, harvested young for best taste.",
-        "images": [],
+        "images": [photo_url("bottle,gourd", 123)],
         "status": "active",
     },
 
@@ -348,7 +352,7 @@ PRODUCTS = [
         "min_order": "5 kg",
         "delivery_area": "Peshawar, Nowshera, Mardan",
         "description": "Special popcorn variety, high pop rate, no hulls.",
-        "images": [],
+        "images": [photo_url("popcorn,maize", 124)],
         "status": "active",
     },
     {
@@ -361,7 +365,7 @@ PRODUCTS = [
         "min_order": "2 bags",
         "delivery_area": "Peshawar, Charsadda",
         "description": "Ginned cotton lint, ready for spinning. Each bag ~35 kg.",
-        "images": [],
+        "images": [photo_url("cotton,fiber", 125)],
         "status": "active",
     },
 
@@ -376,7 +380,7 @@ PRODUCTS = [
         "min_order": "10 kg",
         "delivery_area": "Okara, Depalpur, Renala Khurd",
         "description": "Red-skin potatoes, uniform size, low moisture, ideal for chips.",
-        "images": [],
+        "images": [photo_url("potatoes,vegetable", 126)],
         "status": "active",
     },
     {
@@ -389,7 +393,7 @@ PRODUCTS = [
         "min_order": "10 pieces",
         "delivery_area": "Okara",
         "description": "Large white cauliflower heads, fresh-cut daily.",
-        "images": [],
+        "images": [photo_url("cauliflower,vegetable", 127)],
         "status": "active",
     },
     {
@@ -402,7 +406,7 @@ PRODUCTS = [
         "min_order": "20 kg",
         "delivery_area": "Okara, Sahiwal",
         "description": "Sehar-2006 variety, high yield, strong disease resistance.",
-        "images": [],
+        "images": [photo_url("wheat,field", 128)],
         "status": "active",
     },
 
@@ -417,7 +421,7 @@ PRODUCTS = [
         "min_order": "5 kg",
         "delivery_area": "Kasur, Chunian, Pattoki",
         "description": "Pure cane jaggery, dark brown, rich molasses flavour. No chemicals.",
-        "images": [],
+        "images": [photo_url("jaggery,gur", 129)],
         "status": "active",
     },
     {
@@ -430,7 +434,7 @@ PRODUCTS = [
         "min_order": "200 kg",
         "delivery_area": "Kasur",
         "description": "Fermented maize silage for dairy cattle. High energy fodder.",
-        "images": [],
+        "images": [photo_url("maize,silage", 130)],
         "status": "active",
     },
 ]
@@ -443,13 +447,17 @@ async def seed():
 
     await col.create_index([("farmer_id", 1), ("name", 1)])
 
-    inserted = skipped = 0
+    inserted = updated = skipped = 0
 
     for p in PRODUCTS:
         existing = await col.find_one({"farmer_id": p["farmer_id"], "name": p["name"]})
         if existing:
-            skipped += 1
-            print(f"  ~ Exists   [{p['farmer_id']}] {p['name']}")
+            await col.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {**p, "updated_at": NOW}},
+            )
+            updated += 1
+            print(f"  ↺ Updated [{p['farmer_id']}] {p['name']}")
             continue
 
         doc = {**p, "views": 0, "created_at": NOW, "updated_at": NOW}
@@ -460,7 +468,8 @@ async def seed():
     print(f"""
 ────────────────────────────────────────────────────────────────────
   Inserted : {inserted}
-  Skipped  : {skipped}  (already existed)
+  Updated  : {updated}
+  Skipped  : {skipped}
   Total    : {len(PRODUCTS)} products
 ────────────────────────────────────────────────────────────────────""")
 

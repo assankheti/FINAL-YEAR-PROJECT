@@ -23,7 +23,7 @@ import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { clearAuthSession } from '@/lib/appFlow';
-import { listAllProducts, normalizeProductImageUrl, type ProductListing } from '@/lib/productsApi';
+import { listAllProducts, normalizeProductImageUrl, productFallbackImage, type ProductListing } from '@/lib/productsApi';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -129,7 +129,7 @@ function toDisplayProduct(p: ProductListing, index = 0): DisplayProduct {
     unit: p.unit ? `/${p.unit}` : '',
     farmer: farmerLabel(p.farmer_id),
     location: p.delivery_area ?? '',
-    image: normalizeProductImageUrl(p.images?.[0]) ?? categoryEmoji(p.category),
+    image: normalizeProductImageUrl(p.images?.[0]) ?? productFallbackImage(p.name, p.category),
     category: p.category ?? 'others',
     isFeatured: index < 8,
   };
@@ -148,6 +148,9 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
   const router = useRouter();
   const { width } = useWindowDimensions();
   const contentMaxWidth = Math.min(width - 32, 520);
+  const isCompactGrid = width < 410;
+  const gridContentWidth = contentMaxWidth - 32;
+  const productCardWidth = (gridContentWidth - 12) / 2;
 
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -225,6 +228,7 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
         title: t('Order update', 'آرڈر اپڈیٹ'),
         body: t('Your order status has changed to Shipped.', 'آپ کے آرڈر کی حیثیت شپڈ ہو گئی ہے۔'),
         data: { type: 'order' },
+        deliverPush: false,
       },
     ]);
   }, [t]);
@@ -318,9 +322,6 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
               <Feather name="x" size={14} color={C.sub} />
             </TouchableOpacity>
           )}
-          <TouchableOpacity activeOpacity={0.85} style={S.filterBtn}>
-            <Feather name="sliders" size={14} color="#fff" />
-          </TouchableOpacity>
         </View>
       </View>
     </LinearGradient>
@@ -382,13 +383,16 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     const isImg = item.image.startsWith('http');
     const isFav = favorites.has(item.id);
     return (
-      <View style={[S.productCard, { width: (contentMaxWidth - 12) / 2 }]}>
+      <View style={[S.productCard, { width: productCardWidth }]}>
         <View style={S.productThumb}>
           {isImg ? (
             <Image source={{ uri: item.image }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           ) : (
             <Text style={{ fontSize: 46 }}>{item.image}</Text>
           )}
+          <View style={S.categoryBadge}>
+            <Text style={S.categoryBadgeText}>{item.category}</Text>
+          </View>
           <TouchableOpacity
             onPress={() => toggleFavorite(item.id)}
             style={[S.favBtn, isFav && { backgroundColor: '#fff0f0' }]}
@@ -403,11 +407,18 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
             <Feather name="user" size={10} color={C.sub} />
             <Text style={S.productSub} numberOfLines={1}>{item.farmer}</Text>
           </View>
-          <View style={S.priceRow}>
-            <Text style={S.price}>{item.price}<Text style={S.unit}>{item.unit}</Text></Text>
+          <View style={S.locationPill}>
+            <Feather name="map-pin" size={10} color={C.primary} />
+            <Text style={S.locationPillText} numberOfLines={1}>{item.location || 'Local delivery'}</Text>
+          </View>
+          <View style={[S.priceRow, isCompactGrid ? S.priceRowCompact : null]}>
+            <View style={S.priceBlock}>
+              <Text style={S.priceCaption}>Price</Text>
+              <Text style={S.price}>{item.price}<Text style={S.unit}>{item.unit}</Text></Text>
+            </View>
             <TouchableOpacity
               activeOpacity={0.85}
-              style={S.buyBtn}
+              style={[S.buyBtn, isCompactGrid ? S.buyBtnCompact : null]}
               onPress={() =>
                 router.push({
                   pathname: '/product-buy/[productId]',
@@ -415,7 +426,7 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
                 })
               }
             >
-              <Text style={S.buyBtnText}>{t('Buy', 'خریدیں')}</Text>
+              <Text style={S.buyBtnText}>{t('Buy Now', 'ابھی خریدیں')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -455,7 +466,7 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
   const SkeletonGrid = () => (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 16, marginTop: 12 }}>
       {[1, 2, 3, 4].map((k) => (
-        <View key={k} style={{ width: (contentMaxWidth - 12) / 2, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+        <View key={k} style={{ width: productCardWidth, borderRadius: RADIUS.lg, overflow: 'hidden' }}>
           <SkeletonBox w="100%" h={120} r={0} />
           <View style={{ padding: 10, gap: 8 }}>
             <SkeletonBox w="80%" h={14} />
@@ -761,7 +772,6 @@ const S = StyleSheet.create({
   searchIcon: { marginLeft: 14 },
   searchInput: { flex: 1, paddingLeft: 10, paddingRight: 8, height: 48, color: C.text, fontSize: 14 },
   clearBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  filterBtn: { width: 34, height: 34, borderRadius: RADIUS.sm, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginRight: 7 },
 
   // Stats bar
   statsBar: { flexDirection: 'row', backgroundColor: C.card, borderRadius: RADIUS.lg, padding: 14, gap: 0, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 4 },
@@ -791,16 +801,24 @@ const S = StyleSheet.create({
   featuredPrice: { color: '#fff', fontWeight: '700', fontSize: 12, marginTop: 2 },
 
   // Product card
-  productCard: { backgroundColor: C.card, borderRadius: RADIUS.lg, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.07, shadowRadius: 12, elevation: 3 },
-  productThumb: { height: 118, backgroundColor: 'rgba(16,185,129,0.14)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  productCard: { backgroundColor: C.card, borderRadius: RADIUS.xl, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
+  productThumb: { height: 126, backgroundColor: 'rgba(16,185,129,0.14)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  categoryBadge: { position: 'absolute', left: 10, top: 10, backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 5 },
+  categoryBadgeText: { color: C.primary, fontSize: 10, fontWeight: '900', textTransform: 'capitalize' },
   favBtn: { position: 'absolute', top: 8, right: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  productName: { fontWeight: '900', color: C.text, fontSize: 12 },
+  productName: { fontWeight: '900', color: C.text, fontSize: 13, lineHeight: 19, minHeight: 38 },
   farmerRow2: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   productSub: { color: C.sub, fontSize: 10, fontWeight: '700', flex: 1 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
-  price: { color: C.primary, fontWeight: '900', fontSize: 13 },
+  locationPill: { marginTop: 8, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(13,92,75,0.08)', borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 5, maxWidth: '100%' },
+  locationPillText: { color: C.primary, fontSize: 10, fontWeight: '800', flexShrink: 1 },
+  priceRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 10, gap: 12 },
+  priceRowCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  priceBlock: { flex: 1 },
+  priceCaption: { color: C.sub, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
+  price: { color: C.primary, fontWeight: '900', fontSize: 15 },
   unit: { color: C.sub, fontWeight: '700', fontSize: 10 },
-  buyBtn: { backgroundColor: C.primary, borderRadius: RADIUS.sm, paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
+  buyBtn: { backgroundColor: C.primary, borderRadius: RADIUS.md, paddingHorizontal: 14, paddingVertical: 9, alignItems: 'center', justifyContent: 'center', minWidth: 86 },
+  buyBtnCompact: { width: '100%' },
   buyBtnText: { color: '#fff', fontWeight: '900', fontSize: 11 },
 
   // Farmer card

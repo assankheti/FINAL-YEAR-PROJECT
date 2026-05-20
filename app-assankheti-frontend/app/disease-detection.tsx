@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
@@ -19,49 +20,80 @@ import { API_BASE } from '@/config/env';
 
 const API_URL = `${API_BASE}/api/v1/disease/predict_disease`;
 
-// Component to parse and display treatment content with sections and bullet points
-function TreatmentContent({ content }: { content: string }) {
-  const lines = content.split('\n').map(l => l.trim()).filter(l => l);
-  const sections: { title: string; items: string[] }[] = [];
-  let currentSection: { title: string; items: string[] } | null = null;
+type TreatmentSection = {
+  title: string;
+  items: string[];
+  tone?: 'normal' | 'highlight' | 'warning';
+};
+
+function parseTreatment(content: string): TreatmentSection[] {
+  const lines = content.split('\n').map((line) => line.trim()).filter(Boolean);
+  const sections: TreatmentSection[] = [];
+  let currentSection: TreatmentSection | null = null;
+
+  const openSection = (title: string, tone: TreatmentSection['tone'] = 'normal') => {
+    if (currentSection && (currentSection.title || currentSection.items.length)) {
+      sections.push(currentSection);
+    }
+    currentSection = { title, items: [], tone };
+  };
 
   for (const line of lines) {
     if (line.startsWith('##')) {
-      // Section header
-      if (currentSection) {
-        sections.push(currentSection);
-      }
-      currentSection = {
-        title: line.replace(/^##\s*/, '').trim(),
-        items: []
-      };
-    } else if (line.startsWith('-')) {
-      // Bullet point
-      if (currentSection) {
-        currentSection.items.push(line.replace(/^-\s*/, '').trim());
-      }
-    } else if (line && currentSection) {
-      // Regular text within section
-      currentSection.items.push(line);
+      const title = line.replace(/^##\s*/, '').trim() || 'Advice';
+      const normalized = title.toLowerCase();
+      const tone =
+        normalized.includes('solution') || normalized.includes('medicine')
+          ? 'highlight'
+          : normalized.includes('warning') || normalized.includes('caution')
+            ? 'warning'
+            : 'normal';
+      openSection(title, tone);
+      continue;
     }
+
+    if (/^[A-Za-z][A-Za-z\s/&()-]+:$/.test(line)) {
+      openSection(line.replace(/:$/, '').trim());
+      continue;
+    }
+
+    if (!currentSection) {
+      openSection('Recommended Treatment', 'highlight');
+    }
+
+    currentSection.items.push(line.replace(/^[-*]\s*/, '').trim());
   }
-  if (currentSection) {
+
+  if (currentSection && (currentSection.title || currentSection.items.length)) {
     sections.push(currentSection);
   }
+
+  return sections.length ? sections : [{ title: 'Recommended Treatment', items: [content.trim()] }];
+}
+
+function TreatmentContent({ content }: { content: string }) {
+  const sections = parseTreatment(content);
 
   return (
     <View>
       {sections.map((section, idx) => (
-        <View key={idx} style={styles.treatmentSection}>
+        <View
+          key={idx}
+          style={[
+            styles.treatmentSection,
+            section.tone === 'highlight' ? styles.treatmentSectionHighlight : null,
+            section.tone === 'warning' ? styles.treatmentSectionWarning : null,
+          ]}
+        >
           <Text style={styles.sectionTitle}>{section.title}</Text>
           {section.items.map((item, itemIdx) => (
             <View key={itemIdx} style={styles.treatmentItemContainer}>
-              {item.startsWith('•') || /^\d+\./.test(item) ? (
-                <Text style={styles.bulletText}>{"• " + item.replace(/^[•\d.]\s*/, '')}</Text>
-              ) : section.title.includes('Solutions') || section.title.includes('Medicines') ? (
+              {/^\d+\./.test(item) ? (
+                <Text style={styles.bulletText}>{item}</Text>
+              ) : section.tone === 'highlight' ? (
                 <Text style={styles.highlightedText}>{item}</Text>
               ) : (
-                <Text style={styles.treatmentText}>{item}</Text>
+                <Text style={styles.bulletText}>{"• " + item.replace(/^[•-]\s*/, '')}</Text>
               )}
             </View>
           ))}
@@ -74,6 +106,7 @@ function TreatmentContent({ content }: { content: string }) {
 export default function DiseaseDetection() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const selectedCrop = typeof params?.selectedCrop === 'string' ? params.selectedCrop : null;
   const [image, setImage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -202,58 +235,44 @@ export default function DiseaseDetection() {
   // Helper function to perform the upload
   const performUpload = async (imageUri: string) => {
     const mobileId = await getOrCreateMobileId();
-    const selectedCrop = typeof params?.selectedCrop === 'string' ? params.selectedCrop : undefined;
 
-    // Create FormData
-    const formData = new FormData();
     const fileName = imageUri.split('/').pop() || 'leaf.jpg';
     const mimeType = guessMimeType(fileName);
 
-    // For web environment: fetch and convert URI to Blob
-    // For native: use the file object directly
-    try {
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      formData.append('file', blob, fileName);
-    } catch (e) {
-      // Fallback for native environments
-      const filePart = {
-        uri: imageUri,
-        name: fileName,
-        type: mimeType,
-      } as any;
-      formData.append('file', filePart);
-    }
+    const buildFormData = async () => {
+      const formData = new FormData();
 
-    formData.append('mobile_id', mobileId);
-    if (selectedCrop) {
-      formData.append('crop_name', selectedCrop);
-    }
+      if (Platform.OS === 'web') {
+        const response = await fetch(imageUri);
+        let blob = await response.blob();
+        if (!blob.type) {
+          blob = new Blob([blob], { type: mimeType });
+        }
+        formData.append('file', blob, fileName);
+      } else {
+        formData.append('file', {
+          uri: imageUri,
+          name: fileName,
+          type: mimeType,
+        } as any);
+      }
+
+      formData.append('mobile_id', mobileId);
+      if (selectedCrop) {
+        formData.append('crop_name', selectedCrop);
+      }
+
+      return formData;
+    };
 
     console.log('📤 Sending request to:', API_URL);
     let uploadResponse: Response;
     try {
-      uploadResponse = await uploadOnce(formData);
+      uploadResponse = await uploadOnce(await buildFormData());
     } catch (err) {
       if (!isTransientNetworkError(err)) throw err;
       console.warn('⚠️ Upload transient error, retrying once...');
-      // Recreate form data for retry
-      const retryFormData = new FormData();
-      try {
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        retryFormData.append('file', blob, fileName);
-      } catch (e) {
-        const filePart = {
-          uri: imageUri,
-          name: fileName,
-          type: guessMimeType(fileName),
-        } as any;
-        retryFormData.append('file', filePart);
-      }
-      retryFormData.append('mobile_id', mobileId);
-      if (selectedCrop) retryFormData.append('crop_name', selectedCrop);
-      uploadResponse = await uploadOnce(retryFormData);
+      uploadResponse = await uploadOnce(await buildFormData());
     }
 
     console.log('📨 Response status:', uploadResponse.status, uploadResponse.statusText);
@@ -290,16 +309,16 @@ export default function DiseaseDetection() {
     setResult(normalized);
     // clear any previous treatment when new result arrives
     setTreatment(null);
-    // automatically fetch treatment advice using configured OpenAI key
+    // automatically fetch treatment advice using the backend Gemini integration
     fetchTreatment(normalized.disease).catch((e) => console.warn('treatment fetch failed', e));
   };
 
-  // Fetch treatment advice from backend (which calls OpenAI)
+  // Fetch treatment advice from backend (which calls Gemini)
   const fetchTreatment = async (diseaseName: string) => {
     setTreatmentLoading(true);
     setTreatment(null);
     try {
-      const cropName = typeof params?.selectedCrop === 'string' ? params.selectedCrop : 'the crop';
+      const cropName = selectedCrop || 'the crop';
       
       const treatmentApiUrl = `${API_BASE}/api/v1/disease/treatment`;
       const res = await fetch(treatmentApiUrl, {
@@ -338,6 +357,20 @@ export default function DiseaseDetection() {
           <Text style={styles.subtitleUrdu}>فصل کی بیماری کی پہچان کریں</Text>
         </View>
 
+        <View style={styles.heroCard}>
+          <View style={styles.heroBadge}>
+            <Feather name="shield" size={14} color="#1f4d3f" />
+            <Text style={styles.heroBadgeText}>AI crop health assistant</Text>
+          </View>
+          <Text style={styles.heroTitle}>Upload a clear leaf photo to get disease detection and a treatment plan.</Text>
+          {selectedCrop ? (
+            <View style={styles.cropChip}>
+              <Feather name="tag" size={13} color="#2f6f5f" />
+              <Text style={styles.cropChipText}>{selectedCrop}</Text>
+            </View>
+          ) : null}
+        </View>
+
         {/* Upload Box */}
         <View style={styles.uploadBox}>
           {image ? (
@@ -347,6 +380,7 @@ export default function DiseaseDetection() {
               <Feather name="camera" size={40} color="#2f6f5f" />
               <Text style={styles.uploadText}>Crop Image</Text>
               <Text style={styles.uploadSub}>فصل کی تصویر اسکین کریں</Text>
+              <Text style={styles.uploadHint}>Use daylight and keep the infected area centered</Text>
             </>
           )}
         </View>
@@ -413,15 +447,50 @@ export default function DiseaseDetection() {
             <Text style={styles.confidence}>
               Confidence: {result.confidence}%
             </Text>
+
+            <View style={styles.confidenceBarTrack}>
+              <View
+                style={[
+                  styles.confidenceBarFill,
+                  { width: `${Math.max(6, Math.min(100, Number(result.confidence) || 0))}%` },
+                ]}
+              />
+            </View>
+
+            <View style={styles.resultMetaRow}>
+              <View style={styles.resultMetaCard}>
+                <Text style={styles.resultMetaLabel}>Model</Text>
+                <Text style={styles.resultMetaValue}>
+                  {result.model_name === 'roboflow' ? 'Roboflow' : 'Local TFLite'}
+                </Text>
+              </View>
+              <View style={styles.resultMetaCard}>
+                <Text style={styles.resultMetaLabel}>Crop</Text>
+                <Text style={styles.resultMetaValue}>{selectedCrop || 'General'}</Text>
+              </View>
+            </View>
           </View>
         )}
 
-        {/* Treatment / Advice from OpenAI (auto-fetched) */}
+        {/* Treatment / Advice from Gemini (auto-fetched) */}
         {result && (
           <View style={styles.treatmentCard}>
-            <Text style={styles.treatmentTitle}>💊 Treatment & Advice (✨ AI-Powered Analysis)</Text>
+            <View style={styles.treatmentHeader}>
+              <View>
+                <Text style={styles.treatmentEyebrow}>CARE PLAN</Text>
+                <Text style={styles.treatmentTitle}>Treatment & prevention guidance</Text>
+              </View>
+              <View style={styles.treatmentHeaderIcon}>
+                <Feather name="activity" size={18} color="#1f4d3f" />
+              </View>
+            </View>
 
-            {treatmentLoading && <ActivityIndicator color="#2f6f5f" />}
+            {treatmentLoading && (
+              <View style={styles.treatmentLoadingCard}>
+                <ActivityIndicator color="#2f6f5f" />
+                <Text style={styles.treatmentLoadingText}>Generating a complete treatment plan...</Text>
+              </View>
+            )}
 
             {treatment && (
               <View style={styles.treatmentOutput}>
@@ -462,8 +531,56 @@ const styles = StyleSheet.create({
     paddingBottom: 44,
   },
   introBlock: {
-    marginBottom: 14,
+    marginBottom: 12,
     alignItems: 'center',
+  },
+  heroCard: {
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: '#dff1e8',
+    borderWidth: 1,
+    borderColor: '#c9e6d8',
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#f7fffb',
+    borderRadius: 999,
+    marginBottom: 10,
+  },
+  heroBadgeText: {
+    color: '#1f4d3f',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  heroTitle: {
+    color: '#173f33',
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '800',
+  },
+  cropChip: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#f5fbf8',
+    borderWidth: 1,
+    borderColor: '#bfdccc',
+  },
+  cropChipText: {
+    color: '#2f6f5f',
+    fontWeight: '700',
+    fontSize: 12,
   },
   subtitle: {
     textAlign: 'center',
@@ -499,6 +616,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     color: '#4b7c6d',
+  },
+  uploadHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#557f71',
   },
   preview: {
     width: '100%',
@@ -605,9 +727,22 @@ const styles = StyleSheet.create({
 
   confidence: {
     color: '#4b7c6d',
-    marginTop: 4,
+    marginTop: 6,
     textAlign: 'center',
     fontWeight: '600',
+  },
+  confidenceBarTrack: {
+    width: '100%',
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#d9eee4',
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  confidenceBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#2f6f5f',
   },
   modelIndicator: {
     flexDirection: 'row',
@@ -628,13 +763,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  resultMetaRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  resultMetaCard: {
+    flex: 1,
+    backgroundColor: '#f8fffb',
+    borderWidth: 1,
+    borderColor: '#d2efe3',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  resultMetaLabel: {
+    color: '#5b7f73',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  resultMetaValue: {
+    marginTop: 4,
+    color: '#173f33',
+    fontWeight: '800',
+    fontSize: 13,
+  },
   footer: {
     marginTop: 30,
-    backgroundColor: '#eaf4ef',
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#d7eee4',
+    backgroundColor: 'transparent',
   },
   footerText: {
     fontWeight: '800',
@@ -661,58 +819,110 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   treatmentCard: {
-    marginTop: 14,
+    marginTop: 16,
     backgroundColor: '#ffffff',
-    padding: 12,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#e6efe9',
+    borderColor: '#dcece3',
+    shadowColor: '#0d5c4b',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    elevation: 2,
+  },
+  treatmentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  treatmentEyebrow: {
+    color: '#5c8174',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  treatmentHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#edf8f2',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   treatmentTitle: {
     fontWeight: '800',
     color: '#184e3f',
-    marginBottom: 8,
+    fontSize: 17,
   },
   treatmentOutput: {
-    backgroundColor: '#f6fff8',
-    borderRadius: 8,
-    padding: 10,
+    backgroundColor: '#f8fcfa',
+    borderRadius: 14,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#e1f3e6',
+    borderColor: '#e3f0e8',
+  },
+  treatmentLoadingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#f6fbf8',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e4efe8',
+  },
+  treatmentLoadingText: {
+    flex: 1,
+    color: '#355f53',
+    fontSize: 13,
+    fontWeight: '600',
   },
   treatmentText: {
     color: '#163f33',
     lineHeight: 20,
   },
   treatmentSection: {
-    marginBottom: 14,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e1f3e6',
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5efe8',
+  },
+  treatmentSectionHighlight: {
+    backgroundColor: '#f1fbf4',
+    borderColor: '#cfe8d5',
+  },
+  treatmentSectionWarning: {
+    backgroundColor: '#fff9f1',
+    borderColor: '#f3dfba',
   },
   sectionTitle: {
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 15,
     color: '#1f4d3f',
     marginBottom: 8,
   },
   treatmentItemContainer: {
-    marginBottom: 6,
+    marginBottom: 8,
   },
   bulletText: {
     fontSize: 13,
-    color: '#2a6b5e',
-    lineHeight: 18,
+    color: '#244d42',
+    lineHeight: 20,
     fontWeight: '500',
   },
   highlightedText: {
     fontSize: 13,
-    color: '#0d7e3f',
-    lineHeight: 18,
+    color: '#11653e',
+    lineHeight: 20,
     fontWeight: '700',
     backgroundColor: '#e8f5e9',
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    borderRadius: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
   },
 });

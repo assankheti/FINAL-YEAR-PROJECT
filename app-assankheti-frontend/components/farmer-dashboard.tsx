@@ -131,6 +131,7 @@ export function FarmerDashboard({
         bodyEn: 'Take precautions to protect your crop from rain.',
         bodyUr: 'اپنی فصل کو بارش سے بچانے کے لیے احتیاطی تدابیر اختیار کریں۔',
         data: { type: 'weather', route: '/farmer-notifications' },
+        deliverPush: false,
       },
       {
         id: 'rice-price-up',
@@ -142,6 +143,7 @@ export function FarmerDashboard({
         bodyEn: 'Market price is better. It may be a good time to sell.',
         bodyUr: 'مارکیٹ قیمت بہتر ہے۔ فروخت کا اچھا وقت ہو سکتا ہے۔',
         data: { type: 'price', route: '/farmer-notifications' },
+        deliverPush: false,
       },
     ]);
   }, []);

@@ -66,7 +66,7 @@ export default {
       API_URL,
       STREAM_API_KEY,
       // Add other env variables here as needed
-      OPENAI_KEY: process.env.OPENAI_KEY || process.env.OPENAI_API_KEY,
+      GEMINI_KEY: process.env.GEMINI_KEY || process.env.GEMINI_API_KEY,
       // GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
     },
   },

@@ -15,6 +15,7 @@ export type MobileNotificationItem = {
   data?: Record<string, unknown>;
   type?: string;
   createdAt?: string;
+  deliverPush?: boolean;
 };
 
 const PUSH_SETTING_KEY = 'settings.pushNotifications';
@@ -138,6 +139,7 @@ export async function showMobileNotificationOnce(
   ]);
 
   if (item.isRead) return false;
+  if (item.deliverPush === false) return false;
   if (!(await pushNotificationsEnabled())) return false;
   if (!(await ensureNotificationPermission())) return false;
 
