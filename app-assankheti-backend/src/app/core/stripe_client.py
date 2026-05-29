@@ -6,7 +6,7 @@ STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLISHABLE_KEY: str = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET: str = os.getenv(
     "STRIPE_WEBHOOK_SECRET",
-    "whsec_2DLGkhQHcdbBnaQH8VAKZFekEXRxoQGi",
+    "replace_with_stripe_webhook_secret",
 )
 STRIPE_API_VERSION: str = "2026-04-22.dahlia"
 

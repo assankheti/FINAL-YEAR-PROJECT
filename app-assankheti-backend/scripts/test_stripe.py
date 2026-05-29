@@ -26,7 +26,7 @@ BASE = "http://localhost:8000"
 SECRET_KEY = os.getenv("STYTCH_SECRET", "")
 ALGORITHM = "HS256"
 STRIPE_WEBHOOK_SECRET = os.getenv(
-    "STRIPE_WEBHOOK_SECRET", "whsec_2DLGkhQHcdbBnaQH8VAKZFekEXRxoQGi"
+    "STRIPE_WEBHOOK_SECRET", "replace_with_stripe_webhook_secret"
 )
 
 # ── Test identities ────────────────────────────────────────────────────────────

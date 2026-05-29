@@ -1,0 +1,68 @@
+services:
+  - type: web
+    name: assan-kheti-backend
+    runtime: python
+    plan: starter
+    region: singapore
+    rootDir: app-assankheti-backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: bash start.sh
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    disk:
+      name: assan-kheti-uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONPATH
+        value: src
+      - key: UPLOAD_ROOT
+        value: /var/data/uploads
+      - key: MONGO_DB_NAME
+        value: dbasssankheti
+      - key: PLATFORM_COMMISSION_RATE
+        value: "0.10"
+      - key: PLATFORM_SERVICE_FEE_PKR
+        value: "100"
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: STYTCH_ENV
+        value: live
+      - key: STYTCH_ENVIRONMENT
+        value: live
+      - key: MONGODB_URI
+        sync: false
+      - key: STYTCH_PROJECT_ID
+        sync: false
+      - key: STYTCH_SECRET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_ADMIN_MOBILE_IDS
+        sync: false
+      - key: STREAM_APP_ID
+        sync: false
+      - key: STREAM_API_KEY
+        sync: false
+      - key: STREAM_API_SECRET
+        sync: false
+      - key: STREAM_ADMIN_MOBILE_IDS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-3.5-turbo
+      - key: FRONTEND_URL
+        sync: false
+      - key: API_URL
+        sync: false
