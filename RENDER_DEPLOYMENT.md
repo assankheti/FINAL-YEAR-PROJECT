@@ -3,7 +3,7 @@
 This repo is a monorepo. The backend Render service should use:
 
 - Root directory: `app-assankheti-backend`
-- Build command: `pip install --upgrade pip && pip install -r requirements.txt`
+- Build command: `pip install --upgrade pip && pip install -r requirements-render.txt`
 - Start command: `bash start.sh`
 - Python version: `3.11.11`
 - Instance type: `free`
@@ -18,6 +18,7 @@ The root `render.yaml` already contains these settings for a Render Blueprint.
    - `app-assankheti-backend/start.sh`
    - `app-assankheti-backend/render.env.example`
    - `app-assankheti-backend/requirements.txt`
+   - `app-assankheti-backend/requirements-render.txt`
    - `app-assankheti-backend/src/app/main.py`
 
 ## 2. Create MongoDB Atlas
@@ -63,11 +64,15 @@ PYTHONUNBUFFERED=1
 PYTHONPATH=src
 MONGODB_URI=your_mongodb_atlas_uri
 MONGO_DB_NAME=dbasssankheti
+MONGODB_SERVER_SELECTION_TIMEOUT_MS=5000
 UPLOAD_ROOT=/tmp/uploads
 STYTCH_PROJECT_ID=your_stytch_project_id
 STYTCH_SECRET=your_stytch_secret
 STYTCH_ENV=live
 STYTCH_ENVIRONMENT=live
+ENABLE_OFFLINE_DISEASE_MODEL=false
+RUN_STARTUP_SCRAPERS=false
+RUN_PERIODIC_SCRAPERS=false
 ```
 
 Required for enabled integrations:
@@ -160,11 +165,13 @@ MongoDB connection fails:
 
 - Use `MONGODB_URI`, not `MONGODB_LOCAL`, on Render.
 - Check Atlas username, password, and Network Access.
+- If logs show `SSL handshake failed`, open MongoDB Atlas > Network Access and allow Render to connect. For the free Render plan, the simplest setup is `0.0.0.0/0`.
 
 Build fails on TensorFlow:
 
-- Confirm `PYTHON_VERSION=3.11.11`.
-- TensorFlow is heavy for free instances. If builds fail, remove TensorFlow from `requirements.txt` and disable the offline disease-model fallback, or upgrade only the backend service later.
+- Render uses `requirements-render.txt`, which does not install TensorFlow.
+- The Roboflow online disease detector remains enabled.
+- Offline disease fallback is disabled on Render with `ENABLE_OFFLINE_DISEASE_MODEL=false`.
 
 Uploads disappear:
 

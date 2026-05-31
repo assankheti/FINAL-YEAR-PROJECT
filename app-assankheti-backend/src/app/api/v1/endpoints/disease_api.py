@@ -85,7 +85,9 @@ async def model_status():
     """Check which models are available and working"""
     status = {
         "offline_model": {
-            "available": predictor.tf is not None,
+            "enabled": predictor.is_offline_model_enabled(),
+            "available": predictor.is_offline_model_enabled() and predictor.offline_model_file_exists(),
+            "tensorflow_loaded": predictor.is_tensorflow_loaded(),
             "name": "YOLO TFLite",
             "type": "local"
         },

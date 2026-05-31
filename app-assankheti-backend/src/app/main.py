@@ -3,6 +3,7 @@
 # Run with:
 #   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 import os
+from collections.abc import Callable, Awaitable
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,10 @@ from .services.fertilizer_service import scrape_and_store_fertilizers
 from .services.pesticide_service import scrape_and_store_pesticides
 from .services.seed_service import scrape_and_store_seeds
 
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
 def _resolve_upload_root() -> str:
     configured = os.getenv("UPLOAD_ROOT")
     if configured:
@@ -70,84 +75,57 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Run scrapers when the application starts"""
+    """Start non-critical startup work without blocking Render port binding."""
     try:
         init_stripe()
         logger.info("Stripe initialised")
     except RuntimeError as exc:
         logger.warning("Stripe not initialised: %s", exc)
 
+    asyncio.create_task(_run_stripe_index_setup())
+
+    if _env_flag("RUN_STARTUP_SCRAPERS"):
+        asyncio.create_task(run_scrapers_once("startup"))
+
+    if _env_flag("RUN_PERIODIC_SCRAPERS"):
+        asyncio.create_task(schedule_scraping())
+
+
+async def _run_stripe_index_setup() -> None:
     try:
         await _ensure_stripe_indexes()
         logger.info("Stripe DB indexes ensured")
     except Exception as exc:
         logger.warning("Stripe index creation failed: %s", exc)
 
-    logger.info("Application startup: Running scrapers...")
-    try:
-        # Fertilizer scraper
-        fertilizer_result = await scrape_and_store_fertilizers()
-        if fertilizer_result["status"] == "success":
-            logger.info(f"Startup fertilizer scraper: {fertilizer_result['message']}")
-        else:
-            logger.error(f"Startup fertilizer scraper failed: {fertilizer_result['message']}")
 
-        # Pesticide scraper
-        pesticide_result = await scrape_and_store_pesticides()
-        if pesticide_result["status"] == "success":
-            logger.info(f"Startup pesticide scraper: {pesticide_result['message']}")
-        else:
-            logger.error(f"Startup pesticide scraper failed: {pesticide_result['message']}")
+async def run_scrapers_once(reason: str) -> None:
+    logger.info("%s scraping: Starting...", reason.capitalize())
+    scrapers: tuple[tuple[str, Callable[[], Awaitable[dict]]], ...] = (
+        ("fertilizer", scrape_and_store_fertilizers),
+        ("pesticide", scrape_and_store_pesticides),
+        ("seed", scrape_and_store_seeds),
+    )
 
-        # Seed scraper
-        seed_result = await scrape_and_store_seeds()
-        if seed_result["status"] == "success":
-            logger.info(f"Startup seed scraper: {seed_result['message']}")
-        else:
-            logger.error(f"Startup seed scraper failed: {seed_result['message']}")
-
-    except Exception as e:
-        logger.error(f"Error during startup scrapers: {e}")
-
-    # Start the background task for periodic scraping
-    asyncio.create_task(schedule_scraping())
+    for name, scraper in scrapers:
+        try:
+            result = await scraper()
+            if result["status"] == "success":
+                logger.info("%s %s scraper: %s", reason.capitalize(), name, result["message"])
+            else:
+                logger.error("%s %s scraper failed: %s", reason.capitalize(), name, result["message"])
+        except Exception as exc:
+            logger.error("%s %s scraper error: %s", reason.capitalize(), name, exc)
 
 
 async def schedule_scraping():
     """Run all scrapers every 24 hours"""
     while True:
         try:
-            # Wait 24 hours (86400 seconds)
             await asyncio.sleep(86400)
-            logger.info("Scheduled scraping: Starting...")
-
-            # Fertilizer scraper
-            fertilizer_result = await scrape_and_store_fertilizers()
-            if fertilizer_result["status"] == "success":
-                logger.info(f"Scheduled fertilizer scraper: {fertilizer_result['message']}")
-            else:
-                logger.error(f"Scheduled fertilizer scraper failed: {fertilizer_result['message']}")
-
-            # Pesticide scraper
-            pesticide_result = await scrape_and_store_pesticides()
-            if pesticide_result["status"] == "success":
-                logger.info(f"Scheduled pesticide scraper: {pesticide_result['message']}")
-            else:
-                logger.error(f"Scheduled pesticide scraper failed: {pesticide_result['message']}")
-
-            # Seed scraper
-            seed_result = await scrape_and_store_seeds()
-            if seed_result["status"] == "success":
-                logger.info(f"Scheduled seed scraper: {seed_result['message']}")
-            else:
-                logger.error(f"Scheduled seed scraper failed: {seed_result['message']}")
-
-        except Exception as e:
-            logger.error(f"Error in scheduled scraping: {e}")
-            # Wait 1 hour before retrying on error
-            await asyncio.sleep(3600)
-            logger.error(f"Error in scheduled scraping: {e}")
-            # Wait 1 hour before retrying on error
+            await run_scrapers_once("scheduled")
+        except Exception as exc:
+            logger.error(f"Error in scheduled scraping: {exc}")
             await asyncio.sleep(3600)
 
 app.include_router(
@@ -223,5 +201,4 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
     return JSONResponse(status_code=404, content={"detail": "Resource not found"})
-
 

@@ -4,12 +4,9 @@ import numpy as np
 from PIL import Image
 import requests
 
-try:
-    import tensorflow as tf  # use TensorFlow instead of tflite_runtime
-    _tf_import_error = None
-except Exception as exc:
-    tf = None
-    _tf_import_error = exc
+tf = None
+_tf_import_error = None
+_tf_import_attempted = False
 
 # Online model endpoints - comment out the ones you don't want to use
 API_KEY = "nKR7maxkLCNkzO6PCUa0"
@@ -38,6 +35,45 @@ class_names = [
     "Sheath Blight",
     "Tungro",
 ]
+
+
+def _env_flag(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_offline_model_enabled() -> bool:
+    return _env_flag("ENABLE_OFFLINE_DISEASE_MODEL")
+
+
+def offline_model_file_exists() -> bool:
+    return os.path.exists(MODEL_PATH)
+
+
+def is_tensorflow_loaded() -> bool:
+    return tf is not None
+
+
+def _load_tensorflow():
+    global tf, _tf_import_error, _tf_import_attempted
+
+    if not is_offline_model_enabled():
+        raise RuntimeError("Offline disease model is disabled.")
+
+    if _tf_import_attempted:
+        if tf is None:
+            raise RuntimeError(f"TensorFlow is unavailable: {_tf_import_error}")
+        return tf
+
+    _tf_import_attempted = True
+    try:
+        import tensorflow as tensorflow_module
+    except Exception as exc:
+        _tf_import_error = exc
+        raise RuntimeError(f"TensorFlow is unavailable: {exc}") from exc
+
+    tf = tensorflow_module
+    _tf_import_error = None
+    return tf
 
 
 def confidence_to_percent(value) -> float:
@@ -92,14 +128,13 @@ def _ensure_interpreter():
     if interpreter is not None:
         return interpreter, input_details, output_details
 
-    if tf is None:
-        raise RuntimeError(f"TensorFlow is unavailable: {_tf_import_error}")
+    tensorflow_module = _load_tensorflow()
 
     if not os.path.exists(MODEL_PATH):
         raise RuntimeError(f"Offline model file not found at {MODEL_PATH}")
 
     try:
-        interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+        interpreter = tensorflow_module.lite.Interpreter(model_path=MODEL_PATH)
         interpreter.allocate_tensors()
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
@@ -142,6 +177,9 @@ def predict(img_bytes):
         }
     except Exception as e:
         print(f"[WARNING] Roboflow failed: {e}")
+
+    if not is_offline_model_enabled():
+        raise RuntimeError("Roboflow failed and offline disease model is disabled.")
     
     # Fallback to offline model
     print("[INFO] Using OFFLINE model")

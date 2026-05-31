@@ -35,6 +35,16 @@ MONGO_URL = _normalize_mongo_url(
 )
 DB_NAME = os.getenv("MONGO_DB_NAME") or "dbasssankheti"
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+SERVER_SELECTION_TIMEOUT_MS = _env_int("MONGODB_SERVER_SELECTION_TIMEOUT_MS", 5000)
+
 _client: AsyncIOMotorClient = None
 
 
@@ -43,7 +53,10 @@ def get_database():
     """Return MongoDB database instance"""
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(MONGO_URL)
+        _client = AsyncIOMotorClient(
+            MONGO_URL,
+            serverSelectionTimeoutMS=SERVER_SELECTION_TIMEOUT_MS,
+        )
     return _client[DB_NAME]
 
 

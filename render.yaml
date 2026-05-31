@@ -5,7 +5,7 @@ services:
     plan: free
     region: singapore
     rootDir: app-assankheti-backend
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements-render.txt
     startCommand: bash start.sh
     healthCheckPath: /
     autoDeployTrigger: commit
@@ -20,6 +20,8 @@ services:
         value: /tmp/uploads
       - key: MONGO_DB_NAME
         value: dbasssankheti
+      - key: MONGODB_SERVER_SELECTION_TIMEOUT_MS
+        value: "5000"
       - key: PLATFORM_COMMISSION_RATE
         value: "0.10"
       - key: PLATFORM_SERVICE_FEE_PKR
@@ -30,6 +32,12 @@ services:
         value: live
       - key: STYTCH_ENVIRONMENT
         value: live
+      - key: ENABLE_OFFLINE_DISEASE_MODEL
+        value: "false"
+      - key: RUN_STARTUP_SCRAPERS
+        value: "false"
+      - key: RUN_PERIODIC_SCRAPERS
+        value: "false"
       - key: MONGODB_URI
         sync: false
       - key: STYTCH_PROJECT_ID
