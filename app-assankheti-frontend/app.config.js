@@ -3,10 +3,16 @@ import path from 'path';
 
 // Load .env from the repository root (one level above the frontend folder)
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+dotenv.config({ path: path.resolve(__dirname, '.env'), override: true });
 
-// In Docker, API_URL comes from the container environment variable.
-// In local dev, dotenv reads from the local .env file.
-const API_URL = process.env.API_URL || 'http://localhost:8000';
+const PRODUCTION_API_URL =
+  process.env.PRODUCTION_API_URL || 'https://assan-kheti-backend.onrender.com';
+const USE_PRODUCTION_API = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.USE_PRODUCTION_API || '').trim().toLowerCase()
+);
+const API_URL = USE_PRODUCTION_API
+  ? PRODUCTION_API_URL
+  : process.env.API_URL || 'http://localhost:8000';
 const STREAM_API_KEY = process.env.STREAM_API_KEY || '';
 
 export default {
@@ -64,6 +70,8 @@ export default {
     },
     extra: {
       API_URL,
+      PRODUCTION_API_URL,
+      USE_PRODUCTION_API,
       STREAM_API_KEY,
       // Add other env variables here as needed
       GEMINI_KEY: process.env.GEMINI_KEY || process.env.GEMINI_API_KEY,

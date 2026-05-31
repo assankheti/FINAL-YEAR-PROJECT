@@ -8,6 +8,16 @@ import { NativeModules, Platform } from 'react-native';
  */
 
 const extra = Constants.expoConfig?.extra ?? {};
+const PRODUCTION_API_URL =
+  typeof extra.PRODUCTION_API_URL === 'string' && extra.PRODUCTION_API_URL.trim()
+    ? extra.PRODUCTION_API_URL.trim()
+    : 'https://assan-kheti-backend.onrender.com';
+
+function getBooleanExtra(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
 
 function isUsableHost(host?: string | null): host is string {
   if (!host) return false;
@@ -63,6 +73,10 @@ function getExpoLanApiUrl(): string | null {
 }
 
 function getDevApiUrl(): string {
+  if (getBooleanExtra(extra.USE_PRODUCTION_API)) {
+    return PRODUCTION_API_URL;
+  }
+
   const explicitUrl = getExplicitApiUrl();
   if (explicitUrl) return explicitUrl;
 
@@ -78,6 +92,7 @@ function getDevApiUrl(): string {
 
 export const ENV = {
   API_URL: getDevApiUrl(),
+  USE_PRODUCTION_API: getBooleanExtra(extra.USE_PRODUCTION_API),
 } as const;
 
 export const API_BASE = ENV.API_URL;
