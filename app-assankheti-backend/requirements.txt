@@ -16,6 +16,5 @@ tensorflow==2.16.2
 Pillow
 beautifulsoup4
 requests
-openai
 stream-chat
 stripe>=10.0.0
