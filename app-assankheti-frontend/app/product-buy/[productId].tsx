@@ -69,6 +69,10 @@ function getAppRedirectUrl(): string {
   return 'assankhetiapp://payment';
 }
 
+function isPaymentReturnUrl(url: string): boolean {
+  return /(?:\/\/|\/)(payment|payment-success|payment-cancel)(?:[/?#]|$)/.test(url);
+}
+
 function parseMinimumOrder(value?: string | null) {
   const parsed = Number(String(value ?? '').match(/\d+/)?.[0]);
   if (!Number.isFinite(parsed) || parsed <= 0) return 10;
@@ -165,6 +169,7 @@ export default function ProductBuyPage() {
       //    The backend's /payment-complete page will JS-redirect to this URL,
       //    causing the OS to close the browser and return to the app.
       const redirectUrl = getAppRedirectUrl();
+      console.log('[checkout] redirect_url =', redirectUrl);
 
       // 2. Create Stripe checkout session, passing the redirect URL
       const res = await authFetch('/api/v1/payments/create-checkout-session', {
@@ -184,55 +189,45 @@ export default function ProductBuyPage() {
       }
 
       const { order_id, session_id, checkout_url } = await res.json();
+      console.log('[checkout] session_created order=', order_id, 'session=', session_id);
 
       // 3. iOS safety net: if SFSafariViewController doesn't auto-close when the
       //    custom scheme fires, dismiss it programmatically via Linking event.
-      const linkingSub = Linking.addEventListener('url', () => {
+      let sawPaymentDeepLink = false;
+      const linkingSub = Linking.addEventListener('url', ({ url }) => {
+        console.log('[checkout] incoming_deep_link =', url);
+        if (isPaymentReturnUrl(url)) {
+          sawPaymentDeepLink = true;
+        }
         WebBrowser.dismissBrowser();
       });
 
       // 4. Open Stripe hosted checkout in the in-app browser.
       //    On Android (Chrome Custom Tab) the OS intercepts assankhetiapp:// and
       //    closes the tab automatically.  On iOS the Linking listener above handles it.
-      await WebBrowser.openBrowserAsync(checkout_url, {
-        dismissButtonStyle: 'close',
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
-      });
-
-      linkingSub.remove();
-
-      // 5. Browser closed — verify payment with Stripe (backend retries 3× internally).
-      //    If the server returns a 5xx, retry once on the client side after a short delay.
-      console.log('[confirm-payment] calling order=', order_id, 'session=', session_id);
-      const confirmUrl = `/api/v1/payments/orders/${order_id}/confirm-payment?session_id=${encodeURIComponent(session_id)}`;
-      let confirmRes = await authFetch(confirmUrl, { method: 'POST' });
-      if (!confirmRes.ok) {
-        await new Promise<void>(resolve => setTimeout(resolve, 3000));
-        confirmRes = await authFetch(confirmUrl, { method: 'POST' });
-      }
-
-      if (!confirmRes.ok) {
-        Alert.alert(
-          'Verification Failed',
-          'We could not verify your payment right now. Please check My Orders — if the payment went through, your order will appear there.',
-          [{ text: 'OK' }],
-        );
-        return;
-      }
-
-      const confirm = await confirmRes.json();
-
-      if (confirm.payment_confirmed) {
-        router.replace({
-          pathname: '/order-details/[orderId]',
-          params: { orderId: order_id },
+      try {
+        const browserResult = await WebBrowser.openBrowserAsync(checkout_url, {
+          dismissButtonStyle: 'close',
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
         });
-      } else {
-        Alert.alert(
-          'Payment Not Completed',
-          'Your payment was not completed. You can try again.',
-          [{ text: 'OK' }],
-        );
+        console.log('[checkout] browser_result =', browserResult);
+      } finally {
+        linkingSub.remove();
+      }
+
+      // 5. If the browser was closed manually before a deep link was delivered,
+      //    continue through the in-app payment route so verification still happens
+      //    in one place and no false "not completed" alert is shown.
+      if (!sawPaymentDeepLink) {
+        console.log('[checkout] no_deep_link_seen navigating_to_payment_return order=', order_id);
+        router.replace({
+          pathname: '/payment',
+          params: {
+            status: 'return',
+            order_id,
+            session_id,
+          },
+        });
       }
     } catch (e: unknown) {
       if ((e as Error)?.message === 'SESSION_EXPIRED') return;

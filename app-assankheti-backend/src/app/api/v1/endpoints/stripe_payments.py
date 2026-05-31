@@ -11,10 +11,15 @@ Routes:
   GET  /api/v1/payments/transactions             transaction history
   GET  /api/v1/payments/wallet                   wallet/balance summary
 """
+import html as _html
 import json as _json
 from datetime import datetime, timezone
 from typing import List, Optional
+from urllib.parse import parse_qsl as _parse_qsl
 from urllib.parse import quote as _url_quote
+from urllib.parse import urlencode as _urlencode
+from urllib.parse import urlsplit as _urlsplit
+from urllib.parse import urlunsplit as _urlunsplit
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -59,12 +64,74 @@ def _assert_obj_id(raw: str) -> ObjectId:
         raise HTTPException(status_code=400, detail="Invalid product id")
 
 
+def _replace_payment_route(app_url: str, route_name: str) -> str:
+    """
+    Preserve the incoming deep-link origin while switching only the Expo route.
+
+    Examples:
+      assankhetiapp://payment        -> assankhetiapp://payment-success
+      assankhetiapp:///payment       -> assankhetiapp:///payment-success
+      exp://host:8081/--/payment     -> exp://host:8081/--/payment-success
+    """
+    parsed = _urlsplit(app_url or "assankhetiapp://payment")
+
+    if parsed.scheme == "exp" and parsed.path.startswith("/--/"):
+        return _urlunsplit(
+            (parsed.scheme, parsed.netloc, f"/--/{route_name}", "", "")
+        )
+
+    if parsed.scheme and parsed.netloc and not parsed.path:
+        return _urlunsplit((parsed.scheme, route_name, "", "", ""))
+
+    if parsed.scheme and not parsed.netloc:
+        return f"{parsed.scheme}:///{route_name}"
+
+    path = parsed.path or f"/{route_name}"
+    parts = [part for part in path.split("/") if part]
+    if parts:
+        parts[-1] = route_name
+        next_path = "/" + "/".join(parts)
+    else:
+        next_path = f"/{route_name}"
+
+    return _urlunsplit((parsed.scheme, parsed.netloc, next_path, "", ""))
+
+
+def _append_deep_link_params(
+    app_url: str,
+    *,
+    status: str,
+    order_id: Optional[str],
+    session_id: Optional[str],
+) -> str:
+    parsed = _urlsplit(app_url)
+    query = dict(_parse_qsl(parsed.query, keep_blank_values=True))
+    query["status"] = status
+    if order_id:
+        query["order_id"] = order_id
+    if session_id and "{" not in session_id:
+        query["session_id"] = session_id
+    encoded_query = _urlencode(query)
+    if parsed.scheme and not parsed.netloc and app_url.startswith(f"{parsed.scheme}:///"):
+        return f"{parsed.scheme}:///{parsed.path.lstrip('/')}?{encoded_query}"
+    return _urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            encoded_query,
+            parsed.fragment,
+        )
+    )
+
+
 # ── GET /payment-complete ──────────────────────────────────────────────────────
 
 @router.get("/payment-complete", response_class=HTMLResponse)
 async def payment_complete(
     status: str = Query("success"),
     order_id: Optional[str] = Query(None),
+    session_id: Optional[str] = Query(None),
     app_url: Optional[str] = Query(None),
 ):
     """
@@ -73,6 +140,23 @@ async def payment_complete(
     No auth required — called by the mobile browser, not the app.
     """
     is_success = status == "success"
+    route_name = "payment-success" if is_success else "payment-cancel"
+    app_base_url = app_url or "assankhetiapp://payment"
+    target_app_url = _append_deep_link_params(
+        _replace_payment_route(app_base_url, route_name),
+        status=status,
+        order_id=order_id,
+        session_id=session_id,
+    )
+    logger.info(
+        "payment_complete status=%s order_id=%s session_id=%s app_url=%r target_app_url=%r",
+        status,
+        order_id,
+        session_id,
+        app_url,
+        target_app_url,
+    )
+
     emoji = "✅" if is_success else "❌"
     title = "Payment Successful!" if is_success else "Payment Cancelled"
     message = (
@@ -82,12 +166,10 @@ async def payment_complete(
     )
     accent = "#0d5c4b" if is_success else "#dc2626"
 
-    redirect_js = ""
-    return_btn = ""
-    if app_url:
-        safe_url = _json.dumps(app_url)
-        redirect_js = f"setTimeout(function(){{ window.location.href = {safe_url}; }}, 600);"
-        return_btn = f'<a href="{app_url}" class="btn">Return to App</a>'
+    safe_url = _json.dumps(target_app_url)
+    safe_href = _html.escape(target_app_url, quote=True)
+    redirect_js = f"setTimeout(function(){{ window.location.href = {safe_url}; }}, 600);"
+    return_btn = f'<a href="{safe_href}" class="btn">Return to App</a>'
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -185,11 +267,20 @@ async def create_checkout_session(
     # Stripe replaces {CHECKOUT_SESSION_ID} in the success URL at redirect time.
     success_url = (
         f"{backend_base}/api/v1/payments/payment-complete"
-        f"?status=success&order_id={order_id}&app_url={encoded_app_url}"
+        f"?status=success&order_id={order_id}"
+        f"&session_id={{CHECKOUT_SESSION_ID}}&app_url={encoded_app_url}"
     )
     cancel_url = (
         f"{backend_base}/api/v1/payments/payment-complete"
         f"?status=cancel&order_id={order_id}&app_url={encoded_app_url}"
+    )
+    logger.info(
+        "checkout_create_redirect_urls order=%s buyer=%s redirect_base=%r success_url=%r cancel_url=%r",
+        order_id,
+        buyer_id,
+        payload.redirect_url,
+        success_url,
+        cancel_url,
     )
 
     # 5. Create Stripe Checkout Session
@@ -255,6 +346,15 @@ async def create_checkout_session(
             "created_at": now,
             "updated_at": now,
         }
+    )
+
+    logger.info(
+        "checkout_session_created order=%s session=%s buyer=%s farmer=%s amount_pkr=%s",
+        order_id,
+        session["id"],
+        buyer_id,
+        farmer_id,
+        fees["total_pkr"],
     )
 
     return CheckoutSessionOut(

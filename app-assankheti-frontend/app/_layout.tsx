@@ -1,6 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Linking from 'expo-linking';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
@@ -19,6 +20,16 @@ export default function RootLayout() {
 
   useEffect(() => {
     void configureMobileNotifications();
+  }, []);
+
+  useEffect(() => {
+    void Linking.getInitialURL().then((url) => {
+      if (url) console.log('[deep-link] initial_url =', url);
+    });
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      console.log('[deep-link] incoming_url =', url);
+    });
+    return () => sub.remove();
   }, []);
 
   return (
@@ -52,6 +63,9 @@ export default function RootLayout() {
           <Stack.Screen name="crop-recommendations" options={HIDDEN_HEADER} />
           <Stack.Screen name="category-products/[category]" options={HIDDEN_HEADER} />
           <Stack.Screen name="product-buy/[productId]" options={HIDDEN_HEADER} />
+          <Stack.Screen name="payment" options={HIDDEN_HEADER} />
+          <Stack.Screen name="payment-success" options={HIDDEN_HEADER} />
+          <Stack.Screen name="payment-cancel" options={HIDDEN_HEADER} />
           <Stack.Screen name="user-orders" options={HIDDEN_HEADER} />
           <Stack.Screen name="user-notifications" options={HIDDEN_HEADER} />
           <Stack.Screen name="call/[contactId]" options={HIDDEN_HEADER} />

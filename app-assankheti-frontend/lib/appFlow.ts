@@ -63,6 +63,9 @@ const SHARED_MARKETPLACE_PREFIXES = [
   '/product-buy',
   '/product/',
   '/order-details',
+  '/payment',
+  '/payment-success',
+  '/payment-cancel',
 ];
 
 const COMMUNITY_ONLY_PREFIXES = [
@@ -73,6 +76,9 @@ const COMMUNITY_ONLY_PREFIXES = [
   '/product/',
   '/user-orders',
   '/user-notifications',
+  '/payment',
+  '/payment-success',
+  '/payment-cancel',
   '/community-settings',
   '/call',
   '/order-details',
