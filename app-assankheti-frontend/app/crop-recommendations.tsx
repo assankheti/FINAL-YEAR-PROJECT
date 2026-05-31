@@ -14,8 +14,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
 import { API_BASE } from '@/config/env';
 
-import { BarChart } from '@/lib/native-charts';
-
 type Crop = {
   name: string;
   weatherScore: number;
@@ -33,7 +31,6 @@ export default function SmartCropRecommendation() {
   const { width } = useWindowDimensions();
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.8))[0];
-  const [weatherChartContainerWidth, setWeatherChartContainerWidth] = useState(0);
 
   // navigation helper with fallback
   const handleBack = () => {
@@ -90,8 +87,6 @@ export default function SmartCropRecommendation() {
   };
 
   const weatherSnapshot = useMemo(() => weatherForecast.slice(0, 7), [weatherForecast]);
-  const weatherChartWidth = Math.max(260, Math.round(weatherChartContainerWidth || width - 48));
-  const isCompactWeatherChart = weatherChartWidth < 320;
   const isSmallScreen = width < 360;
   
   // Timeout for loading - if still loading after 8 seconds, force finish with fallback data
@@ -363,42 +358,14 @@ export default function SmartCropRecommendation() {
             {/* Weather Forecast */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>🌤️ 7-Day Weather Forecast</Text>
-              <View
-                style={styles.chartWrap}
-                onLayout={(event) => {
-                  const next = Math.round(event.nativeEvent.layout.width);
-                  if (next > 0 && Math.abs(next - weatherChartContainerWidth) > 2) {
-                    setWeatherChartContainerWidth(next);
-                  }
-                }}
-              >
-                {BarChart && weatherForecast.length > 0 && (
-                  <BarChart
-                    data={{
-                      labels: weatherForecast.map((d) =>
-                        new Date(d.datetime).toLocaleDateString('en-US', { weekday: 'short' })
-                      ),
-                      datasets: [{ data: weatherForecast.map((d) => d.temp) }],
-                    }}
-                    width={weatherChartWidth}
-                    height={220}
-                    chartConfig={{
-                      backgroundColor: '#ffffff',
-                      backgroundGradientFrom: '#ffffff',
-                      backgroundGradientTo: '#ffffff',
-                      decimalPlaces: 1,
-                      color: (opacity = 1) => `rgba(5, 150, 105, ${opacity})`,
-                      labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                      style: { borderRadius: 16 },
-                    }}
-                    yAxisLabel=""
-                    yAxisSuffix="°C"
-                    style={styles.chart}
-                    showValuesOnTopOfBars={!isCompactWeatherChart}
-                    verticalLabelRotation={isCompactWeatherChart ? 20 : 0}
-                    fromZero={true}
-                  />
-                )}
+              <View style={styles.weatherSummaryGrid}>
+                {weatherForecast.slice(0, 7).map((day, index) => (
+                  <View key={`summary-${index}`} style={styles.weatherSummaryCard}>
+                    <Text style={styles.snapshotDay}>{formatForecastDay(day.datetime)}</Text>
+                    <Text style={styles.snapshotTemp}>{Math.round(day.temp)}°</Text>
+                    <Text style={styles.snapshotMeta}>{Math.round(day.rh)}% hum.</Text>
+                  </View>
+                ))}
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.snapshotRow}>
                 {weatherSnapshot.map((day, index) => (
@@ -644,41 +611,22 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#4b7c6d',
   },
-  map: {
-    height: 180,
+  weatherSummaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  weatherSummaryCard: {
+    flexBasis: '30%',
+    minWidth: 88,
     borderRadius: 12,
-  },
-  weatherScroll: {
-    // horizontal scroll
-  },
-  weatherCard: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    padding: 15,
-    marginRight: 15,
+    backgroundColor: '#f6fdf9',
+    borderWidth: 1,
+    borderColor: '#dcf3e8',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    minWidth: 100,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  weatherDay: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  weatherTemp: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#059669',
-    marginBottom: 5,
-  },
-  weatherDetail: {
-    fontSize: 12,
-    color: '#6B7280',
   },
   weatherDetails: {
     marginTop: 8,
@@ -736,15 +684,6 @@ const styles = StyleSheet.create({
     color: '#059669',
     width: 60,
     textAlign: 'center',
-  },
-  chart: {
-    borderRadius: 16,
-    marginVertical: 10,
-    alignSelf: 'center',
-  },
-  chartWrap: {
-    width: '100%',
-    alignItems: 'center',
   },
   cropCard: {
     backgroundColor: '#F9FAFB',
