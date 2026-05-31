@@ -15,7 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
 import { API_BASE } from '@/config/env';
 
-import { BarChart, MapView, Marker } from '@/lib/native-charts';
+import { BarChart } from '@/lib/native-charts';
 
 type Crop = {
   name: string;
@@ -43,13 +43,17 @@ export default function SmartCropRecommendation() {
     router.replace('/farmer-dashboard');
   };
 
-  const [region, setRegion] = useState<any>(null);
+  const [region, setRegion] = useState<any>({
+    latitude: 31.5204,
+    longitude: 74.3587,
+    latitudeDelta: 0.1,
+    longitudeDelta: 0.1,
+  });
   const [crops, setCrops] = useState<Crop[]>([]);
   const [weatherForecast, setWeatherForecast] = useState<any[]>([]);
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
-  const [soilType, setSoilType] = useState('Detecting...');
+  const [soilType, setSoilType] = useState('Loamy Soil');
   const [loading, setLoading] = useState(true);
-  const [mapLoading, setMapLoading] = useState(true);
   const DEFAULT_COORDS = { latitude: 31.5204, longitude: 74.3587 };
   const DEFAULT_SOIL = 'Loamy Soil';
 
@@ -153,7 +157,6 @@ export default function SmartCropRecommendation() {
             latitudeDelta: 0.1,
             longitudeDelta: 0.1,
           });
-          setMapLoading(false);
           return;
         }
 
@@ -176,7 +179,6 @@ export default function SmartCropRecommendation() {
             latitudeDelta: 0.1,
             longitudeDelta: 0.1,
           });
-          setMapLoading(false);
           return;
         }
 
@@ -192,7 +194,6 @@ export default function SmartCropRecommendation() {
         const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
         const index = Math.floor((Math.abs(loc.coords.latitude) % 6));
         setSoilType(soils[index] || DEFAULT_SOIL);
-        setMapLoading(false);
       } catch (e) {
         console.warn('Location setup failed. Using defaults:', e);
         setSoilType(DEFAULT_SOIL);
@@ -202,7 +203,6 @@ export default function SmartCropRecommendation() {
           latitudeDelta: 0.1,
           longitudeDelta: 0.1,
         });
-        setMapLoading(false);
       }
     };
     fetchLocation();
@@ -291,7 +291,7 @@ export default function SmartCropRecommendation() {
   // Calculate crop suitability scores
   useEffect(() => {
     console.log('Calculating crops...', { weatherForecast: weatherForecast.length, marketPrices: Object.keys(marketPrices).length, soilType });
-    if (!weatherForecast.length || !Object.keys(marketPrices).length || soilType === 'Detecting...') {
+    if (!weatherForecast.length || !Object.keys(marketPrices).length) {
       console.log('Waiting for data: weather=', weatherForecast.length, 'prices=', Object.keys(marketPrices).length, 'soil=', soilType);
       return;
     }
@@ -403,17 +403,15 @@ export default function SmartCropRecommendation() {
               <View style={styles.soilBadge}>
                 <Text style={styles.soilBadgeText}>Soil: {soilType}</Text>
               </View>
-              {MapView && region ? (
-                mapLoading ? (
-                  <View style={styles.mapLoader}>
-                    <ActivityIndicator color="#059669" />
-                  </View>
-                ) : (
-                  <MapView style={styles.map} region={region}>
-                    <Marker coordinate={region} />
-                  </MapView>
-                )
-              ) : null}
+              <View style={styles.mapFallback}>
+                <Text style={styles.mapFallbackTitle}>Farm location ready</Text>
+                <Text style={styles.mapFallbackText}>
+                  Lat {formatCoord(region?.latitude)} | Lon {formatCoord(region?.longitude)}
+                </Text>
+                <Text style={styles.mapFallbackText}>
+                  Live map is disabled here to keep the APK stable.
+                </Text>
+              </View>
             </View>
 
             {/* Weather Forecast */}
@@ -680,6 +678,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f9fafb',
+  },
+  mapFallback: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe7e1',
+    backgroundColor: '#f8fcfa',
+    padding: 12,
+  },
+  mapFallbackTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#1f4d3f',
+    marginBottom: 4,
+  },
+  mapFallbackText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: '#4b7c6d',
   },
   map: {
     height: 180,
