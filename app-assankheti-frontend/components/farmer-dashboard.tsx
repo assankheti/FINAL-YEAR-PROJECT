@@ -61,6 +61,7 @@ export function FarmerDashboard({
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const r = useResponsive();
   const { width } = useWindowDimensions();
   
@@ -592,11 +593,13 @@ export function FarmerDashboard({
     textLanguage,
     r,
     bottomInset,
+    keyboardInset,
     onInputFocusChange,
   }: {
     textLanguage: 'urdu' | 'english';
     r: ReturnType<typeof useResponsive>;
     bottomInset: number;
+    keyboardInset: number;
     onInputFocusChange?: (focused: boolean) => void;
   }) => {
     const t = (obj: any) => obj[textLanguage];
@@ -1024,7 +1027,7 @@ export function FarmerDashboard({
 
     const handleComposerFocus = () => onInputFocusChange?.(true);
     const handleComposerBlur = () => onInputFocusChange?.(false);
-
+    const hasAndroidKeyboard = Platform.OS === 'android' && keyboardInset > 0;
 
     const handleSend = async (overrideText?: string) => {
       const rawText = typeof overrideText === 'string' ? overrideText : messageText;
@@ -1087,7 +1090,8 @@ export function FarmerDashboard({
     return (
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: '#f0faf6', paddingBottom: bottomInset }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 10}
       >
         {/* ── Chat header ── */}
         <LinearGradient
@@ -1243,7 +1247,16 @@ export function FarmerDashboard({
         </ScrollView>
 
         {/* ── Composer ── */}
-        <View style={[styles.chatComposer, { paddingHorizontal: r.wp(3.5) }]}>
+        <View
+          style={[
+            styles.chatComposer,
+            {
+              paddingHorizontal: r.wp(3.5),
+              paddingBottom: hasAndroidKeyboard ? 12 : 24,
+              marginBottom: hasAndroidKeyboard ? 14 : 0,
+            },
+          ]}
+        >
           <MessageComposer
             draft={messageText}
             onChangeDraft={setMessageText}
@@ -1388,11 +1401,13 @@ export function FarmerDashboard({
 
   useEffect(() => {
     if (activeTab !== 'chat') return;
-    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
       setIsKeyboardVisible(true);
+      setKeyboardInset(Math.round(event.endCoordinates?.height ?? 0));
     });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
       setIsKeyboardVisible(false);
+      setKeyboardInset(0);
       setIsChatInputFocused(false);
     });
     return () => {
@@ -1483,6 +1498,7 @@ export function FarmerDashboard({
             textLanguage={textLanguage}
             r={r}
             bottomInset={chatBottomInset}
+            keyboardInset={keyboardInset}
             onInputFocusChange={setIsChatInputFocused}
           />
         )}
