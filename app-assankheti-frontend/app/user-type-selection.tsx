@@ -63,8 +63,14 @@ export default function UserTypeSelectionPage() {
         });
       }
     } catch (err: any) {
-      console.error('User setup failed:', err.message);
-      alert(err.message);
+      const message = err?.message || 'Failed to save user setup';
+      const isNetworkIssue = /network request failed/i.test(message);
+      console.error('User setup failed:', { message, API_BASE });
+      alert(
+        isNetworkIssue
+          ? `Cannot reach backend at ${API_BASE}. Please check your internet connection and backend status.`
+          : message
+      );
     } finally {
       setSaving(false);
     }

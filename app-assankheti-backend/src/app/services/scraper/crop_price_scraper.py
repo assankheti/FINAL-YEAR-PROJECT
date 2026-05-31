@@ -3,26 +3,49 @@ import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+from app.utils.logger import logger
+
+URL = "https://pccmdpunjab.gov.pk/Commodities/Prices/"
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+# Last known stable values keep calculators usable when the source site is down
+# or blocks Render's outbound network. Keys intentionally match column_map below.
+FALLBACK_CROP_PRICES = {
+    "atta bag (20kg)": 1810.0,
+    "rice basmati new (kg)": 305.0,
+    "potato fresh (kg)": 20.0,
+    "tomato (kg)": 70.0,
+    "onion (kg)": 73.0,
+}
+
+
+def _fallback_prices(reason: str) -> dict[str, float]:
+    logger.warning("Crop price scraper fallback used: %s", reason)
+    return FALLBACK_CROP_PRICES.copy()
+
 
 def scrape_crop_prices():
     """
     Scrape all crop prices from the Punjab Commodities table.
     Returns a dictionary with {crop_name: average_price_per_unit}.
     """
-    url = "https://pccmdpunjab.gov.pk/Commodities/Prices/"
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(URL, headers=HEADERS, timeout=10)
         r.raise_for_status()
     except requests.RequestException as e:
-        print(f"[CROP PRICE SCRAPER ERROR] {e}")
-        return {}
+        return _fallback_prices(str(e))
 
     soup = BeautifulSoup(r.text, "html.parser")
     table = soup.find("table", {"id": "dataTable"})
     if not table:
-        print("[CROP PRICE SCRAPER ERROR] Table not found")
-        return {}
+        return _fallback_prices("price table not found")
 
     prices = defaultdict(list)
     rows = table.select("tbody tr")
@@ -63,6 +86,8 @@ def scrape_crop_prices():
 
     # Compute average price per crop
     avg_prices = {crop: round(sum(vals)/len(vals), 2) for crop, vals in prices.items() if vals}
+    if not avg_prices:
+        return _fallback_prices("price table contained no parseable prices")
     return avg_prices
 
 

@@ -7,11 +7,16 @@ import { NativeModules, Platform } from 'react-native';
  * Android emulator should fall back to 10.0.2.2 only when no LAN host is known.
  */
 
-const extra = Constants.expoConfig?.extra ?? {};
+const extra =
+  Constants.expoConfig?.extra ??
+  (Constants as any).manifest?.extra ??
+  (Constants as any).manifest2?.extra?.expoClient?.extra ??
+  {};
 const PRODUCTION_API_URL =
   typeof extra.PRODUCTION_API_URL === 'string' && extra.PRODUCTION_API_URL.trim()
     ? extra.PRODUCTION_API_URL.trim()
     : 'https://assan-kheti-backend.onrender.com';
+const hasProductionFlag = Object.prototype.hasOwnProperty.call(extra, 'USE_PRODUCTION_API');
 
 function getBooleanExtra(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
@@ -73,7 +78,7 @@ function getExpoLanApiUrl(): string | null {
 }
 
 function getDevApiUrl(): string {
-  if (getBooleanExtra(extra.USE_PRODUCTION_API)) {
+  if (hasProductionFlag ? getBooleanExtra(extra.USE_PRODUCTION_API) : !__DEV__) {
     return PRODUCTION_API_URL;
   }
 
@@ -92,7 +97,7 @@ function getDevApiUrl(): string {
 
 export const ENV = {
   API_URL: getDevApiUrl(),
-  USE_PRODUCTION_API: getBooleanExtra(extra.USE_PRODUCTION_API),
+  USE_PRODUCTION_API: hasProductionFlag ? getBooleanExtra(extra.USE_PRODUCTION_API) : !__DEV__,
 } as const;
 
 export const API_BASE = ENV.API_URL;

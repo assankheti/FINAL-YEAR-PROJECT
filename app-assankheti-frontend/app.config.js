@@ -7,9 +7,12 @@ dotenv.config({ path: path.resolve(__dirname, '.env'), override: true });
 
 const PRODUCTION_API_URL =
   process.env.PRODUCTION_API_URL || 'https://assan-kheti-backend.onrender.com';
-const USE_PRODUCTION_API = ['1', 'true', 'yes', 'on'].includes(
-  String(process.env.USE_PRODUCTION_API || '').trim().toLowerCase()
-);
+const USE_PRODUCTION_API =
+  process.env.USE_PRODUCTION_API === undefined
+    ? true
+    : ['1', 'true', 'yes', 'on'].includes(
+        String(process.env.USE_PRODUCTION_API).trim().toLowerCase()
+      );
 const API_URL = USE_PRODUCTION_API
   ? PRODUCTION_API_URL
   : process.env.API_URL || 'http://localhost:8000';
@@ -17,8 +20,8 @@ const STREAM_API_KEY = process.env.STREAM_API_KEY || '';
 
 export default {
   expo: {
-    name: 'assankhetiapp',
-    slug: 'assankhetiapp',
+    name: 'assan-kheti',
+    slug: 'assan-kheti',
     version: '1.0.0',
     orientation: 'portrait',
     scheme: 'assankhetiapp',
@@ -30,6 +33,9 @@ export default {
       supportsTablet: true,
     },
     android: {
+      package: 'com.assankheti.app',
+      versionCode: 2,
+      permissions: ['INTERNET'],
       adaptiveIcon: {
         foregroundImage: './assets/images/logo-removebg.png',
         backgroundColor: '#E6F4FE',
@@ -73,6 +79,9 @@ export default {
       PRODUCTION_API_URL,
       USE_PRODUCTION_API,
       STREAM_API_KEY,
+      eas: {
+        projectId: '30f790ba-3355-477d-8e3c-1c33134336d3',
+      },
       // Add other env variables here as needed
       GEMINI_KEY: process.env.GEMINI_KEY || process.env.GEMINI_API_KEY,
       // GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
