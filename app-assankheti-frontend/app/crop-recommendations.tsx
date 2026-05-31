@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
 import { API_BASE } from '@/config/env';
@@ -34,7 +33,6 @@ export default function SmartCropRecommendation() {
   const { width } = useWindowDimensions();
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.8))[0];
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [weatherChartContainerWidth, setWeatherChartContainerWidth] = useState(0);
 
   // navigation helper with fallback
@@ -143,76 +141,24 @@ export default function SmartCropRecommendation() {
     return riskMap[crop]?.[month] ?? 30;
   };
 
-  // Get user location & soil type
+  // Use safe default location/soil on mobile builds to avoid native permission crashes.
   useEffect(() => {
-    const fetchLocation = async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          console.warn('Location permission denied. Using default coordinates.');
-          setSoilType(DEFAULT_SOIL);
-          setRegion({
-            latitude: DEFAULT_COORDS.latitude,
-            longitude: DEFAULT_COORDS.longitude,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
-          });
-          return;
-        }
-
-        let loc: Location.LocationObject | null = null;
-        try {
-          loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-        } catch (e) {
-          console.warn('Current location unavailable, trying last known location:', e);
-          loc = await Location.getLastKnownPositionAsync();
-        }
-
-        if (!loc) {
-          console.warn('No location available. Using default coordinates.');
-          setSoilType(DEFAULT_SOIL);
-          setRegion({
-            latitude: DEFAULT_COORDS.latitude,
-            longitude: DEFAULT_COORDS.longitude,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
-          });
-          return;
-        }
-
-        setLocation(loc);
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.1,
-          longitudeDelta: 0.1,
-        });
-
-        // Simulate soil type based on latitude (for demo)
-        const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
-        const index = Math.floor((Math.abs(loc.coords.latitude) % 6));
-        setSoilType(soils[index] || DEFAULT_SOIL);
-      } catch (e) {
-        console.warn('Location setup failed. Using defaults:', e);
-        setSoilType(DEFAULT_SOIL);
-        setRegion({
-          latitude: DEFAULT_COORDS.latitude,
-          longitude: DEFAULT_COORDS.longitude,
-          latitudeDelta: 0.1,
-          longitudeDelta: 0.1,
-        });
-      }
-    };
-    fetchLocation();
+    const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
+    const index = Math.floor((Math.abs(DEFAULT_COORDS.latitude) % 6));
+    setSoilType(soils[index] || DEFAULT_SOIL);
+    setRegion({
+      latitude: DEFAULT_COORDS.latitude,
+      longitude: DEFAULT_COORDS.longitude,
+      latitudeDelta: 0.1,
+      longitudeDelta: 0.1,
+    });
   }, []);
 
   // Fetch weather forecast (7-day + monthly approximation)
   useEffect(() => {
     const fetchWeather = async () => {
-      const latitude = location?.coords?.latitude ?? region?.latitude;
-      const longitude = location?.coords?.longitude ?? region?.longitude;
+      const latitude = region?.latitude;
+      const longitude = region?.longitude;
       if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
       try {
         const API_KEY = '529094980f6e4316be96ffc561515561';
@@ -238,7 +184,7 @@ export default function SmartCropRecommendation() {
       }
     };
     fetchWeather();
-  }, [location, region]);
+  }, [region]);
 
   // Fetch market prices
   useEffect(() => {
@@ -390,13 +336,13 @@ export default function SmartCropRecommendation() {
                 <View style={styles.locationChip}>
                   <Text style={styles.locationLabel}>Latitude</Text>
                   <Text style={styles.locationValue}>
-                    {formatCoord(location?.coords?.latitude ?? region?.latitude)}
+                    {formatCoord(region?.latitude)}
                   </Text>
                 </View>
                 <View style={styles.locationChip}>
                   <Text style={styles.locationLabel}>Longitude</Text>
                   <Text style={styles.locationValue}>
-                    {formatCoord(location?.coords?.longitude ?? region?.longitude)}
+                    {formatCoord(region?.longitude)}
                   </Text>
                 </View>
               </View>
