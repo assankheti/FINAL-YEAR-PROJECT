@@ -2,17 +2,13 @@ services:
   - type: web
     name: assan-kheti-backend
     runtime: python
-    plan: starter
+    plan: free
     region: singapore
     rootDir: app-assankheti-backend
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: bash start.sh
     healthCheckPath: /
     autoDeployTrigger: commit
-    disk:
-      name: assan-kheti-uploads
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
@@ -21,7 +17,7 @@ services:
       - key: PYTHONPATH
         value: src
       - key: UPLOAD_ROOT
-        value: /var/data/uploads
+        value: /tmp/uploads
       - key: MONGO_DB_NAME
         value: dbasssankheti
       - key: PLATFORM_COMMISSION_RATE

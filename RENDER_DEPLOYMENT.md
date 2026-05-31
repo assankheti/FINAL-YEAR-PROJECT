@@ -6,6 +6,7 @@ This repo is a monorepo. The backend Render service should use:
 - Build command: `pip install --upgrade pip && pip install -r requirements.txt`
 - Start command: `bash start.sh`
 - Python version: `3.11.11`
+- Instance type: `free`
 
 The root `render.yaml` already contains these settings for a Render Blueprint.
 
@@ -43,17 +44,10 @@ Recommended path:
 3. Connect the repository that contains this project.
 4. Render will detect `render.yaml` at the repo root.
 5. Review the service named `assan-kheti-backend`.
-6. Keep the plan as `starter` if you want persistent uploads. The included disk stores files at `/var/data/uploads`.
+6. Keep the plan as `free`.
 7. Click Apply.
 
-Free-plan alternative:
-
-1. Open `render.yaml`.
-2. Change `plan: starter` to `plan: free`.
-3. Remove the whole `disk:` block.
-4. Change `UPLOAD_ROOT` from `/var/data/uploads` to `/tmp/uploads`.
-
-Free services can lose uploaded files after restarts and can spin down when idle.
+Free services can lose uploaded files after restarts and can spin down when idle. This is acceptable for a small test group, but move uploads to cloud storage later if user-uploaded media must be permanent.
 
 ## 4. Add Environment Variables
 
@@ -69,7 +63,7 @@ PYTHONUNBUFFERED=1
 PYTHONPATH=src
 MONGODB_URI=your_mongodb_atlas_uri
 MONGO_DB_NAME=dbasssankheti
-UPLOAD_ROOT=/var/data/uploads
+UPLOAD_ROOT=/tmp/uploads
 STYTCH_PROJECT_ID=your_stytch_project_id
 STYTCH_SECRET=your_stytch_secret
 STYTCH_ENV=live
@@ -170,9 +164,9 @@ MongoDB connection fails:
 Build fails on TensorFlow:
 
 - Confirm `PYTHON_VERSION=3.11.11`.
-- Use at least the `starter` plan. TensorFlow is heavy for small instances.
+- TensorFlow is heavy for free instances. If builds fail, remove TensorFlow from `requirements.txt` and disable the offline disease-model fallback, or upgrade only the backend service later.
 
 Uploads disappear:
 
-- Use the `starter` plan with the included persistent disk.
-- Confirm `UPLOAD_ROOT=/var/data/uploads`.
+- This is expected on the free plan after restarts, redeploys, or idle spin-downs.
+- Confirm `UPLOAD_ROOT=/tmp/uploads`.
