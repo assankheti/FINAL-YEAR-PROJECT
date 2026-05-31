@@ -1,11 +1,15 @@
 # src/app/services/scraper/crop_price_scraper.py
+import json
+from collections import defaultdict
+from pathlib import Path
+
 import requests
 from bs4 import BeautifulSoup
-from collections import defaultdict
 
 from app.utils.logger import logger
 
 URL = "https://pccmdpunjab.gov.pk/Commodities/Prices/"
+CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "crop_prices_cache.json"
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -26,9 +30,50 @@ FALLBACK_CROP_PRICES = {
 }
 
 
-def _fallback_prices(reason: str) -> dict[str, float]:
-    logger.warning("Crop price scraper fallback used: %s", reason)
+def _default_prices() -> dict[str, float]:
     return FALLBACK_CROP_PRICES.copy()
+
+
+def _load_cached_prices() -> dict[str, float] | None:
+    if not CACHE_PATH.exists():
+      return None
+
+    try:
+        with CACHE_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    cached: dict[str, float] = {}
+    for key, value in data.items():
+        try:
+            cached[str(key).lower()] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    return cached or None
+
+
+def _save_cached_prices(prices: dict[str, float]) -> None:
+    try:
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with CACHE_PATH.open("w", encoding="utf-8") as handle:
+            json.dump(prices, handle, indent=2, sort_keys=True)
+    except OSError:
+        pass
+
+
+def _fallback_prices(reason: str) -> dict[str, float]:
+    cached = _load_cached_prices()
+    if cached:
+        logger.info("Crop price cache used: %s", reason)
+        return cached
+
+    logger.warning("Crop price scraper fallback used: %s", reason)
+    return _default_prices()
 
 
 def scrape_crop_prices():
@@ -36,6 +81,10 @@ def scrape_crop_prices():
     Scrape all crop prices from the Punjab Commodities table.
     Returns a dictionary with {crop_name: average_price_per_unit}.
     """
+    cached = _load_cached_prices()
+    if cached:
+        return cached
+
     try:
         r = requests.get(URL, headers=HEADERS, timeout=10)
         r.raise_for_status()
@@ -88,6 +137,8 @@ def scrape_crop_prices():
     avg_prices = {crop: round(sum(vals)/len(vals), 2) for crop, vals in prices.items() if vals}
     if not avg_prices:
         return _fallback_prices("price table contained no parseable prices")
+
+    _save_cached_prices(avg_prices)
     return avg_prices
 
 

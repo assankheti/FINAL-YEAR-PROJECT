@@ -461,7 +461,7 @@ export default function DiseaseDetection() {
               <View style={styles.resultMetaCard}>
                 <Text style={styles.resultMetaLabel}>Model</Text>
                 <Text style={styles.resultMetaValue}>
-                  {result.model_name === 'roboflow' ? 'Roboflow' : 'Local TFLite'}
+                  {result.model_type === 'online' ? 'Online' : result.model_type === 'offline' ? 'Offline' : 'Unknown'}
                 </Text>
               </View>
               <View style={styles.resultMetaCard}>

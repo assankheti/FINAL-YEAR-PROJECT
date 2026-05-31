@@ -246,8 +246,33 @@ export default function SmartCropRecommendation() {
       try {
         const res = await fetch(`${API_BASE}/api/v1/calculator/prices/crop`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
-        const data = await res.json();
-        setMarketPrices(data); // { Rice: 120, Wheat: 100, ... }
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch (e) {
+          console.warn('Market prices: failed to parse JSON response', e);
+          data = null;
+        }
+
+        const defaultPrices: Record<string, number> = {
+          Rice: 120,
+          Wheat: 100,
+          Corn: 90,
+          Sugarcane: 80,
+          Potato: 70,
+        };
+
+        const isValidPrices =
+          data && typeof data === 'object' && !Array.isArray(data) &&
+          Object.keys(data).length > 0 &&
+          Object.keys(data).every((k) => typeof (data as any)[k] === 'number');
+
+        if (!isValidPrices) {
+          console.warn('Market prices response invalid, falling back to defaults', data);
+          setMarketPrices(defaultPrices);
+        } else {
+          setMarketPrices(data);
+        }
       } catch (err) {
         console.warn('Failed to fetch market prices, using defaults:', err);
         // Use default market prices to prevent infinite loading
@@ -283,7 +308,9 @@ export default function SmartCropRecommendation() {
       };
       const soilScore = soilScoreMap[cropName]?.[soilType] ?? 50;
       const areaScore = 100; // Assuming all area suitable
-      const marketScore = marketPrices[cropName] ? Math.min(100, marketPrices[cropName]) : 50;
+      const marketRaw = marketPrices[cropName];
+      const marketVal = Number(marketRaw);
+      const marketScore = Number.isFinite(marketVal) && marketVal > 0 ? Math.min(100, marketVal) : 50;
       const pestRiskScore = 100 - simulatePestRisk(cropName, month);
       const totalScore = Math.round((tempScore + humidityScore + soilScore + areaScore + marketScore + pestRiskScore) / 6);
       return { name: cropName, weatherScore: tempScore, soilScore, areaScore, marketScore, pestRiskScore, totalScore };
