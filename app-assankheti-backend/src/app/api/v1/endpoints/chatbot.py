@@ -520,8 +520,6 @@ async def upsert_chat_session(
         "last_message": safe_last_message,
         "message_count": int(message_count),
     }
-    if is_first and safe_title:
-        set_values["title"] = safe_title
 
     await db[CHAT_SESSIONS_COLLECTION].update_one(
         {"mobile_id": mobile_id, "session_id": session_id},
