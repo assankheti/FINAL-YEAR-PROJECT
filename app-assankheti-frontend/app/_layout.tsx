@@ -11,6 +11,8 @@ import { LanguageProvider } from '@/contexts/LanguageContext';
 import { StreamChatProvider } from '@/contexts/StreamChatProvider';
 import { configureMobileNotifications } from '@/lib/mobileNotifications';
 import { AppRouteGuard } from '@/components/AppRouteGuard';
+import { VoiceGuidanceProvider } from '@/contexts/VoiceGuidanceContext';
+import { TalkBackButton } from '@/components/TalkBackButton';
 
 const STACK_SCREEN_OPTIONS = { animation: 'none', headerShown: false } as const;
 const HIDDEN_HEADER = { headerShown: false } as const;
@@ -36,9 +38,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <LanguageProvider>
-          <StreamChatProvider>
-            <AppRouteGuard />
-            <Stack screenOptions={STACK_SCREEN_OPTIONS}>
+          <VoiceGuidanceProvider>
+            <StreamChatProvider>
+              <AppRouteGuard />
+              <Stack screenOptions={STACK_SCREEN_OPTIONS}>
           <Stack.Screen name="index" options={HIDDEN_HEADER} />
           <Stack.Screen name="splash" options={HIDDEN_HEADER} />
           <Stack.Screen name="terms-and-conditions" options={HIDDEN_HEADER} />
@@ -53,6 +56,7 @@ export default function RootLayout() {
           <Stack.Screen name="farmer-settings" options={HIDDEN_HEADER} />
           <Stack.Screen name="community-settings" options={HIDDEN_HEADER} />
           <Stack.Screen name="privacy-policy" options={HIDDEN_HEADER} />
+          <Stack.Screen name="accessibility-settings" options={HIDDEN_HEADER} />
           <Stack.Screen name="farmer-profile-edit" options={HIDDEN_HEADER} />
           <Stack.Screen name="help-center" options={HIDDEN_HEADER} />
           <Stack.Screen name="farmer-products" options={HIDDEN_HEADER} />
@@ -81,8 +85,10 @@ export default function RootLayout() {
           <Stack.Screen name="farmer-dashboard" options={HIDDEN_HEADER} />
           <Stack.Screen name="community-dashboard" options={HIDDEN_HEADER} />
           <Stack.Screen name="farmer/community" options={HIDDEN_HEADER} />
-            </Stack>
-          </StreamChatProvider>
+              </Stack>
+              <TalkBackButton />
+            </StreamChatProvider>
+          </VoiceGuidanceProvider>
         </LanguageProvider>
         <StatusBar style="auto" />
       </ThemeProvider>

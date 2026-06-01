@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
 
 type I18nString = string | { english: string; urdu?: string };
 
@@ -16,13 +17,11 @@ type Props = {
   contentStyle?: object;
 };
 
-function resolveText(val: I18nString) {
-  if (typeof val === 'string') return val;
-  return val.english ?? '';
-}
-
 export default function InfoPage({ title, subtitle, children, searchQuery, onSearchChange, contentStyle }: Props) {
   const router = useRouter();
+  const { textLanguage } = useLanguage();
+  const t = useT();
+  const isUrdu = textLanguage === 'urdu';
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }}>
@@ -39,14 +38,28 @@ export default function InfoPage({ title, subtitle, children, searchQuery, onSea
               activeOpacity={0.9}
               style={styles.backBtn}
               accessibilityRole="button"
-              accessibilityLabel="Back"
+              accessibilityLabel={t({ english: 'Back', urdu: 'واپس' })}
             >
               <Feather name="arrow-left" size={18} color="#ffffff" />
             </TouchableOpacity>
 
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.headerTitle}>{resolveText(title)}</Text>
-              {subtitle ? <Text style={styles.headerSub}>{resolveText(subtitle)}</Text> : null}
+              <Text style={styles.headerTitle}>
+                {typeof title === 'string'
+                  ? title
+                  : isUrdu
+                    ? title.urdu ?? title.english ?? ''
+                    : title.english ?? title.urdu ?? ''}
+              </Text>
+              {subtitle ? (
+                <Text style={styles.headerSub}>
+                  {typeof subtitle === 'string'
+                    ? subtitle
+                    : isUrdu
+                      ? subtitle.urdu ?? subtitle.english ?? ''
+                      : subtitle.english ?? subtitle.urdu ?? ''}
+                </Text>
+              ) : null}
             </View>
           </View>
 
@@ -54,7 +67,7 @@ export default function InfoPage({ title, subtitle, children, searchQuery, onSea
             <View style={styles.searchWrap}>
               <Feather name="search" size={18} color="#6b7280" />
               <TextInput
-                placeholder="Search..."
+                placeholder={t({ english: 'Search...', urdu: 'تلاش کریں...' })}
                 placeholderTextColor="#6b7280"
                 value={searchQuery}
                 onChangeText={onSearchChange}

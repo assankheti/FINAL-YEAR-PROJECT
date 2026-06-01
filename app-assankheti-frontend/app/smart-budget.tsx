@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,13 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import GreenHeader from '@/components/GreenHeader';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { API_BASE } from '@/config/env';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 type CropData = {
   fertilizers: string[];
@@ -143,6 +146,9 @@ const soilTypes = [
 export default function SmartBudgetForm() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { textLanguage } = useLanguage();
+  const { enabled: voiceEnabled, activeHighlightId, startGuidedSequence, cancelGuidedSequence, speak, stop } =
+    useVoiceGuidance();
 
   const selectedCropFromParams = params.selectedCrop 
     ? (params.selectedCrop as string).charAt(0).toUpperCase() + (params.selectedCrop as string).slice(1)
@@ -157,6 +163,7 @@ export default function SmartBudgetForm() {
   const [otherCosts, setOtherCosts] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
+  const [isResultSectionSpeaking, setIsResultSectionSpeaking] = useState(false);
 
   const [availableFertilizers, setAvailableFertilizers] = useState<ItemData[]>([]);
   const [availablePesticides, setAvailablePesticides] = useState<ItemData[]>([]);
@@ -165,10 +172,100 @@ export default function SmartBudgetForm() {
   const [loadingPesticides, setLoadingPesticides] = useState(true);
   const [loadingSeeds, setLoadingSeeds] = useState(true);
 
-  const formatMoney = (value: number) =>
-    new Intl.NumberFormat('en-PK', { maximumFractionDigits: 0 }).format(
-      Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
-    );
+  const T = useMemo(() => {
+    const isUrdu = textLanguage === 'urdu';
+    return {
+      headerTitle: isUrdu ? 'اسمارٹ بجٹ کیلکولیٹر' : 'Smart Budget Calculator',
+      headerSub: isUrdu
+        ? 'فصل، مٹی، کھاد، دوا، بیج، اور رقبہ منتخب کر کے بجٹ کا اندازہ لگائیں۔'
+        : 'Select crop, soil, fertilizers, pesticides, seeds, and area to estimate your farming budget.',
+      introTitle: isUrdu ? 'کھیت لاگت منصوبہ' : 'Farm Cost Planner',
+      introSub: isUrdu
+        ? 'اپنی فصل کی تفصیل درج کریں تاکہ لاگت، آمدنی، اور منافع معلوم ہو سکے۔'
+        : 'Enter your crop details to estimate cost, revenue, and profit.',
+      cropType: isUrdu ? 'فصل کی قسم' : 'Crop Type',
+      soilType: isUrdu ? 'مٹی کی قسم' : 'Soil Type',
+      landArea: isUrdu ? 'رقبہ (ایکڑ)' : 'Land Area (acre)',
+      fertilizer: isUrdu ? 'کھاد' : 'Fertilizer',
+      pesticide: isUrdu ? 'دوا' : 'Pesticide',
+      seed: isUrdu ? 'بیج' : 'Seed',
+      otherExpenses: isUrdu ? 'دیگر اخراجات (روپے)' : 'Other Expenses (Rs)',
+      calculate: isUrdu ? 'بجٹ معلوم کریں' : 'Calculate Budget',
+      loadingFertilizers: isUrdu ? 'کھادیں لوڈ ہو رہی ہیں...' : 'Loading fertilizers...',
+      loadingPesticides: isUrdu ? 'دوائیں لوڈ ہو رہی ہیں...' : 'Loading pesticides...',
+      loadingSeeds: isUrdu ? 'بیج لوڈ ہو رہے ہیں...' : 'Loading seeds...',
+      selectCrop: isUrdu ? 'فصل منتخب کریں' : 'Select Crop',
+      selectSoil: isUrdu ? 'مٹی منتخب کریں' : 'Select Soil Type',
+      selectFertilizer: isUrdu ? 'کھاد منتخب کریں' : 'Select Fertilizer',
+      selectPesticide: isUrdu ? 'دوا منتخب کریں' : 'Select Pesticide',
+      selectSeed: isUrdu ? 'بیج منتخب کریں' : 'Select Seed',
+      areaPlaceholder: isUrdu ? 'ایکڑ میں رقبہ درج کریں' : 'Enter area in acres',
+      otherPlaceholder: isUrdu ? 'کوئی اور لاگت' : 'Any other cost',
+      currency: isUrdu ? 'روپے' : 'Rs',
+      modelLabel: isUrdu ? 'ماڈل' : 'Model',
+      resultTitle: isUrdu ? 'متوقع نتیجہ' : 'Estimated Result',
+      fertilizerRow: isUrdu ? 'کھاد' : 'Fertilizer',
+      pesticideRow: isUrdu ? 'دوا' : 'Pesticide',
+      seedRow: isUrdu ? 'بیج' : 'Seed',
+      otherRow: isUrdu ? 'دیگر اخراجات' : 'Other Costs',
+      totalRow: isUrdu ? 'کل لاگت' : 'Total Cost',
+      revenueRow: isUrdu ? 'متوقع آمدنی' : 'Expected Revenue',
+      profitRow: isUrdu ? 'منافع' : 'Profit',
+      perUnit: isUrdu ? 'فی یونٹ' : 'per unit',
+      bagsLabel: isUrdu ? 'بوریاں' : 'bags',
+      unitsLabel: isUrdu ? 'یونٹس' : 'units',
+      notSelected: isUrdu ? 'منتخب نہیں کیا گیا' : 'Not selected',
+      resultReady: isUrdu ? 'نتیجہ تیار ہے' : 'Result is ready',
+      noResult: isUrdu ? 'ابھی کوئی نتیجہ موجود نہیں' : 'No result yet',
+      cropValue: {
+        Wheat: isUrdu ? 'گندم' : 'Wheat',
+        Rice: isUrdu ? 'چاول' : 'Rice',
+        Potato: isUrdu ? 'آلو' : 'Potato',
+        'Select Crop': isUrdu ? 'فصل منتخب کریں' : 'Select Crop',
+      } as Record<string, string>,
+      soilValue: {
+        'Loamy Soil': isUrdu ? 'گلی دار مٹی' : 'Loamy Soil',
+        'Clay Soil': isUrdu ? 'چکنی مٹی' : 'Clay Soil',
+        'Sandy Soil': isUrdu ? 'ریتلی مٹی' : 'Sandy Soil',
+        'Silty Soil': isUrdu ? 'دوامی مٹی' : 'Silty Soil',
+        'Alluvial Soil': isUrdu ? 'زرخیز دریائی مٹی' : 'Alluvial Soil',
+        'Saline Soil': isUrdu ? 'نمکیاتی مٹی' : 'Saline Soil',
+      } as Record<string, string>,
+    };
+  }, [textLanguage]);
+
+  const formatMoney = useCallback(
+    (value: number) =>
+      new Intl.NumberFormat(textLanguage === 'urdu' ? 'ur-PK' : 'en-PK', { maximumFractionDigits: 0 }).format(
+        Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
+      ),
+    [textLanguage]
+  );
+
+  const formatNumber = useCallback(
+    (value: number) =>
+      new Intl.NumberFormat(textLanguage === 'urdu' ? 'ur-PK' : 'en-PK', { maximumFractionDigits: 0 }).format(
+        Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
+      ),
+    [textLanguage]
+  );
+
+  const currencyText = textLanguage === 'urdu' ? 'روپے' : 'Rs';
+  const isUrdu = textLanguage === 'urdu';
+  const translateValue = (value: string, map: Record<string, string>) => map[value] ?? value;
+
+  const spokenSelectedCrop = translateValue(crop, T.cropValue);
+  const spokenSelectedSoil = translateValue(soilType, T.soilValue);
+
+  const cropFieldHighlightId = 'budget.crop';
+  const soilFieldHighlightId = 'budget.soil';
+  const areaFieldHighlightId = 'budget.area';
+  const fertilizerFieldHighlightId = 'budget.fertilizer';
+  const pesticideFieldHighlightId = 'budget.pesticide';
+  const seedFieldHighlightId = 'budget.seed';
+  const otherFieldHighlightId = 'budget.other';
+  const calculateHighlightId = 'budget.calculate';
+  const resultSequenceTokenRef = useRef(0);
 
   // Update crop from params
   useEffect(() => {
@@ -179,6 +276,7 @@ export default function SmartBudgetForm() {
         setFertilizer('Select Fertilizer');
         setPesticide('Select Pesticide');
         setSeed('Select Seed');
+        setResult(null);
       }
     }
   }, [params.selectedCrop]);
@@ -212,41 +310,287 @@ export default function SmartBudgetForm() {
     fetchData();
   }, []);
 
+  const fieldGuidedSteps = useMemo(
+    () => [
+      {
+        id: 'budget.header',
+        text:
+          textLanguage === 'urdu'
+            ? 'اسمارٹ بجٹ کیلکولیٹر۔ فصل، مٹی، کھاد، دوا، بیج، اور رقبہ منتخب کر کے بجٹ کا اندازہ لگائیں۔'
+            : 'Smart budget calculator. Select crop, soil, fertilizers, pesticides, seeds, and area to estimate your budget.',
+      },
+      {
+        id: 'budget.intro',
+        text:
+          textLanguage === 'urdu'
+            ? 'کھیت لاگت منصوبہ۔ اپنی فصل کی تفصیل درج کریں تاکہ لاگت، آمدنی، اور منافع معلوم ہو سکے۔'
+            : 'Farm cost planner. Enter your crop details to estimate cost, revenue, and profit.',
+      },
+      {
+        id: cropFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? `فصل کی قسم۔ ${spokenSelectedCrop}۔`
+            : `Crop type. ${spokenSelectedCrop}.`,
+      },
+      {
+        id: soilFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? `مٹی کی قسم۔ ${spokenSelectedSoil}۔`
+            : `Soil type. ${spokenSelectedSoil}.`,
+      },
+      {
+        id: areaFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? 'رقبہ (ایکڑ)۔ ایکڑ میں رقبہ درج کریں۔'
+            : 'Land area in acres. Enter the area in acres.',
+      },
+      {
+        id: fertilizerFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? `کھاد۔ ${fertilizer.toLowerCase().startsWith('select ') ? T.selectFertilizer : fertilizer}.`
+            : `Fertilizer. ${fertilizer.toLowerCase().startsWith('select ') ? T.selectFertilizer : fertilizer}.`,
+      },
+      {
+        id: pesticideFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? `دوا۔ ${pesticide.toLowerCase().startsWith('select ') ? T.selectPesticide : pesticide}.`
+            : `Pesticide. ${pesticide.toLowerCase().startsWith('select ') ? T.selectPesticide : pesticide}.`,
+      },
+      {
+        id: seedFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? `بیج۔ ${seed.toLowerCase().startsWith('select ') ? T.selectSeed : seed}.`
+            : `Seed. ${seed.toLowerCase().startsWith('select ') ? T.selectSeed : seed}.`,
+      },
+      {
+        id: otherFieldHighlightId,
+        text:
+          textLanguage === 'urdu'
+            ? 'دیگر اخراجات۔ کوئی اور لاگت درج کریں۔'
+            : 'Other expenses. Enter any other cost.',
+      },
+      {
+        id: calculateHighlightId,
+        text: textLanguage === 'urdu' ? 'بجٹ معلوم کریں بٹن۔ نتیجہ نکالنے کے لیے دبائیں۔' : 'Calculate Budget button. Press to generate the result.',
+      },
+    ],
+    [
+      T.selectFertilizer,
+      T.selectPesticide,
+      T.selectSeed,
+      areaFieldHighlightId,
+      calculateHighlightId,
+      cropFieldHighlightId,
+      fertilizer,
+      fertilizerFieldHighlightId,
+      otherFieldHighlightId,
+      pesticide,
+      pesticideFieldHighlightId,
+      seed,
+      seedFieldHighlightId,
+      soilFieldHighlightId,
+      spokenSelectedCrop,
+      spokenSelectedSoil,
+      textLanguage,
+    ]
+  );
+  const fieldGuidedStepsRef = useRef(fieldGuidedSteps);
+
+  useEffect(() => {
+    fieldGuidedStepsRef.current = fieldGuidedSteps;
+  }, [fieldGuidedSteps]);
+
+  const resultGuidedSteps = useMemo(() => {
+    if (!result) return [];
+    const steps = [
+      {
+        id: 'budget.result.card',
+        text:
+          textLanguage === 'urdu'
+            ? 'متوقع نتیجہ۔ لاگت، آمدنی، اور منافع دیکھیں۔'
+            : 'Estimated result. Review cost, revenue, and profit.',
+      },
+    ];
+
+    if (result.fertilizerPrice > 0) {
+      steps.push({
+        id: 'budget.result.fertilizer',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.fertilizerRow}۔ ${result.fertilizerName}۔ ${currencyText} ${formatMoney(result.fertilizerCost)}۔`
+            : `${T.fertilizerRow}. ${result.fertilizerName}. ${currencyText} ${formatMoney(result.fertilizerCost)}.`,
+      });
+    }
+
+    if (result.pesticidePrice > 0) {
+      steps.push({
+        id: 'budget.result.pesticide',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.pesticideRow}۔ ${result.pesticideName}۔ ${currencyText} ${formatMoney(result.pesticideCost)}۔`
+            : `${T.pesticideRow}. ${result.pesticideName}. ${currencyText} ${formatMoney(result.pesticideCost)}.`,
+      });
+    }
+
+    if (result.seedPrice > 0) {
+      steps.push({
+        id: 'budget.result.seed',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.seedRow}۔ ${result.seedName}۔ ${currencyText} ${formatMoney(result.seedCost)}۔`
+            : `${T.seedRow}. ${result.seedName}. ${currencyText} ${formatMoney(result.seedCost)}.`,
+      });
+    }
+
+    steps.push(
+      {
+        id: 'budget.result.other',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.otherRow}۔ ${currencyText} ${formatMoney(result.otherCostsValue || 0)}۔`
+            : `${T.otherRow}. ${currencyText} ${formatMoney(result.otherCostsValue || 0)}.`,
+      },
+      {
+        id: 'budget.result.total',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.totalRow}۔ ${currencyText} ${formatMoney(result.totalCost)}۔`
+            : `${T.totalRow}. ${currencyText} ${formatMoney(result.totalCost)}.`,
+      },
+      {
+        id: 'budget.result.revenue',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.revenueRow}۔ ${currencyText} ${formatMoney(result.expectedRevenue)}۔`
+            : `${T.revenueRow}. ${currencyText} ${formatMoney(result.expectedRevenue)}.`,
+      },
+      {
+        id: 'budget.result.profit',
+        text:
+          textLanguage === 'urdu'
+            ? `${T.profitRow}۔ ${currencyText} ${formatMoney(result.profit)}۔`
+            : `${T.profitRow}. ${currencyText} ${formatMoney(result.profit)}.`,
+      }
+    );
+
+    return steps;
+  }, [T, currencyText, formatMoney, result, textLanguage]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (voiceEnabled) {
+        cancelGuidedSequence();
+        startGuidedSequence(fieldGuidedStepsRef.current);
+      }
+      return () => {
+        cancelGuidedSequence();
+        stop();
+      };
+    }, [cancelGuidedSequence, startGuidedSequence, stop, voiceEnabled])
+  );
+
+  useEffect(() => {
+    if (!result || !voiceEnabled || !resultGuidedSteps.length) {
+      setIsResultSectionSpeaking(false);
+      return undefined;
+    }
+
+    const sequenceToken = ++resultSequenceTokenRef.current;
+    let cancelled = false;
+
+    setIsResultSectionSpeaking(true);
+    console.info('RESULT_SEQUENCE_STARTED', {
+      sequenceToken,
+      items: resultGuidedSteps.map((step) => step.id),
+    });
+
+    (async () => {
+      let completed = false;
+      try {
+        cancelGuidedSequence();
+        for (const step of resultGuidedSteps) {
+          if (cancelled || sequenceToken !== resultSequenceTokenRef.current) break;
+          await speak(step.text, step.id);
+          if (cancelled || sequenceToken !== resultSequenceTokenRef.current) break;
+          console.info('RESULT_ITEM_SPOKEN', { sequenceToken, itemId: step.id });
+        }
+
+        completed = !cancelled && sequenceToken === resultSequenceTokenRef.current;
+        if (completed) {
+          console.info('RESULT_SEQUENCE_COMPLETED', {
+            sequenceToken,
+            items: resultGuidedSteps.map((step) => step.id),
+          });
+        }
+      } finally {
+        if (!cancelled && sequenceToken === resultSequenceTokenRef.current) {
+          setIsResultSectionSpeaking(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      resultSequenceTokenRef.current += 1;
+      setIsResultSectionSpeaking(false);
+      stop();
+    };
+  }, [cancelGuidedSequence, result, resultGuidedSteps, speak, stop, voiceEnabled]);
+
   // Helper for dropdowns
   const renderDropdown = (
     label: string,
     value: string,
-    options: string[],
+    options: { value: string; label: string }[],
     keyName: string,
-    setValue: (v: string) => void
+    setValue: (v: string) => void,
+    highlightId: string,
+    voiceLabel: string
   ) => (
-    <View style={{ marginBottom: 12 }}>
-      <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity
-        style={styles.dropdown}
-        onPress={() => setOpen(open === keyName ? null : keyName)}
-      >
-        <Text style={styles.dropdownText}>{value}</Text>
-        <Feather name="chevron-down" size={18} color="#2f6f5f" />
-      </TouchableOpacity>
+    <SpeechHighlight
+      active={activeHighlightId === highlightId}
+      style={styles.fieldWrap}
+      highlightStyle={styles.fieldHighlight}
+    >
+      <View style={{ marginBottom: 12 }}>
+        <Text style={styles.label}>{label}</Text>
+        <TouchableOpacity
+          style={styles.dropdown}
+          onPress={() => setOpen(open === keyName ? null : keyName)}
+          accessibilityRole="button"
+          accessibilityLabel={voiceLabel}
+        >
+          <Text style={styles.dropdownText}>{value}</Text>
+          <Feather name="chevron-down" size={18} color="#2f6f5f" />
+        </TouchableOpacity>
 
-      {open === keyName && (
-        <View style={styles.dropdownList}>
-          {options.map((item) => (
-            <TouchableOpacity
-              key={item}
-              style={styles.dropdownItem}
-              onPress={() => {
-                setValue(item);
-                setOpen(null);
-              }}
-            >
-              <Text>{item}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
+        {open === keyName && (
+          <View style={styles.dropdownList}>
+            {options.map((item) => (
+              <TouchableOpacity
+                key={item.value}
+                style={styles.dropdownItem}
+                onPress={() => {
+                  setValue(item.value);
+                  setOpen(null);
+                  void speak(textLanguage === 'urdu' ? `${voiceLabel}۔ ${item.label}` : `${voiceLabel}. ${item.label}`, highlightId);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+              >
+                <Text>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    </SpeechHighlight>
   );
 
   // 🔹 FILTERED OPTIONS
@@ -261,6 +605,27 @@ export default function SmartBudgetForm() {
       s.name.toLowerCase().startsWith(cf.replace('...', '').toLowerCase())
     )
   );
+
+  const cropValueDisplay = translateValue(crop, T.cropValue);
+  const soilValueDisplay = soilType.toLowerCase().startsWith('select ') ? T.selectSoil : translateValue(soilType, T.soilValue);
+  const selectedFertilizerPrice = filteredFertilizers.find((f) => f.name === fertilizer)?.price ?? 0;
+  const selectedPesticidePrice = filteredPesticides.find((p) => p.name === pesticide)?.price ?? 0;
+  const selectedSeedPrice = filteredSeeds.find((s) => s.name === seed)?.price ?? 0;
+  const fertilizerDisplayValue = loadingFertilizers
+    ? T.loadingFertilizers
+    : fertilizer.toLowerCase().startsWith('select ')
+      ? T.selectFertilizer
+      : `${fertilizer} - ${currencyText} ${selectedFertilizerPrice}`;
+  const pesticideDisplayValue = loadingPesticides
+    ? T.loadingPesticides
+    : pesticide.toLowerCase().startsWith('select ')
+      ? T.selectPesticide
+      : `${pesticide} - ${currencyText} ${selectedPesticidePrice}`;
+  const seedDisplayValue = loadingSeeds
+    ? T.loadingSeeds
+    : seed.toLowerCase().startsWith('select ')
+      ? T.selectSeed
+      : `${seed} - ${currencyText} ${selectedSeedPrice}`;
 
   const calculateBudget = () => {
     const areaNum = parseFloat(area) || 0;
@@ -297,6 +662,7 @@ export default function SmartBudgetForm() {
       totalCost,
       expectedRevenue,
       profit,
+      otherCostsValue: otherNum,
       fertilizerCost,
       pesticideCost,
       seedCost,
@@ -315,188 +681,274 @@ export default function SmartBudgetForm() {
   return (
     <SafeAreaView style={styles.container}>
       <GreenHeader
-        title={{ english: 'Smart Budget Calculator', urdu: 'سمارٹ بجٹ کیلکولیٹر' }}
+        title={T.headerTitle}
         titleLines={2}
         onBack={() => router.back()}
-      />
+      >
+        <SpeechHighlight
+          active={activeHighlightId === 'budget.header'}
+          style={styles.headerSpeechWrap}
+          highlightStyle={styles.headerSpeechHighlight}
+        >
+          <View style={styles.headerSpeechCard}>
+            <Text style={styles.headerSpeechTitle}>{T.headerTitle}</Text>
+            <Text style={styles.headerSpeechSub}>{T.headerSub}</Text>
+          </View>
+        </SpeechHighlight>
+      </GreenHeader>
+
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.introCard}>
-          <Text style={styles.introTitle}>Farm Cost Planner</Text>
-          <Text style={styles.introSub}>Enter your crop details to estimate cost, revenue, and profit.</Text>
-        </View>
+        <SpeechHighlight
+          active={activeHighlightId === 'budget.intro'}
+          style={styles.introWrap}
+          highlightStyle={styles.fieldHighlight}
+        >
+          <View style={styles.introCard}>
+            <Text style={styles.introTitle}>{T.introTitle}</Text>
+            <Text style={styles.introSub}>{T.introSub}</Text>
+          </View>
+        </SpeechHighlight>
 
         <View style={styles.formCard}>
-        <View style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>Crop Type</Text>
-          <View style={[styles.dropdown, { backgroundColor: '#f0f0f0' }]}>
-            <Text style={styles.dropdownText}>{crop}</Text>
-          </View>
-        </View>
-
-        {renderDropdown('Soil Type', soilType, soilTypes, 'soil', setSoilType)}
-
-        <View style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>Land Area (acre)</Text>
-          <TextInput style={styles.input} placeholder="Enter area in acres" keyboardType="numeric" value={area} onChangeText={setArea} />
-        </View>
-
-        {/* Fertilizer Dropdown */}
-        <View style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>Fertilizer</Text>
-          <TouchableOpacity
-            style={styles.dropdown}
-            onPress={() => setOpen(open === 'fertilizer' ? null : 'fertilizer')}
-            disabled={loadingFertilizers}
+          <SpeechHighlight
+            active={activeHighlightId === cropFieldHighlightId}
+            style={styles.fieldWrap}
+            highlightStyle={styles.fieldHighlight}
           >
-            <Text style={[styles.dropdownText, loadingFertilizers && { color: '#9ca3af' }]}>
-              {loadingFertilizers
-                ? 'Loading fertilizers...'
-                : fertilizer.toLowerCase().startsWith('select ')
-                  ? 'Select Fertilizer'
-                  : `${fertilizer} - Rs ${filteredFertilizers.find((f) => f.name === fertilizer)?.price ?? ''}`}
-            </Text>
-            <Feather name="chevron-down" size={18} color={loadingFertilizers ? "#9ca3af" : "#2f6f5f"} />
-          </TouchableOpacity>
-
-          {open === 'fertilizer' && !loadingFertilizers && (
-            <View style={styles.dropdownList}>
-              {filteredFertilizers.map(f => (
-                <TouchableOpacity key={f.name} style={styles.dropdownItem} onPress={() => { setFertilizer(f.name); setOpen(null); }}>
-                  <Text>{`${f.name} - Rs ${f.price}`}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.label}>{T.cropType}</Text>
+              <View style={[styles.dropdown, { backgroundColor: '#f0f0f0' }]}>
+                <Text style={styles.dropdownText}>{cropValueDisplay}</Text>
+              </View>
             </View>
-          )}
-        </View>
+          </SpeechHighlight>
 
-        {/* Pesticide Dropdown */}
-        <View style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>Pesticide</Text>
-          <TouchableOpacity
-            style={styles.dropdown}
-            onPress={() => setOpen(open === 'pesticide' ? null : 'pesticide')}
-            disabled={loadingPesticides}
+          {renderDropdown(
+            T.soilType,
+            soilValueDisplay,
+            soilTypes.map((item) => ({ value: item, label: translateValue(item, T.soilValue) })),
+            'soil',
+            setSoilType,
+            soilFieldHighlightId,
+            T.soilType
+          )}
+
+          <SpeechHighlight
+            active={activeHighlightId === areaFieldHighlightId}
+            style={styles.fieldWrap}
+            highlightStyle={styles.fieldHighlight}
           >
-            <Text style={[styles.dropdownText, loadingPesticides && { color: '#9ca3af' }]}>
-              {loadingPesticides
-                ? 'Loading pesticides...'
-                : pesticide.toLowerCase().startsWith('select ')
-                  ? 'Select Pesticide'
-                  : `${pesticide} - Rs ${filteredPesticides.find((p) => p.name === pesticide)?.price ?? ''}`}
-            </Text>
-            <Feather name="chevron-down" size={18} color={loadingPesticides ? "#9ca3af" : "#2f6f5f"} />
-          </TouchableOpacity>
-
-          {open === 'pesticide' && !loadingPesticides && (
-            <View style={styles.dropdownList}>
-              {filteredPesticides.map(p => (
-                <TouchableOpacity key={p.name} style={styles.dropdownItem} onPress={() => { setPesticide(p.name); setOpen(null); }}>
-                  <Text>{`${p.name} - Rs ${p.price}`}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.label}>{T.landArea}</Text>
+              <TextInput
+                style={[styles.input, isUrdu ? styles.inputUrdu : styles.inputEnglish]}
+                placeholder={T.areaPlaceholder}
+                placeholderTextColor="#94a3b8"
+                keyboardType="numeric"
+                value={area}
+                onChangeText={setArea}
+                onFocus={() => void speak(textLanguage === 'urdu' ? `${T.landArea}۔ ${T.areaPlaceholder}` : `${T.landArea}. ${T.areaPlaceholder}`, areaFieldHighlightId)}
+              />
             </View>
-          )}
-        </View>
+          </SpeechHighlight>
 
-        {/* Seed Dropdown */}
-        <View style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>Seed</Text>
-          <TouchableOpacity
-            style={styles.dropdown}
-            onPress={() => setOpen(open === 'seed' ? null : 'seed')}
-            disabled={loadingSeeds}
+          {renderDropdown(
+            T.fertilizer,
+            fertilizerDisplayValue,
+            filteredFertilizers.map((item) => ({
+              value: item.name,
+              label: `${item.name} - ${currencyText} ${formatMoney(item.price)}`,
+            })),
+            'fertilizer',
+            setFertilizer,
+            fertilizerFieldHighlightId,
+            T.fertilizer
+          )}
+
+          {renderDropdown(
+            T.pesticide,
+            pesticideDisplayValue,
+            filteredPesticides.map((item) => ({
+              value: item.name,
+              label: `${item.name} - ${currencyText} ${formatMoney(item.price)}`,
+            })),
+            'pesticide',
+            setPesticide,
+            pesticideFieldHighlightId,
+            T.pesticide
+          )}
+
+          {renderDropdown(
+            T.seed,
+            seedDisplayValue,
+            filteredSeeds.map((item) => ({
+              value: item.name,
+              label: `${item.name} - ${currencyText} ${formatMoney(item.price)}`,
+            })),
+            'seed',
+            setSeed,
+            seedFieldHighlightId,
+            T.seed
+          )}
+
+          <SpeechHighlight
+            active={activeHighlightId === otherFieldHighlightId}
+            style={styles.fieldWrap}
+            highlightStyle={styles.fieldHighlight}
           >
-            <Text style={[styles.dropdownText, loadingSeeds && { color: '#9ca3af' }]}>
-              {loadingSeeds
-                ? 'Loading seeds...'
-                : seed.toLowerCase().startsWith('select ')
-                  ? 'Select Seed'
-                  : `${seed} - Rs ${filteredSeeds.find((s) => s.name === seed)?.price ?? ''}`}
-            </Text>
-            <Feather name="chevron-down" size={18} color={loadingSeeds ? "#9ca3af" : "#2f6f5f"} />
-          </TouchableOpacity>
-
-          {open === 'seed' && !loadingSeeds && (
-            <View style={styles.dropdownList}>
-              {filteredSeeds.map(s => (
-                <TouchableOpacity key={s.name} style={styles.dropdownItem} onPress={() => { setSeed(s.name); setOpen(null); }}>
-                  <Text>{`${s.name} - Rs ${s.price}`}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.label}>{T.otherExpenses}</Text>
+              <TextInput
+                style={[styles.input, isUrdu ? styles.inputUrdu : styles.inputEnglish]}
+                placeholder={T.otherPlaceholder}
+                placeholderTextColor="#94a3b8"
+                keyboardType="numeric"
+                value={otherCosts}
+                onChangeText={setOtherCosts}
+                onFocus={() => void speak(textLanguage === 'urdu' ? `${T.otherExpenses}۔ ${T.otherPlaceholder}` : `${T.otherExpenses}. ${T.otherPlaceholder}`, otherFieldHighlightId)}
+              />
             </View>
-          )}
+          </SpeechHighlight>
+
+          <SpeechHighlight
+            active={activeHighlightId === calculateHighlightId}
+            style={styles.fieldWrap}
+            highlightStyle={styles.fieldHighlight}
+          >
+            <TouchableOpacity
+              style={styles.button}
+              onPress={calculateBudget}
+              accessibilityRole="button"
+              accessibilityLabel={T.calculate}
+            >
+              <Feather name="command" size={18} color="#fff" />
+              <Text style={styles.buttonText}> {T.calculate}</Text>
+            </TouchableOpacity>
+          </SpeechHighlight>
         </View>
 
-        {/* Other Costs */}
-        <View style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>Other Expenses (Rs)</Text>
-          <TextInput style={styles.input} placeholder="Any other cost" keyboardType="numeric" value={otherCosts} onChangeText={setOtherCosts} />
-        </View>
-
-        {/* Calculate */}
-        <TouchableOpacity style={styles.button} onPress={calculateBudget}>
-          <Feather name="command" size={18} color="#fff" />
-          <Text style={styles.buttonText}> Calculate Budget</Text>
-        </TouchableOpacity>
-        </View>
-
-        {/* Result */}
         {result && (
-          <View style={styles.resultCard}>
-            <Text style={styles.resultTitle}>📊 Estimated Result</Text>
-            {result.fertilizerPrice > 0 && (
-              <View style={styles.breakdownItem}>
-                <Text style={styles.rowLabel}>Fertilizer ({result.fertilizerName}):</Text>
-                <View style={styles.breakdownRight}>
-                  <Text style={styles.rowValue}>Rs {formatMoney(result.fertilizerCost)}</Text>
-                  <Text style={styles.breakdownMeta}>
-                    {formatMoney(result.fertilizerPrice)}/unit • {formatMoney(result.fertilizerUnits)} bags
+          <SpeechHighlight
+            active={isResultSectionSpeaking}
+            style={styles.resultWrap}
+            highlightStyle={styles.resultHighlight}
+          >
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>📊 {T.resultTitle}</Text>
+              {result.fertilizerPrice > 0 && (
+                <SpeechHighlight
+                  active={activeHighlightId === 'budget.result.fertilizer'}
+                  style={styles.resultRowWrap}
+                  highlightStyle={styles.resultRowHighlight}
+                >
+                  <View style={styles.breakdownItem}>
+                    <Text style={styles.rowLabel}>
+                      {T.fertilizerRow} ({result.fertilizerName}):
+                    </Text>
+                    <View style={styles.breakdownRight}>
+                      <Text style={styles.rowValue}>
+                        {currencyText} {formatMoney(result.fertilizerCost)}
+                      </Text>
+                      <Text style={styles.breakdownMeta}>
+                        {formatMoney(result.fertilizerPrice)} {currencyText} {T.perUnit} • {formatNumber(result.fertilizerUnits)} {T.bagsLabel}
+                      </Text>
+                    </View>
+                  </View>
+                </SpeechHighlight>
+              )}
+              {result.pesticidePrice > 0 && (
+                <SpeechHighlight
+                  active={activeHighlightId === 'budget.result.pesticide'}
+                  style={styles.resultRowWrap}
+                  highlightStyle={styles.resultRowHighlight}
+                >
+                  <View style={styles.breakdownItem}>
+                    <Text style={styles.rowLabel}>
+                      {T.pesticideRow} ({result.pesticideName}):
+                    </Text>
+                    <View style={styles.breakdownRight}>
+                      <Text style={styles.rowValue}>
+                        {currencyText} {formatMoney(result.pesticideCost)}
+                      </Text>
+                      <Text style={styles.breakdownMeta}>
+                        {formatMoney(result.pesticidePrice)} {currencyText} {T.perUnit} • {formatNumber(result.pesticideUnits)} {T.unitsLabel}
+                      </Text>
+                    </View>
+                  </View>
+                </SpeechHighlight>
+              )}
+              {result.seedPrice > 0 && (
+                <SpeechHighlight
+                  active={activeHighlightId === 'budget.result.seed'}
+                  style={styles.resultRowWrap}
+                  highlightStyle={styles.resultRowHighlight}
+                >
+                  <View style={styles.breakdownItem}>
+                    <Text style={styles.rowLabel}>
+                      {T.seedRow} ({result.seedName}):
+                    </Text>
+                    <View style={styles.breakdownRight}>
+                      <Text style={styles.rowValue}>
+                        {currencyText} {formatMoney(result.seedCost)}
+                      </Text>
+                      <Text style={styles.breakdownMeta}>
+                        {formatMoney(result.seedPrice)} {currencyText} {T.perUnit} • {formatNumber(result.seedUnits)} {T.unitsLabel}
+                      </Text>
+                    </View>
+                  </View>
+                </SpeechHighlight>
+              )}
+              <View style={styles.summaryDivider} />
+              <SpeechHighlight
+                active={activeHighlightId === 'budget.result.other'}
+                style={styles.resultRowWrap}
+                highlightStyle={styles.resultRowHighlight}
+              >
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>{T.otherRow}:</Text>
+                  <Text style={styles.rowValue}>
+                    {currencyText} {formatMoney(result.otherCostsValue || 0)}
                   </Text>
                 </View>
-              </View>
-            )}
-            {result.pesticidePrice > 0 && (
-              <View style={styles.breakdownItem}>
-                <Text style={styles.rowLabel}>Pesticide ({result.pesticideName}):</Text>
-                <View style={styles.breakdownRight}>
-                  <Text style={styles.rowValue}>Rs {formatMoney(result.pesticideCost)}</Text>
-                  <Text style={styles.breakdownMeta}>
-                    {formatMoney(result.pesticidePrice)}/unit • {formatMoney(result.pesticideUnits)} units
+              </SpeechHighlight>
+              <SpeechHighlight
+                active={activeHighlightId === 'budget.result.total'}
+                style={styles.resultRowWrap}
+                highlightStyle={styles.resultRowHighlight}
+              >
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>{T.totalRow}:</Text>
+                  <Text style={styles.cost}>
+                    {currencyText} {formatMoney(result.totalCost)}
                   </Text>
                 </View>
-              </View>
-            )}
-            {result.seedPrice > 0 && (
-              <View style={styles.breakdownItem}>
-                <Text style={styles.rowLabel}>Seed ({result.seedName}):</Text>
-                <View style={styles.breakdownRight}>
-                  <Text style={styles.rowValue}>Rs {formatMoney(result.seedCost)}</Text>
-                  <Text style={styles.breakdownMeta}>
-                    {formatMoney(result.seedPrice)}/unit • {formatMoney(result.seedUnits)} units
+              </SpeechHighlight>
+              <SpeechHighlight
+                active={activeHighlightId === 'budget.result.revenue'}
+                style={styles.resultRowWrap}
+                highlightStyle={styles.resultRowHighlight}
+              >
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>{T.revenueRow}:</Text>
+                  <Text style={styles.revenue}>
+                    {currencyText} {formatMoney(result.expectedRevenue)}
                   </Text>
                 </View>
-              </View>
-            )}
-            <View style={styles.summaryDivider} />
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>Other Costs:</Text>
-              <Text style={styles.rowValue}>Rs {formatMoney(parseFloat(otherCosts) || 0)}</Text>
+              </SpeechHighlight>
+              <SpeechHighlight
+                active={activeHighlightId === 'budget.result.profit'}
+                style={styles.resultRowWrap}
+                highlightStyle={styles.resultRowHighlight}
+              >
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>{T.profitRow}:</Text>
+                  <Text style={[styles.profit, { color: result.profit >= 0 ? '#065f46' : '#b91c1c' }]}>
+                    {currencyText} {formatMoney(result.profit)}
+                  </Text>
+                </View>
+              </SpeechHighlight>
             </View>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>Total Cost:</Text>
-              <Text style={styles.cost}>Rs {formatMoney(result.totalCost)}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>Expected Revenue:</Text>
-              <Text style={styles.revenue}>Rs {formatMoney(result.expectedRevenue)}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>Profit:</Text>
-              <Text style={[styles.profit, { color: result.profit >= 0 ? '#065f46' : '#b91c1c' }]}>
-                Rs {formatMoney(result.profit)}
-              </Text>
-            </View>
-          </View>
+          </SpeechHighlight>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -517,6 +969,7 @@ const styles = StyleSheet.create({
   },
   introTitle: { color: '#0f5d4c', fontWeight: '800', fontSize: 16 },
   introSub: { color: '#4b7c6d', marginTop: 4, fontSize: 12.5 },
+  introWrap: { marginBottom: 0 },
   formCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
@@ -531,13 +984,65 @@ const styles = StyleSheet.create({
   },
   label: { marginBottom: 7, fontWeight: '700', color: '#1f4d3f', fontSize: 14.5 },
   input: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cfe3db', fontSize: 16, color: '#1f2937' },
+  inputEnglish: { textAlign: 'left', writingDirection: 'ltr' },
+  inputUrdu: { textAlign: 'right', writingDirection: 'rtl' },
   dropdown: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cfe3db', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dropdownText: { color: '#374151', fontSize: 16 },
   dropdownList: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#cfe3db', marginTop: 4, overflow: 'hidden' },
   dropdownItem: { paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   button: { backgroundColor: '#2f6f5f', paddingVertical: 15, paddingHorizontal: 16, borderRadius: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 12 },
-  buttonText: { color: '#fff', fontWeight: '800', marginLeft: 6, fontSize: 15.5 },
-  resultCard: { marginTop: 16, backgroundColor: '#ecf9f2', padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#d5efe5' },
+  buttonText: { color: '#fff', fontWeight: '800', marginStart: 6, fontSize: 15.5 },
+  fieldWrap: { marginBottom: 0 },
+  fieldHighlight: {
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#10b981',
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+  },
+  headerSpeechWrap: { marginTop: 10 },
+  headerSpeechHighlight: {
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.95)',
+    top: -5,
+    left: -5,
+    right: -5,
+    bottom: -5,
+  },
+  headerSpeechCard: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  headerSpeechTitle: { color: '#ffffff', fontSize: 16, fontWeight: '900', textAlign: 'center' },
+  headerSpeechSub: { color: 'rgba(255,255,255,0.92)', marginTop: 4, fontSize: 12.5, textAlign: 'center', lineHeight: 18 },
+  resultWrap: { marginTop: 16 },
+  resultHighlight: {
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#22c55e',
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+  },
+  resultRowWrap: { marginBottom: 8 },
+  resultRowHighlight: {
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#10b981',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+  },
+  resultCard: { backgroundColor: '#ecf9f2', padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#d5efe5' },
   resultTitle: { fontWeight: '800', color: '#1f4d3f', marginBottom: 10, fontSize: 15.5 },
   breakdownItem: {
     marginBottom: 10,

@@ -7,6 +7,7 @@ import { useT } from '../../contexts/LanguageContext';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authFetch } from '@/lib/authFetch';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 
 type DisplayStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
 
@@ -67,6 +68,14 @@ export default function OrderDetailsPage() {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+
+  usePageVoiceGuidance(
+    { english: 'Order details', urdu: 'آرڈر کی تفصیلات' },
+    {
+      english: 'Review order status, delivery timeline, payment details, and copy the order ID if needed.',
+      urdu: 'آرڈر کی حالت، ڈیلیوری ٹائم لائن، ادائیگی کی تفصیلات، اور ضرورت پڑنے پر آرڈر آئی ڈی کاپی کریں۔',
+    }
+  );
 
   const loadOrder = useCallback(async () => {
     if (!orderId) return;

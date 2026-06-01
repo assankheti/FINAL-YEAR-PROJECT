@@ -24,6 +24,7 @@ import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { clearAuthSession } from '@/lib/appFlow';
 import { listAllProducts, normalizeProductImageUrl, productFallbackImage, type ProductListing } from '@/lib/productsApi';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -146,6 +147,7 @@ const PROFILE_KEYS = {
 
 export function CommunityDashboard({ userType, textLanguage = 'english' }: Props) {
   const router = useRouter();
+  const { enabled: voiceGuidanceEnabled, speak: speakVoiceGuidance } = useVoiceGuidance();
   const { width } = useWindowDimensions();
   const contentMaxWidth = Math.min(width - 32, 520);
   const isCompactGrid = width < 410;
@@ -170,6 +172,16 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
     (en: string, ur: string) => (textLanguage === 'urdu' ? ur : en),
     [textLanguage]
   );
+
+  useEffect(() => {
+    if (!voiceGuidanceEnabled || productsLoading) return;
+    if (!products.length) return;
+    const message = t(
+      `Marketplace update: ${products.length} products available now.`,
+      `مارکیٹ پلیس اپ ڈیٹ: اس وقت ${products.length} مصنوعات دستیاب ہیں۔`
+    );
+    void speakVoiceGuidance(message);
+  }, [products.length, productsLoading, speakVoiceGuidance, t, voiceGuidanceEnabled]);
 
   // ── Fetch products ─────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Localization from 'expo-localization';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 export type AppLanguage = 'english' | 'urdu';
@@ -38,8 +39,22 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         ]);
 
         if (!mounted) return;
-        if (storedText) setTextLanguageState(coerceAppLanguage(storedText));
-        if (storedVoice) setVoiceLanguageState(coerceAppLanguage(storedVoice));
+        const deviceLocale = Localization.getLocales()[0]?.languageTag?.toLowerCase() ?? '';
+        const detected = deviceLocale.startsWith('ur') ? 'urdu' : 'english';
+
+        if (storedText) {
+          setTextLanguageState(coerceAppLanguage(storedText));
+        } else {
+          setTextLanguageState(detected);
+          void AsyncStorage.setItem(STORAGE_TEXT_LANGUAGE, detected);
+        }
+
+        if (storedVoice) {
+          setVoiceLanguageState(coerceAppLanguage(storedVoice));
+        } else {
+          setVoiceLanguageState(detected);
+          void AsyncStorage.setItem(STORAGE_VOICE_LANGUAGE, detected);
+        }
       } finally {
         if (mounted) setHydrated(true);
       }

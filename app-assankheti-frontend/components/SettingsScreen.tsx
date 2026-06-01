@@ -18,10 +18,11 @@ import { coerceAppLanguage, useLanguage, useT } from '@/contexts/LanguageContext
 import { API_BASE } from '@/config/env';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { clearAuthSession } from '@/lib/appFlow';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 
 type SettingsVariant = 'farmer' | 'community';
 type ToggleKey = 'voiceAssistant' | 'darkMode' | 'push' | 'weather' | 'price';
-type ActionKey = 'profile' | 'language' | 'help' | 'privacy' | 'orders';
+type ActionKey = 'profile' | 'language' | 'accessibility' | 'help' | 'privacy' | 'orders';
 type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 
 type SettingsItem =
@@ -138,6 +139,19 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
   const horizontalPadding = Math.max(18, Math.min(28, Math.round(width * 0.06)));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 540);
   const isFarmer = variant === 'farmer';
+
+  usePageVoiceGuidance(
+    { english: 'Settings', urdu: 'سیٹنگز' },
+    isFarmer
+      ? {
+          english: 'Update language, accessibility, notifications, profile, privacy, and other farmer settings.',
+          urdu: 'زبان، رسائی، نوٹیفکیشن، پروفائل، رازداری، اور دیگر کسان سیٹنگز اپ ڈیٹ کریں۔',
+        }
+      : {
+          english: 'Update language, accessibility, notifications, privacy, and community settings.',
+          urdu: 'زبان، رسائی، نوٹیفکیشن، رازداری، اور کمیونٹی سیٹنگز اپ ڈیٹ کریں۔',
+        }
+  );
 
   const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>({
     voiceAssistant: true,
@@ -346,6 +360,15 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                   action: 'language',
                 },
                 {
+                  kind: 'action',
+                  icon: 'eye',
+                  label: 'Accessibility',
+                  labelUrdu: 'رسائی',
+                  description: 'Voice guidance and accessibility controls',
+                  descriptionUrdu: 'وائس گائیڈنس اور رسائی کنٹرولز',
+                  action: 'accessibility',
+                },
+                {
                   kind: 'toggle',
                   icon: 'volume-2',
                   label: 'Voice Assistant',
@@ -466,6 +489,15 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
                   action: 'language',
                 },
                 {
+                  kind: 'action',
+                  icon: 'eye',
+                  label: 'Accessibility',
+                  labelUrdu: 'رسائی',
+                  description: 'Voice guidance and accessibility controls',
+                  descriptionUrdu: 'وائس گائیڈنس اور رسائی کنٹرولز',
+                  action: 'accessibility',
+                },
+                {
                   kind: 'toggle',
                   icon: 'moon',
                   label: 'Dark Mode',
@@ -546,6 +578,11 @@ export default function SettingsScreen({ variant }: { variant: SettingsVariant }
   const onAction = (action: ActionKey) => {
     if (action === 'language') {
       router.push('/language-selection');
+      return;
+    }
+
+    if (action === 'accessibility') {
+      router.push('/accessibility-settings');
       return;
     }
 

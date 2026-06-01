@@ -36,7 +36,13 @@ export default function GreenHeader({
       <View style={[styles.headerRow, isCompact ? styles.headerRowCompact : null, { width: '100%' }]}>
         <View style={[styles.sideSlot, isCompact ? styles.sideSlotCompact : null]}>
           {showBack ? (
-            <TouchableOpacity onPress={onBack} activeOpacity={0.9} style={styles.backBtn}>
+            <TouchableOpacity
+              onPress={onBack}
+              activeOpacity={0.9}
+              style={styles.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel={t({ english: 'Back', urdu: 'واپس' })}
+            >
               <Feather name="arrow-left" size={18} color="#ffffff" />
             </TouchableOpacity>
           ) : (

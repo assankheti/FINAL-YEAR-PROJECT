@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { API_BASE } from '@/config/env';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 type Crop = {
   name: string;
@@ -29,6 +32,9 @@ const initialCrops = ['Rice', 'Wheat', 'Corn', 'Sugarcane', 'Potato'];
 export default function SmartCropRecommendation() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const { textLanguage } = useLanguage();
+  const { enabled: voiceEnabled, activeHighlightId, startGuidedSequence, cancelGuidedSequence, stop } =
+    useVoiceGuidance();
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.8))[0];
 
@@ -59,7 +65,7 @@ export default function SmartCropRecommendation() {
     if (!value) return '--';
     const dt = new Date(value);
     if (Number.isNaN(dt.getTime())) return '--';
-    return dt.toLocaleDateString('en-US', { weekday: 'short' });
+    return dt.toLocaleDateString(textLanguage === 'urdu' ? 'ur-PK' : 'en-US', { weekday: 'short' });
   };
   const buildFallbackWeather = (startMs: number = Date.now(), days: number = 7) =>
     Array.from({ length: days }, (_, i) => ({
@@ -68,6 +74,57 @@ export default function SmartCropRecommendation() {
       rh: 68 + (i % 4) * 3,
       pop: 15 + (i % 5) * 8,
     }));
+
+  const t = useMemo(() => {
+    const isUrdu = textLanguage === 'urdu';
+    return {
+      pageTitle: isUrdu ? 'فصل کی تجویز' : 'Crop Recommendation',
+      pageTitleLong: isUrdu ? 'تجویز کردہ فصلیں' : 'Crop Recommendation',
+      pageDescription: isUrdu
+        ? 'موسم، مٹی، اور منڈی کے حالات دیکھ کر اپنی فصل کے لیے بہتر انتخاب دیکھیں۔'
+        : 'Review the best crop choices based on weather, soil, and market conditions.',
+      loadingTitle: isUrdu ? 'سمارٹ سفارش تیار ہو رہی ہے...' : 'Building Smart Recommendation...',
+      loadingSub: isUrdu ? 'موسم، مٹی، اور منڈی کے اشاروں کا تجزیہ کیا جا رہا ہے' : 'Analyzing weather, soil, and market signals',
+      headerTitle: isUrdu ? 'فصل کی تجویز' : 'Crop Recommendation',
+      headerSubtitle: isUrdu
+        ? 'اپنے فارم کی موجودہ صورتحال کے مطابق تجویز دیکھیں۔'
+        : 'Data-driven suggestions for your current farm conditions',
+      topTitle: isUrdu ? 'بہترین تجویز' : 'Top Recommendation',
+      topDesc: isUrdu
+        ? 'براہ راست موسم، مٹی، اور منڈی کے رجحانات پر مبنی'
+        : 'Based on live weather, soil profile, and mandi trends',
+      suitability: isUrdu ? 'موزونیت' : 'Suitability Score',
+      locationTitle: isUrdu ? 'مقام اور مٹی کا تجزیہ' : 'Location & Soil Analysis',
+      latitude: isUrdu ? 'عرض بلد' : 'Latitude',
+      longitude: isUrdu ? 'طول بلد' : 'Longitude',
+      soil: isUrdu ? 'مٹی' : 'Soil',
+      farmLocationReady: isUrdu ? 'کھیت کا مقام تیار ہے' : 'Farm location ready',
+      liveMapDisabled: isUrdu ? 'APK کو مستحکم رکھنے کے لیے لائیو نقشہ بند ہے۔' : 'Live map is disabled here to keep the APK stable.',
+      weatherTitle: isUrdu ? '7 روزہ موسم کی پیش گوئی' : '7-Day Weather Forecast',
+      weatherRain: isUrdu ? 'بارش' : 'rain',
+      weatherHumidity: isUrdu ? 'نمی' : 'humidity',
+      rankingTitle: isUrdu ? 'فصل کی موزونیت کی درجہ بندی' : 'Crop Suitability Ranking',
+      weatherMetric: isUrdu ? 'موسم' : 'Weather',
+      soilMetric: isUrdu ? 'مٹی' : 'Soil',
+      marketMetric: isUrdu ? 'منڈی' : 'Market',
+      pestMetric: isUrdu ? 'کیڑا' : 'Pest',
+      scoreLabel: isUrdu ? 'اسکور' : 'score',
+      noCrop: isUrdu ? 'ابھی کوئی سفارش نہیں' : 'No recommendations yet',
+      locationReady: isUrdu ? 'کھیت کا مقام تیار ہے' : 'Farm location ready',
+      latLon: isUrdu ? 'عرض و طول بلد' : 'Lat / Lon',
+    };
+  }, [textLanguage]);
+
+  const cropNameMap = useMemo(
+    () => ({
+      Rice: textLanguage === 'urdu' ? 'چاول' : 'Rice',
+      Wheat: textLanguage === 'urdu' ? 'گندم' : 'Wheat',
+      Corn: textLanguage === 'urdu' ? 'مکئی' : 'Corn',
+      Sugarcane: textLanguage === 'urdu' ? 'گنا' : 'Sugarcane',
+      Potato: textLanguage === 'urdu' ? 'آلو' : 'Potato',
+    }),
+    [textLanguage]
+  );
 
   const normalizeSevenDayForecast = (items: any[]): any[] => {
     const normalized = (Array.isArray(items) ? items : [])
@@ -88,6 +145,96 @@ export default function SmartCropRecommendation() {
 
   const weatherSnapshot = useMemo(() => weatherForecast.slice(0, 7), [weatherForecast]);
   const isSmallScreen = width < 360;
+
+  const pageGuidedSteps = useMemo(() => {
+    const steps: { id: string; text: string }[] = [
+      {
+        id: 'croprec.header',
+        text:
+          textLanguage === 'urdu'
+            ? `${t.pageTitle}۔ ${t.pageDescription}`
+            : `${t.pageTitle}. ${t.pageDescription}`,
+      },
+    ];
+
+    if (topCrop) {
+      steps.push({
+        id: 'croprec.top',
+        text:
+          textLanguage === 'urdu'
+            ? `${t.topTitle}۔ ${cropNameMap[topCrop.name as keyof typeof cropNameMap] ?? topCrop.name}۔ ${t.suitability} ${topCrop.totalScore}۔ ${t.topDesc}`
+            : `${t.topTitle}. ${topCrop.name}. ${t.suitability} ${topCrop.totalScore}. ${t.topDesc}`,
+      });
+    }
+
+    steps.push({
+      id: 'croprec.location',
+      text:
+        textLanguage === 'urdu'
+          ? `${t.locationTitle}۔ ${t.latitude} ${formatCoord(location?.coords?.latitude ?? region?.latitude)}۔ ${t.longitude} ${formatCoord(location?.coords?.longitude ?? region?.longitude)}۔ ${t.soil} ${soilType}۔ ${t.liveMapDisabled}`
+          : `${t.locationTitle}. ${t.latitude} ${formatCoord(location?.coords?.latitude ?? region?.latitude)}. ${t.longitude} ${formatCoord(location?.coords?.longitude ?? region?.longitude)}. ${t.soil} ${soilType}. ${t.liveMapDisabled}`,
+    });
+
+    steps.push({
+      id: 'croprec.weather',
+      text:
+        textLanguage === 'urdu'
+          ? `${t.weatherTitle}۔ ${weatherSnapshot
+              .slice(0, 3)
+              .map((day) => `${formatForecastDay(day.datetime)} ${Math.round(day.temp)} ڈگری، ${Math.round(day.rh)} فیصد ${t.weatherHumidity}، ${Math.round(day.pop)} فیصد ${t.weatherRain}`)
+              .join('۔ ')}۔`
+          : `${t.weatherTitle}. ${weatherSnapshot
+              .slice(0, 3)
+              .map((day) => `${formatForecastDay(day.datetime)} ${Math.round(day.temp)} degrees, ${Math.round(day.rh)} percent humidity, ${Math.round(day.pop)} percent rain`)
+              .join('. ')}.`,
+    });
+
+    steps.push({
+      id: 'croprec.ranking',
+      text:
+        textLanguage === 'urdu'
+          ? `${t.rankingTitle}۔ ${crops
+              .slice(0, 3)
+              .map((crop) => `${cropNameMap[crop.name as keyof typeof cropNameMap] ?? crop.name} ${t.scoreLabel} ${crop.totalScore}`)
+              .join('۔ ')}۔`
+          : `${t.rankingTitle}. ${crops
+              .slice(0, 3)
+              .map((crop) => `${crop.name} ${t.scoreLabel} ${crop.totalScore}`)
+              .join('. ')}.`,
+    });
+
+    crops.forEach((crop) => {
+      steps.push({
+        id: `croprec.crop.${crop.name}`,
+        text:
+          textLanguage === 'urdu'
+            ? `${cropNameMap[crop.name as keyof typeof cropNameMap] ?? crop.name}۔ ${t.scoreLabel} ${crop.totalScore}۔ ${t.weatherMetric} ${Math.round(crop.weatherScore)}۔ ${t.soilMetric} ${Math.round(crop.soilScore)}۔ ${t.marketMetric} ${Math.round(crop.marketScore)}۔ ${t.pestMetric} ${Math.round(crop.pestRiskScore)}۔`
+            : `${crop.name}. ${t.scoreLabel} ${crop.totalScore}. ${t.weatherMetric} ${Math.round(crop.weatherScore)}. ${t.soilMetric} ${Math.round(crop.soilScore)}. ${t.marketMetric} ${Math.round(crop.marketScore)}. ${t.pestMetric} ${Math.round(crop.pestRiskScore)}.`,
+      });
+    });
+
+    return steps;
+  }, [cropNameMap, crops, formatCoord, location, region, soilType, t, textLanguage, topCrop, weatherSnapshot]);
+
+  const pageSequenceStartedRef = useRef(false);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      pageSequenceStartedRef.current = false;
+      return () => {
+        pageSequenceStartedRef.current = false;
+        cancelGuidedSequence();
+        stop();
+      };
+    }, [cancelGuidedSequence, stop])
+  );
+
+  useEffect(() => {
+    if (!voiceEnabled || loading || !pageGuidedSteps.length || pageSequenceStartedRef.current) return;
+    pageSequenceStartedRef.current = true;
+    cancelGuidedSequence();
+    startGuidedSequence(pageGuidedSteps);
+  }, [cancelGuidedSequence, loading, pageGuidedSteps, startGuidedSequence, voiceEnabled]);
   
   // Timeout for loading - if still loading after 8 seconds, force finish with fallback data
   useEffect(() => {
@@ -278,14 +425,14 @@ export default function SmartCropRecommendation() {
       <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           <GreenHeader
-            title={{ english: 'Crop Recommendation', urdu: 'تجویز کردہ فصلیں' }}
+            title={t.pageTitleLong}
             titleLines={2}
             onBack={handleBack}
           />
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color="#059669" />
-            <Text style={styles.loadingTitle}>Building Smart Recommendation...</Text>
-            <Text style={styles.loadingSub}>Analyzing weather, soil, and market signals</Text>
+            <Text style={styles.loadingTitle}>{t.loadingTitle}</Text>
+            <Text style={styles.loadingSub}>{t.loadingSub}</Text>
           </View>
         </SafeAreaView>
       </LinearGradient>
@@ -295,34 +442,11 @@ export default function SmartCropRecommendation() {
     <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <GreenHeader
-          title={{ english: 'Crop Recommendation', urdu: 'تجویز کردہ فصلیں' }}
+          title={t.pageTitleLong}
           titleLines={2}
           onBack={handleBack}
         />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          {/* Header */}
-          <View style={styles.headerSection}>
-            
-            <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleCompact]}>
-              Smart Crop Recommendation
-            </Text>
-            <Text style={[styles.headerSubtitle, isSmallScreen && styles.headerSubtitleCompact]}>
-              Data-driven suggestions for your current farm conditions
-            </Text>
-          </View>
-
-          {/* Top Recommended Crop Card */}
-          <Animated.View style={[styles.topCropCard, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
-            <LinearGradient colors={['#059669', '#047857']} style={styles.topCropGradient}>
-              <View style={styles.topCropContent}>
-                <Text style={styles.topCropTitle}>🌾 Top Recommendation</Text>
-                <Text style={styles.topCropName}>{topCrop?.name ?? 'Rice'}</Text>
-                <Text style={styles.topCropScore}>Suitability Score: {topCrop?.totalScore ?? 0}/100</Text>
-                <Text style={styles.topCropDesc}>Based on live weather, soil profile, and mandi trends</Text>
-              </View>
-            </LinearGradient>
-          </Animated.View>
-
           <Animated.View style={{ opacity: fadeAnim }}>
             {/* Location & Soil Analysis */}
             <View style={styles.card}>
@@ -349,8 +473,8 @@ export default function SmartCropRecommendation() {
                 <Text style={styles.mapFallbackText}>
                   Lat {formatCoord(region?.latitude)} | Lon {formatCoord(region?.longitude)}
                 </Text>
-                <Text style={styles.mapFallbackText}>
-                  Live map is disabled here to keep the APK stable.
+                <Text style={[styles.headerSubtitle, isSmallScreen && styles.headerSubtitleCompact]}>
+                  {t.pageDescription}
                 </Text>
               </View>
             </View>
@@ -389,54 +513,206 @@ export default function SmartCropRecommendation() {
             </View>
 
 
+            <SpeechHighlight
+              active={activeHighlightId === 'croprec.top'}
+              style={styles.topCardWrap}
+              highlightStyle={styles.sectionHighlight}
+            >
+              <Animated.View style={[styles.topCropCard, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+                <LinearGradient colors={['#059669', '#047857']} style={styles.topCropGradient}>
+                  <View style={styles.topCropContent}>
+                    <Text style={styles.topCropTitle}>🌾 {t.topTitle}</Text>
+                    <Text style={styles.topCropName}>{cropNameMap[topCrop?.name as keyof typeof cropNameMap] ?? topCrop?.name ?? t.noCrop}</Text>
+                    <Text style={styles.topCropScore}>
+                      {t.suitability}: {topCrop?.totalScore ?? 0}/100
+                    </Text>
+                    <Text style={styles.topCropDesc}>{t.topDesc}</Text>
+                  </View>
+                </LinearGradient>
+              </Animated.View>
+            </SpeechHighlight>
 
-            {/* Crop Ranking */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>🌱 Crop Suitability Ranking</Text>
-              <View style={styles.cropList}>
-                {crops.map((crop, index) => (
-                  <View key={crop.name} style={styles.cropCard}>
-                    <View style={styles.cropHeader}>
-                      <View style={styles.rankPill}>
-                        <Text style={styles.cropRank}>{index + 1}</Text>
-                      </View>
-                      <Text style={styles.cropName}>{crop.name}</Text>
-                      <Text style={styles.cropScore}>{crop.totalScore}/100</Text>
+            <SpeechHighlight
+              active={activeHighlightId === 'croprec.location'}
+              style={styles.cardWrap}
+              highlightStyle={styles.sectionHighlight}
+            >
+              <Animated.View style={{ opacity: fadeAnim }}>
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>📍 {t.locationTitle}</Text>
+                  <View style={styles.locationStats}>
+                    <View style={styles.locationChip}>
+                      <Text style={styles.locationLabel}>{t.latitude}</Text>
+                      <Text style={styles.locationValue}>
+                        {formatCoord(location?.coords?.latitude ?? region?.latitude)}
+                      </Text>
                     </View>
-                    <View style={styles.progressBar}>
-                      <View
-                        style={[
-                          styles.progressFill,
-                          {
-                            width: `${crop.totalScore}%`,
-                            backgroundColor:
-                              crop.totalScore >= 80
-                                ? '#059669'
-                                : crop.totalScore >= 60
-                                  ? '#0ea5e9'
-                                  : '#f59e0b',
-                          },
-                        ]}
-                      />
-                    </View>
-                    <View style={styles.metricGrid}>
-                      <View style={styles.metricChip}>
-                        <Text style={styles.metric}>Weather {Math.round(crop.weatherScore)}</Text>
-                      </View>
-                      <View style={styles.metricChip}>
-                        <Text style={styles.metric}>Soil {Math.round(crop.soilScore)}</Text>
-                      </View>
-                      <View style={styles.metricChip}>
-                        <Text style={styles.metric}>Market {Math.round(crop.marketScore)}</Text>
-                      </View>
-                      <View style={styles.metricChip}>
-                        <Text style={styles.metric}>Pest {Math.round(crop.pestRiskScore)}</Text>
-                      </View>
+                    <View style={styles.locationChip}>
+                      <Text style={styles.locationLabel}>{t.longitude}</Text>
+                      <Text style={styles.locationValue}>
+                        {formatCoord(location?.coords?.longitude ?? region?.longitude)}
+                      </Text>
                     </View>
                   </View>
-                ))}
-              </View>
-            </View>
+                  <View style={styles.soilBadge}>
+                    <Text style={styles.soilBadgeText}>
+                      {t.soil}: {soilType}
+                    </Text>
+                  </View>
+                  <View style={styles.mapFallback}>
+                    <Text style={styles.mapFallbackTitle}>{t.farmLocationReady}</Text>
+                    <Text style={styles.mapFallbackText}>
+                      {t.latLon} {formatCoord(region?.latitude)} | {formatCoord(region?.longitude)}
+                    </Text>
+                    <Text style={styles.mapFallbackText}>{t.liveMapDisabled}</Text>
+                  </View>
+                </View>
+              </Animated.View>
+            </SpeechHighlight>
+
+            <SpeechHighlight
+              active={activeHighlightId === 'croprec.weather'}
+              style={styles.cardWrap}
+              highlightStyle={styles.sectionHighlight}
+            >
+              <Animated.View style={{ opacity: fadeAnim }}>
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>🌤️ {t.weatherTitle}</Text>
+                  <View
+                    style={styles.chartWrap}
+                    onLayout={(event) => {
+                      const next = Math.round(event.nativeEvent.layout.width);
+                      if (next > 0 && Math.abs(next - weatherChartContainerWidth) > 2) {
+                        setWeatherChartContainerWidth(next);
+                      }
+                    }}
+                  >
+                    {BarChart && weatherForecast.length > 0 && (
+                      <BarChart
+                        data={{
+                          labels: weatherForecast.map((d) =>
+                            new Date(d.datetime).toLocaleDateString(textLanguage === 'urdu' ? 'ur-PK' : 'en-US', { weekday: 'short' })
+                          ),
+                          datasets: [{ data: weatherForecast.map((d) => d.temp) }],
+                        }}
+                        width={weatherChartWidth}
+                        height={220}
+                        chartConfig={{
+                          backgroundColor: '#ffffff',
+                          backgroundGradientFrom: '#ffffff',
+                          backgroundGradientTo: '#ffffff',
+                          decimalPlaces: 1,
+                          color: (opacity = 1) => `rgba(5, 150, 105, ${opacity})`,
+                          labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                          style: { borderRadius: 16 },
+                        }}
+                        yAxisLabel=""
+                        yAxisSuffix="°C"
+                        style={styles.chart}
+                        showValuesOnTopOfBars={!isCompactWeatherChart}
+                        verticalLabelRotation={isCompactWeatherChart ? 20 : 0}
+                        fromZero={true}
+                      />
+                    )}
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.snapshotRow}>
+                    {weatherSnapshot.map((day, index) => (
+                      <View key={`snapshot-${index}`} style={styles.snapshotCard}>
+                        <Text style={styles.snapshotDay}>{formatForecastDay(day.datetime)}</Text>
+                        <Text style={styles.snapshotTemp}>{Math.round(day.temp)}°</Text>
+                        <Text style={styles.snapshotMeta}>
+                          {Math.round(day.pop)}% {t.weatherRain}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                  <View style={styles.weatherDetails}>
+                    {weatherForecast.map((day, index) => (
+                      <View key={index} style={styles.weatherDetailRow}>
+                        <Text style={styles.weatherDetailDay}>{formatForecastDay(day.datetime)}</Text>
+                        <Text style={styles.weatherDetailTemp}>{day.temp}°C</Text>
+                        <Text style={styles.weatherDetailHumidity}>
+                          {day.rh}% {t.weatherHumidity}
+                        </Text>
+                        <Text style={styles.weatherDetailRain}>
+                          {day.pop}% {t.weatherRain}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </Animated.View>
+            </SpeechHighlight>
+
+            <SpeechHighlight
+              active={activeHighlightId === 'croprec.ranking'}
+              style={styles.cardWrap}
+              highlightStyle={styles.sectionHighlight}
+            >
+              <Animated.View style={{ opacity: fadeAnim }}>
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>🌱 {t.rankingTitle}</Text>
+                  <View style={styles.cropList}>
+                    {crops.map((crop, index) => (
+                      <SpeechHighlight
+                        key={crop.name}
+                        active={activeHighlightId === `croprec.crop.${crop.name}`}
+                        style={styles.cropCardWrap}
+                        highlightStyle={styles.cropHighlight}
+                      >
+                        <View style={styles.cropCard}>
+                          <View style={styles.cropHeader}>
+                            <View style={styles.rankPill}>
+                              <Text style={styles.cropRank}>{index + 1}</Text>
+                            </View>
+                            <Text style={styles.cropName}>{cropNameMap[crop.name as keyof typeof cropNameMap] ?? crop.name}</Text>
+                            <Text style={styles.cropScore}>{crop.totalScore}/100</Text>
+                          </View>
+                          <View style={styles.progressBar}>
+                            <View
+                              style={[
+                                styles.progressFill,
+                                {
+                                  width: `${crop.totalScore}%`,
+                                  backgroundColor:
+                                    crop.totalScore >= 80
+                                      ? '#059669'
+                                      : crop.totalScore >= 60
+                                        ? '#0ea5e9'
+                                        : '#f59e0b',
+                                },
+                              ]}
+                            />
+                          </View>
+                          <View style={styles.metricGrid}>
+                            <View style={styles.metricChip}>
+                              <Text style={styles.metric}>
+                                {t.weatherMetric} {Math.round(crop.weatherScore)}
+                              </Text>
+                            </View>
+                            <View style={styles.metricChip}>
+                              <Text style={styles.metric}>
+                                {t.soilMetric} {Math.round(crop.soilScore)}
+                              </Text>
+                            </View>
+                            <View style={styles.metricChip}>
+                              <Text style={styles.metric}>
+                                {t.marketMetric} {Math.round(crop.marketScore)}
+                              </Text>
+                            </View>
+                            <View style={styles.metricChip}>
+                              <Text style={styles.metric}>
+                                {t.pestMetric} {Math.round(crop.pestRiskScore)}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      </SpeechHighlight>
+                    ))}
+                  </View>
+                </View>
+              </Animated.View>
+            </SpeechHighlight>
           </Animated.View>
         </ScrollView>
       </SafeAreaView>
@@ -461,9 +737,10 @@ const styles = StyleSheet.create({
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingTitle: { marginTop: 12, color: '#1F2937', fontSize: 15, fontWeight: '700' },
   loadingSub: { marginTop: 4, color: '#6B7280', fontSize: 12.5 },
+  headerSectionWrap: { marginBottom: 18 },
   headerSection: {
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 0,
   },
   aiTag: {
     backgroundColor: '#d1fae5',
@@ -539,6 +816,7 @@ const styles = StyleSheet.create({
     color: '#E0F2FE',
     textAlign: 'center',
   },
+  topCardWrap: { marginBottom: 14 },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -558,6 +836,7 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 10,
   },
+  cardWrap: { marginBottom: 14 },
   locationStats: {
     flexDirection: 'row',
     gap: 10,
@@ -651,6 +930,25 @@ const styles = StyleSheet.create({
   snapshotMeta: { marginTop: 2, fontSize: 10.5, color: '#64748b' },
   cropList: {
     gap: 10,
+  },
+  cropCardWrap: { marginBottom: 0 },
+  cropHighlight: {
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#10b981',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+  },
+  sectionHighlight: {
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#10b981',
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
   },
   weatherDetailRow: {
     flexDirection: 'row',
