@@ -26,6 +26,7 @@ import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { clearAuthSession } from '@/lib/appFlow';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 import { getProductOwnerId, listFarmerProducts, normalizeProductImageUrl, productFallbackImage } from '@/lib/productsApi';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
@@ -212,6 +213,14 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
   const [farmerAvatarUri, setFarmerAvatarUri] = useState('');
 
   const t = useCallback((en: string, ur: string) => textLanguage === 'urdu' ? ur : en, [textLanguage]);
+
+  usePageVoiceGuidance(
+    { english: 'Farmer community', urdu: 'کسان کمیونٹی' },
+    {
+      english: 'Browse products, manage your shop, open community chat, or review your profile from here.',
+      urdu: 'یہاں سے پروڈکٹس دیکھیں، اپنی شاپ منظم کریں، کمیونٹی چیٹ کھولیں، یا اپنا پروفائل دیکھیں۔',
+    }
+  );
 
   // ─── Load browse products ────────────────────────────────────────────────────
 

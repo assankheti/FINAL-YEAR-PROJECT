@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -124,31 +123,28 @@ class FakeDB:
         return self.collections[name]
 
 
-class FakeOpenAIClient:
+class FakeAIResponder:
     def __init__(self):
         self.calls: list[dict] = []
         self.reply = "1) Rice brown spot ke liye pehle infected leaves remove karein."
         self.raise_error = False
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    def _create(self, **kwargs):
-        self.calls.append(kwargs)
+    def __call__(self, messages: list[dict]):
+        self.calls.append({"messages": messages})
         if self.raise_error:
             raise RuntimeError("simulated llm failure")
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=self.reply))]
-        )
+        return self.reply
 
 
 class ChatbotAPITests(unittest.TestCase):
     def setUp(self):
         self.fake_db = FakeDB()
-        self.fake_ai = FakeOpenAIClient()
+        self.fake_ai = FakeAIResponder()
 
         self.db_patch = patch.object(chatbot_module, "db", self.fake_db)
-        self.client_patch = patch.object(chatbot_module, "client", self.fake_ai)
+        self.ai_patch = patch.object(chatbot_module, "generate_ai_reply", self.fake_ai)
         self.db_patch.start()
-        self.client_patch.start()
+        self.ai_patch.start()
 
         app = FastAPI()
         app.include_router(chatbot_module.router, prefix="/api/v1/chatbot")
@@ -157,7 +153,7 @@ class ChatbotAPITests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.db_patch.stop()
-        self.client_patch.stop()
+        self.ai_patch.stop()
 
     def post_chat(self, mobile_id: str, message: str, session_id: str | None = None):
         payload = {"mobile_id": mobile_id, "message": message}

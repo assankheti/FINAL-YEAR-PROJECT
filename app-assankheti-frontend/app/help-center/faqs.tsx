@@ -4,22 +4,26 @@ import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
 
 type FAQ = { q: string; a: string };
 
 export default function FAQsPage() {
   const router = useRouter();
+  const { textLanguage } = useLanguage();
+  const t = useT();
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
+  const pick = (english: string, urdu: string) => (textLanguage === 'urdu' ? urdu : english);
 
   const faqs = useMemo<FAQ[]>(
     () => [
-      { q: 'How do I list a new product?', a: "Go to Marketplace → List New Product and fill the form." },
-      { q: 'Can I edit my product after publishing?', a: 'Yes — open the product in My Products and tap Edit.' },
-      { q: 'What is escrow payment?', a: 'Buyer funds are held until delivery is confirmed by the buyer.' },
+      { q: pick('How do I list a new product?', 'میں نیا پروڈکٹ کیسے شامل کروں؟'), a: pick('Go to Marketplace → List New Product and fill the form.', 'مارکیٹ پلیس → نئی مصنوعات شامل کریں پر جائیں اور فارم پُر کریں۔') },
+      { q: pick('Can I edit my product after publishing?', 'کیا شائع کرنے کے بعد مصنوعات تبدیل کر سکتا ہوں؟'), a: pick('Yes — open the product in My Products and tap Edit.', 'جی ہاں — My Products میں پروڈکٹ کھولیں اور Edit دبائیں۔') },
+      { q: pick('What is escrow payment?', 'اسکرو ادائیگی کیا ہے؟'), a: pick('Buyer funds are held until delivery is confirmed by the buyer.', 'خریدار کی رقم اس وقت تک محفوظ رہتی ہے جب تک ڈیلیوری کی تصدیق نہ ہو جائے۔') },
     ],
-    []
+    [pick]
   );
 
   return (
@@ -31,8 +35,7 @@ export default function FAQsPage() {
               <Feather name="arrow-left" size={18} color="#ffffff" />
             </TouchableOpacity>
             <View>
-              <Text style={styles.headerTitle}>FAQs</Text>
-              <Text style={styles.headerSub}>عام سوالات</Text>
+              <Text style={styles.headerTitle}>{pick('FAQs', 'عام سوالات')}</Text>
             </View>
           </View>
         </LinearGradient>

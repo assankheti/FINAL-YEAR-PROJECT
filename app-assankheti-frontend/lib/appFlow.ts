@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { chatClient } from '@/lib/stream';
 import { useStreamChatStore } from '@/stores/streamChatStore';
+import { voiceGuidanceService } from '@/lib/voiceGuidance/VoiceGuidanceService';
 
 export type AppRole = 'farmer' | 'businessman' | 'simple-user';
 export type AppLanguage = 'english' | 'urdu';
@@ -56,6 +57,7 @@ const FARMER_MARKETPLACE_PREFIXES = [
 
 const SHARED_AUTH_PREFIXES = [
   '/stream-chat',
+  '/accessibility-settings',
 ];
 
 const SHARED_MARKETPLACE_PREFIXES = [
@@ -63,6 +65,9 @@ const SHARED_MARKETPLACE_PREFIXES = [
   '/product-buy',
   '/product/',
   '/order-details',
+  '/payment',
+  '/payment-success',
+  '/payment-cancel',
 ];
 
 const COMMUNITY_ONLY_PREFIXES = [
@@ -73,6 +78,9 @@ const COMMUNITY_ONLY_PREFIXES = [
   '/product/',
   '/user-orders',
   '/user-notifications',
+  '/payment',
+  '/payment-success',
+  '/payment-cancel',
   '/community-settings',
   '/call',
   '/order-details',
@@ -178,6 +186,8 @@ export async function persistAuthSession(input: {
 }
 
 export async function clearAuthSession() {
+  voiceGuidanceService.stop();
+
   try {
     if (chatClient.userID) await chatClient.disconnectUser();
     useStreamChatStore.getState().setDisconnected();

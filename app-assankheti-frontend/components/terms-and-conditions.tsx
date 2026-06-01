@@ -11,6 +11,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface TermsSection {
   title: string;
@@ -23,25 +24,26 @@ interface TermsSection {
 export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
   const [agreed, setAgreed] = useState(false);
   const { width, height } = useWindowDimensions();
+  const { textLanguage } = useLanguage();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 540);
   const isSmallHeight = height < 700;
+  const isUrdu = textLanguage === 'urdu';
+  const pick = (english: string, urdu: string) => (isUrdu ? urdu : english);
 
   const translations = {
-    headerTitle: 'Terms & Conditions',
-    headerSubtitleUrdu: 'شرائط و ضوابط',
-    infoText: 'Please read these terms carefully before using Assan Kheti',
-    infoTextUrdu: 'براہ کرم Assan Kheti استعمال کرنے سے پہلے ان شرائط کو احتیاط سے پڑھیں',
-    agreementText: 'I have read and agree to the',
-    agreementBoldText: 'Terms & Conditions',
-    privacyPolicyText: 'Privacy Policy',
-    agreementTextUrdu: 'میں نے پڑھا ہے اور اتفاق ہے',
-    termsUrdu: 'شرائط و ضوابط',
-    privacyUrdu: 'رازداری کی پالیسی',
-    continueButtonEnabled: 'Continue',
-    continueButtonDisabled: 'Please Accept Terms',
-    continueButtonEnabledUrdu: 'جاری رکھیں',
-    continueButtonDisabledUrdu: 'براہ کرم شرائط قبول کریں',
+    headerTitle: pick('Terms & Conditions', 'شرائط و ضوابط'),
+    headerSubtitle: pick('Please review the policy carefully', 'براہ کرم پالیسی غور سے پڑھیں'),
+    infoText: pick(
+      'Please read these terms carefully before using Assan Kheti',
+      'براہ کرم Assan Kheti استعمال کرنے سے پہلے ان شرائط کو احتیاط سے پڑھیں'
+    ),
+    agreementText: pick(
+      'I have read and agree to the Terms & Conditions and Privacy Policy',
+      'میں نے شرائط و ضوابط اور رازداری کی پالیسی پڑھ لی ہے اور ان سے اتفاق کرتا ہوں'
+    ),
+    continueButtonEnabled: pick('Continue', 'جاری رکھیں'),
+    continueButtonDisabled: pick('Please Accept Terms', 'براہ کرم شرائط قبول کریں'),
   };
 
   const sections: TermsSection[] = useMemo(
@@ -123,7 +125,7 @@ export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.headerTitle}>{translations.headerTitle}</Text>
-              <Text style={styles.headerSubtitle}>{translations.headerSubtitleUrdu}</Text>
+              <Text style={styles.headerSubtitle}>{translations.headerSubtitle}</Text>
             </View>
           </View>
         </LinearGradient>
@@ -140,7 +142,6 @@ export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
               <Feather name="info" size={20} color="#10b981" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.infoText}>{translations.infoText}</Text>
-                <Text style={styles.infoTextUrdu}>{translations.infoTextUrdu}</Text>
               </View>
             </View>
           </View>
@@ -156,12 +157,10 @@ export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
                     </View>
                   )}
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.sectionTitle}>{section.title}</Text>
-                    {section.urdu && <Text style={styles.sectionUrdu}>{section.urdu}</Text>}
+                    <Text style={styles.sectionTitle}>{pick(section.title, section.urdu ?? section.title)}</Text>
                   </View>
                 </View>
-                <Text style={styles.sectionBody}>{section.body}</Text>
-                {section.bodyUrdu && <Text style={styles.sectionBodyUrdu}>{section.bodyUrdu}</Text>}
+                <Text style={styles.sectionBody}>{pick(section.body, section.bodyUrdu ?? section.body)}</Text>
               </View>
             ))}
           </View>
@@ -175,22 +174,13 @@ export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
               accessible={true}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: agreed }}
-              accessibilityLabel="Agree to terms and conditions"
+              accessibilityLabel={pick('Agree to terms and conditions', 'شرائط و ضوابط سے اتفاق کریں')}
             >
               <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
                 {agreed && <Feather name="check" size={14} color="#ffffff" strokeWidth={3} />}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.agreementText}>
-                  {translations.agreementText}{' '}
-                  <Text style={styles.agreementBold}>{translations.agreementBoldText}</Text> and{' '}
-                  <Text style={styles.agreementBold}>{translations.privacyPolicyText}</Text>
-                </Text>
-                <Text style={styles.agreementTextUrdu}>
-                  {translations.agreementTextUrdu}{' '}
-                  <Text style={styles.agreementBold}>{translations.termsUrdu}</Text> اور{' '}
-                  <Text style={styles.agreementBold}>{translations.privacyUrdu}</Text>
-                </Text>
+                <Text style={styles.agreementText}>{translations.agreementText}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -210,7 +200,7 @@ export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
               accessible={true}
               accessibilityRole="button"
               accessibilityState={{ disabled: !agreed }}
-              accessibilityLabel={agreed ? 'Continue to next step' : 'Please accept terms to continue'}
+              accessibilityLabel={agreed ? pick('Continue to next step', 'اگلے مرحلے پر جائیں') : pick('Please accept terms to continue', 'جاری رکھنے کے لیے شرائط قبول کریں')}
             >
               <View style={styles.buttonContent}>
                 <Feather
@@ -221,9 +211,6 @@ export function TermsAndConditions({ onContinue }: { onContinue: () => void }) {
                 <View>
                   <Text style={[styles.buttonText, !agreed && styles.buttonTextDisabled]}>
                     {agreed ? translations.continueButtonEnabled : translations.continueButtonDisabled}
-                  </Text>
-                  <Text style={[styles.buttonTextUrdu, !agreed && styles.buttonTextDisabledUrdu]}>
-                    {agreed ? translations.continueButtonEnabledUrdu : translations.continueButtonDisabledUrdu}
                   </Text>
                 </View>
               </View>

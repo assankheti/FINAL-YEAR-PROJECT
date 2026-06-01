@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 
 type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
 
@@ -21,37 +23,48 @@ type Order = {
 
 export default function FarmerOrdersPage() {
   const router = useRouter();
+  const { textLanguage } = useLanguage();
+  const t = useT();
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
+  const pick = (english: string, urdu: string) => (textLanguage === 'urdu' ? urdu : english);
 
   const filters = useMemo(
     () => [
-      { key: 'all' as const, label: 'All Orders' },
-      { key: 'pending' as const, label: 'Pending' },
-      { key: 'confirmed' as const, label: 'Confirmed' },
-      { key: 'shipped' as const, label: 'Shipped' },
-      { key: 'delivered' as const, label: 'Delivered' },
+      { key: 'all' as const, label: pick('All Orders', 'تمام آرڈرز') },
+      { key: 'pending' as const, label: pick('Pending', 'زیر التواء') },
+      { key: 'confirmed' as const, label: pick('Confirmed', 'تصدیق شدہ') },
+      { key: 'shipped' as const, label: pick('Shipped', 'بھیج دیا') },
+      { key: 'delivered' as const, label: pick('Delivered', 'پہنچا دیا') },
     ],
-    []
+    [pick]
   );
 
   const [activeFilter, setActiveFilter] = useState<(typeof filters)[number]['key']>('all');
 
   const orders = useMemo<Order[]>(
     () => [
-      { id: 'ORD001', productName: 'Fresh Basmati Rice', quantity: '50 kg', price: '₨9,000', buyer: 'Ali Traders', status: 'delivered', date: 'Dec 28, 2024', image: '🌾' },
-      { id: 'ORD002', productName: 'Premium Rice', quantity: '100 kg', price: '₨18,000', buyer: 'Karachi Foods', status: 'shipped', date: 'Dec 29, 2024', image: '🌾' },
-      { id: 'ORD003', productName: 'Rice Bran', quantity: '25 kg', price: '₨800', buyer: 'Lahore Mills', status: 'confirmed', date: 'Dec 30, 2024', image: '🌾' },
-      { id: 'ORD004', productName: 'Fresh Rice - 50kg', quantity: '50 kg', price: '₨2,250', buyer: 'Hassan Store', status: 'pending', date: 'Dec 30, 2024', image: '🌾' },
+      { id: 'ORD001', productName: pick('Fresh Basmati Rice', 'تازہ باسمتی چاول'), quantity: pick('50 kg', '50 کلو'), price: '₨9,000', buyer: 'Ali Traders', status: 'delivered', date: 'Dec 28, 2024', image: '🌾' },
+      { id: 'ORD002', productName: pick('Premium Rice', 'اعلیٰ معیار کا چاول'), quantity: pick('100 kg', '100 کلو'), price: '₨18,000', buyer: 'Karachi Foods', status: 'shipped', date: 'Dec 29, 2024', image: '🌾' },
+      { id: 'ORD003', productName: pick('Rice Bran', 'چاول کی بھوسی'), quantity: pick('25 kg', '25 کلو'), price: '₨800', buyer: 'Lahore Mills', status: 'confirmed', date: 'Dec 30, 2024', image: '🌾' },
+      { id: 'ORD004', productName: pick('Fresh Rice - 50kg', 'تازہ چاول - 50 کلو'), quantity: pick('50 kg', '50 کلو'), price: '₨2,250', buyer: 'Hassan Store', status: 'pending', date: 'Dec 30, 2024', image: '🌾' },
     ],
-    []
+    [pick]
   );
 
   const filteredOrders = useMemo(() => {
     if (activeFilter === 'all') return orders;
     return orders.filter((o) => o.status === activeFilter);
   }, [activeFilter, orders]);
+
+  usePageVoiceGuidance(
+    { english: 'My orders', urdu: 'میرے آرڈرز' },
+    {
+      english: `You have ${orders.length} orders. Use the filter buttons to review pending, shipped, or delivered orders.`,
+      urdu: `آپ کے ${orders.length} آرڈرز ہیں۔ زیر التواء، بھیجے گئے، یا پہنچائے گئے آرڈرز دیکھنے کے لیے فلٹر بٹن استعمال کریں۔`,
+    }
+  );
 
   const statusConfig: Record<OrderStatus, { label: string; labelUrdu: string; bg: string; fg: string; icon: React.ComponentProps<typeof Feather>['name'] }> = {
     pending: { label: 'Pending', labelUrdu: 'زیر التواء', bg: 'rgba(245,158,11,0.16)', fg: '#f59e0b', icon: 'clock' },
@@ -70,10 +83,10 @@ export default function FarmerOrdersPage() {
           <View style={{ paddingHorizontal: horizontalPadding, marginTop: -18 }}>
             <View style={[styles.statsCard, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
               {[
-                { label: 'Total', value: '24', color: '#111827' },
-                { label: 'Pending', value: '3', color: '#f59e0b' },
-                { label: 'Shipped', value: '5', color: '#10b981' },
-                { label: 'Delivered', value: '16', color: '#0d5c4b' },
+                { label: pick('Total', 'کل'), value: '24', color: '#111827' },
+                { label: pick('Pending', 'زیر التواء'), value: '3', color: '#f59e0b' },
+                { label: pick('Shipped', 'بھیج دیا'), value: '5', color: '#10b981' },
+                { label: pick('Delivered', 'پہنچا دیا'), value: '16', color: '#0d5c4b' },
               ].map((s) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
@@ -96,7 +109,7 @@ export default function FarmerOrdersPage() {
                       onPress={() => setActiveFilter(f.key)}
                       style={[styles.filterPill, isActive ? styles.filterPillActive : styles.filterPillIdle]}
                       accessibilityRole="button"
-                      accessibilityLabel={`Filter ${f.label}`}
+                      accessibilityLabel={pick(`Filter ${f.label}`, `فلٹر ${f.label}`)}
                     >
                       <Text style={[styles.filterText, isActive ? styles.filterTextActive : styles.filterTextIdle]}>{f.label}</Text>
                     </TouchableOpacity>
@@ -115,7 +128,7 @@ export default function FarmerOrdersPage() {
                   productName: o.productName,
                   quantity: o.quantity,
                   price: o.price,
-                  counterparty: `Buyer: ${o.buyer}`,
+                  counterparty: pick(`Buyer: ${o.buyer}`, `خریدار: ${o.buyer}`),
                   status: o.status,
                   date: o.date,
                   image: o.image,

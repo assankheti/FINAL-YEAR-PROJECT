@@ -62,10 +62,6 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_CHAT_MODEL
-        value: gpt-3.5-turbo
       - key: FRONTEND_URL
         sync: false
       - key: API_URL

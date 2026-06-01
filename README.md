@@ -94,7 +94,7 @@ Supports:
 - Motor + PyMongo
 - MongoDB
 - Stytch OTP
-- OpenAI SDK (chat completion)
+- Gemini API (chatbot and treatment advice)
 - TensorFlow (optional runtime fallback path)
 
 ### DevOps
@@ -275,8 +275,8 @@ STYTCH_SECRET=your_stytch_secret
 STYTCH_ENV=test
 
 # Chatbot
-OPENAI_API_KEY=your_openai_key
-OPENAI_CHAT_MODEL=gpt-3.5-turbo
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
 
 # Frontend API (for Expo)
 # Use your machine LAN IP for physical Android device testing
@@ -425,7 +425,7 @@ If TensorFlow fails to load:
 Check:
 - Backend logs for traceback
 - MongoDB connectivity
-- Missing env keys (`OPENAI_API_KEY`, Stytch config)
+- Missing env keys (`GEMINI_API_KEY`, Stytch config)
 - Request body shape:
   - `message` (string)
   - `mobile_id` (string)

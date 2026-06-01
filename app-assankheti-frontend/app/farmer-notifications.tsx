@@ -2,9 +2,18 @@ import React, { useCallback, useMemo } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Notification from '@/components/notification';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 
 export default function FarmerNotificationsPage() {
   const router = useRouter();
+
+  usePageVoiceGuidance(
+    { english: 'Notifications', urdu: 'اطلاعات' },
+    {
+      english: 'Review weather alerts, price updates, government schemes, and new order notices.',
+      urdu: 'موسم کے الرٹس، قیمت کی اپڈیٹس، حکومتی اسکیمیں، اور نئے آرڈر نوٹس دیکھیں۔',
+    }
+  );
 
   const goToDashboard = useCallback(() => {
     router.replace({ pathname: '/farmer-dashboard', params: { tab: 'home' } });

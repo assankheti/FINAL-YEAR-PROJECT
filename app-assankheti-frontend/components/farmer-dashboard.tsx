@@ -20,9 +20,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MessageComposer from '@/components/MessageComposer';
 import NotificationBell from '@/components/NotificationBell';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
 import { API_BASE } from '@/config/env';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 type Props = {
   textLanguage?: 'urdu' | 'english';
@@ -61,17 +63,28 @@ export function FarmerDashboard({
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const r = useResponsive();
   const { width } = useWindowDimensions();
+  const voiceGuidance = useVoiceGuidance();
+  const {
+    enabled: voiceGuidanceEnabled,
+    activeHighlightId,
+    speak: speakVoiceGuidance,
+    startGuidedSequence,
+    cancelGuidedSequence,
+  } = voiceGuidance;
   
   // Real-time data states
   const [weather, setWeather] = useState<{ temp: number; condition: string } | null>(null);
   const [cropPrice, setCropPrice] = useState<number | null>(null);
   const [cropHealth, setCropHealth] = useState<number>(95);
-  const [location, setLocation] = useState<any>(null);
   const [lastScanTime, setLastScanTime] = useState<string>('Today');
   const [lastScanData, setLastScanData] = useState<any>(null);
   const [isMarketplaceAuthenticated, setIsMarketplaceAuthenticated] = useState(false);
+  const lastSpokenRef = useRef({ weather: '', price: '', disease: '', marketplace: '' });
+  const homeSequenceStartedRef = useRef(false);
+  const shopSequenceStartedRef = useRef(false);
 
   const refreshMarketplaceAuth = useCallback(async () => {
     const token = await AsyncStorage.getItem('auth.access_token');
@@ -85,6 +98,7 @@ export function FarmerDashboard({
   );
 
   const t = useCallback((obj: any) => obj[textLanguage], [textLanguage]);
+  const tv = useCallback((obj: any) => obj[voiceLanguage], [voiceLanguage]);
 
   const strings = useMemo(
     () =>
@@ -119,6 +133,86 @@ export function FarmerDashboard({
     []
   );
 
+  const guidedSteps = useMemo(() => {
+    const headerText = tv({
+      english: 'Farmer dashboard. Weather, crop prices, crop health, and marketplace shortcuts are available here.',
+      urdu: 'کسان ڈیش بورڈ۔ موسم، فصل کی قیمتیں، فصل کی صحت، اور مارکیٹ پلیس شارٹ کٹس یہاں دستیاب ہیں۔',
+    });
+    const cropCardText = tv({
+      english: selectedCrop
+        ? `Current crop card. ${selectedCrop} crop. Last scan information is shown here.`
+        : 'Current crop card. Rice crop. Last scan information is shown here.',
+      urdu: selectedCrop
+        ? `موجودہ فصل کارڈ۔ ${selectedCrop} فصل۔ آخری اسکین کی معلومات یہاں دکھائی گئی ہیں۔`
+        : 'موجودہ فصل کارڈ۔ چاول کی فصل۔ آخری اسکین کی معلومات یہاں دکھائی گئی ہیں۔',
+    });
+    const weatherText = weather
+      ? tv({
+          english: `Weather update. ${weather.temp} degrees. ${weather.condition}.`,
+          urdu: `موسمی معلومات۔ ${weather.temp} ڈگری۔ ${weather.condition}۔`,
+        })
+      : tv({ english: 'Weather card. Data is loading.', urdu: 'موسم کارڈ۔ ڈیٹا لوڈ ہو رہا ہے۔' });
+
+    const priceText = cropPrice
+      ? tv({
+          english: `Crop price card. Rice price is ${cropPrice} rupees per kilogram.`,
+          urdu: `فصل کی قیمت کا کارڈ۔ چاول کی قیمت ${cropPrice} روپے فی کلو ہے۔`,
+        })
+      : tv({ english: 'Crop price card. Data is loading.', urdu: 'فصل کی قیمت کا کارڈ۔ ڈیٹا لوڈ ہو رہا ہے۔' });
+
+    return [
+      { id: 'home.header', text: headerText },
+      { id: 'home.cropCard', text: cropCardText },
+      { id: 'home.weather', text: weatherText },
+      { id: 'home.cropPrice', text: priceText },
+      { id: 'home.cropHealth', text: tv({ english: `Crop health card. Health is ${cropHealth} percent.`, urdu: `فصل کی صحت کا کارڈ۔ صحت ${cropHealth} فیصد ہے۔` }) },
+      { id: 'home.tools', text: tv({ english: 'Tools section. Open disease detection, calculator, marketplace, and crop recommendations.', urdu: 'ٹولز سیکشن۔ بیماری کی تشخیص، کیلکولیٹر، مارکیٹ پلیس، اور فصل کی سفارشات کھولیں۔' }) },
+      { id: 'home.disease', text: tv({ english: 'Disease detection card. Tap to scan your crop.', urdu: 'بیماری کی تشخیص کا کارڈ۔ فصل اسکین کرنے کے لیے ٹیپ کریں۔' }) },
+      { id: 'home.marketplace', text: tv({ english: 'Marketplace card. Sell directly to customers.', urdu: 'مارکیٹ پلیس کارڈ۔ براہ راست گاہکوں کو فروخت کریں۔' }) },
+      { id: 'home.calculator', text: tv({ english: 'Smart calculator card. Plan fertilizer, pesticide, and budget.', urdu: 'سمارٹ کیلکولیٹر کارڈ۔ کھاد، دوا، اور بجٹ پلان کریں۔' }) },
+      { id: 'home.recommendations', text: tv({ english: 'Crop recommendations card. View seasonal suggestions.', urdu: 'فصل کی سفارشات کا کارڈ۔ موسمی تجاویز دیکھیں۔' }) },
+      { id: 'home.promo', text: tv({ english: 'AI assistant card. Start a chat with the farming assistant.', urdu: 'اے آئی اسسٹنٹ کارڈ۔ فارمنگ اسسٹنٹ سے چیٹ شروع کریں۔' }) },
+      { id: 'home.tab.home', text: tv({ english: 'Home tab. You are on the dashboard overview.', urdu: 'ہوم ٹیب۔ آپ ڈیش بورڈ کے خلاصے پر ہیں۔' }) },
+      { id: 'home.tab.shop', text: tv({ english: 'Shop tab. Open marketplace and farmer community.', urdu: 'شاپ ٹیب۔ مارکیٹ پلیس اور کسان کمیونٹی کھولیں۔' }) },
+      { id: 'home.tab.chat', text: tv({ english: 'Chat tab. Talk to the AI farming assistant.', urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے بات کریں۔' }) },
+      { id: 'home.tab.profile', text: tv({ english: 'Profile tab. Manage orders, products, and settings.', urdu: 'پروفائل ٹیب۔ آرڈرز، مصنوعات، اور سیٹنگز منظم کریں۔' }) },
+    ];
+  }, [cropHealth, cropPrice, selectedCrop, tv, weather]);
+
+  const shopGuidedSteps = useMemo(() => {
+    const shopTitle = tv({
+      english: 'Marketplace. Sell your products directly.',
+      urdu: 'مارکیٹ پلیس۔ اپنی مصنوعات براہ راست فروخت کریں۔',
+    });
+    const shopBody =
+      characterType === 'farmer' && !isMarketplaceAuthenticated
+        ? tv({
+            english: 'Login required for Marketplace. Please login to buy, sell, and manage products.',
+            urdu: 'مارکیٹ پلیس کے لیے لاگ اِن ضروری ہے۔ خرید، فروخت، اور مصنوعات منظم کرنے کے لیے لاگ اِن کریں۔',
+          })
+        : characterType === 'farmer'
+          ? tv({
+              english: 'Farmer Community is ready. Upload, manage, and sell your products directly.',
+              urdu: 'کسان کمیونٹی تیار ہے۔ اپنی مصنوعات اپلوڈ، منظم، اور براہ راست فروخت کریں۔',
+            })
+          : tv({
+              english: 'List new products and review your listings.',
+              urdu: 'نئی مصنوعات لسٹ کریں اور اپنی لسٹنگز دیکھیں۔',
+            });
+    const shopButton =
+      characterType === 'farmer' && !isMarketplaceAuthenticated
+        ? tv({ english: 'Login to Marketplace button.', urdu: 'مارکیٹ پلیس لاگ اِن بٹن۔' })
+        : characterType === 'farmer'
+          ? tv({ english: 'Open Farmer Community button.', urdu: 'فارمر کمیونٹی کھولیں بٹن۔' })
+          : tv({ english: 'List New Product button.', urdu: 'نئی پروڈکٹ لسٹ کریں بٹن۔' });
+
+    return [
+      { id: 'shop.title', text: shopTitle },
+      { id: 'shop.card', text: shopBody },
+      { id: 'shop.button', text: shopButton },
+    ];
+  }, [characterType, isMarketplaceAuthenticated, tv]);
+
   useEffect(() => {
     showMobileNotificationsOnce('farmer-notifications', [
       {
@@ -148,11 +242,104 @@ export function FarmerDashboard({
     ]);
   }, []);
 
+  useEffect(() => {
+    if (!voiceGuidanceEnabled || activeTab !== 'home') {
+      homeSequenceStartedRef.current = false;
+      cancelGuidedSequence();
+      return;
+    }
+    if (homeSequenceStartedRef.current) return;
+    homeSequenceStartedRef.current = true;
+    startGuidedSequence(guidedSteps);
+  }, [activeTab, cancelGuidedSequence, guidedSteps, startGuidedSequence, voiceGuidanceEnabled]);
+
+  useEffect(() => {
+    if (!voiceGuidanceEnabled || activeTab !== 'shop') {
+      shopSequenceStartedRef.current = false;
+      return;
+    }
+    if (shopSequenceStartedRef.current) return;
+    shopSequenceStartedRef.current = true;
+    startGuidedSequence(shopGuidedSteps);
+  }, [activeTab, shopGuidedSteps, startGuidedSequence, voiceGuidanceEnabled]);
+
+  useEffect(() => {
+    if (!voiceGuidanceEnabled) return;
+    const tabAnnouncement =
+      activeTab === 'home'
+        ? tv({
+            english: 'Home tab. Weather, crop status, featured tools, and chat shortcut are available.',
+            urdu: 'ہوم ٹیب۔ موسم، فصل کی حالت، نمایاں ٹولز، اور چیٹ شارٹ کٹ دستیاب ہیں۔',
+          })
+        : activeTab === 'shop'
+          ? tv({
+              english: 'Shop tab. Browse marketplace tools and farmer community options.',
+              urdu: 'شاپ ٹیب۔ مارکیٹ پلیس ٹولز اور کسان کمیونٹی کے اختیارات دیکھیں۔',
+            })
+          : activeTab === 'chat'
+            ? tv({
+                english: 'Chat tab. Ask the AI farming assistant anything.',
+                urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے کچھ بھی پوچھیں۔',
+              })
+            : tv({
+                english: 'Profile tab. Manage orders, products, help, privacy, and settings.',
+                urdu: 'پروفائل ٹیب۔ آرڈرز، مصنوعات، مدد، رازداری، اور سیٹنگز منظم کریں۔',
+              });
+    void speakVoiceGuidance(tabAnnouncement);
+  }, [activeTab, speakVoiceGuidance, tv, voiceGuidanceEnabled]);
+
+  useEffect(() => {
+    if (!voiceGuidanceEnabled) return;
+
+    if (weather) {
+      const weatherText = tv({
+        english: `Weather update: ${weather.temp}°C, ${weather.condition}.`,
+        urdu: `موسمی اطلاع: ${weather.temp}°C، ${weather.condition}۔`,
+      });
+      if (lastSpokenRef.current.weather !== weatherText) {
+        lastSpokenRef.current.weather = weatherText;
+        void speakVoiceGuidance(weatherText, 'home.weather');
+      }
+    }
+
+    if (cropPrice) {
+      const priceText = tv({
+        english: `The rice price is ${cropPrice} rupees per kilogram.`,
+        urdu: `چاول کی قیمت ${cropPrice} روپے فی کلو ہے۔`,
+      });
+      if (lastSpokenRef.current.price !== priceText) {
+        lastSpokenRef.current.price = priceText;
+        void speakVoiceGuidance(priceText, 'home.cropPrice');
+      }
+    }
+
+    if (lastScanData?.disease) {
+      const diseaseText = tv({
+        english: `Disease scan result: ${lastScanData.disease}.`,
+        urdu: `بیماری اسکین نتیجہ: ${lastScanData.disease}۔`,
+      });
+      if (lastSpokenRef.current.disease !== diseaseText) {
+        lastSpokenRef.current.disease = diseaseText;
+        void speakVoiceGuidance(diseaseText, 'home.disease');
+      }
+    }
+
+    const marketplaceText = isMarketplaceAuthenticated
+      ? tv({ english: 'Marketplace is ready. You are signed in.', urdu: 'مارکیٹ پلیس تیار ہے۔ آپ لاگ اِن ہیں۔' })
+      : tv({ english: 'Marketplace needs login.', urdu: 'مارکیٹ پلیس کے لیے لاگ اِن ضروری ہے۔' });
+
+    if (lastSpokenRef.current.marketplace !== marketplaceText) {
+      lastSpokenRef.current.marketplace = marketplaceText;
+      void speakVoiceGuidance(marketplaceText, 'home.marketplace');
+    }
+  }, [cropPrice, isMarketplaceAuthenticated, lastScanData, speakVoiceGuidance, tv, voiceGuidanceEnabled, weather]);
+
   const featureCards = useMemo(
     () =>
       [
         {
           id: 'disease',
+          highlightId: 'home.disease',
           title: { urdu: 'بیماری کی تشخیص', english: 'Disease Detection' },
           subtitle: { urdu: 'AI کے ذریعے بیماری کی شناخت', english: 'AI-powered crop disease identification' },
           icon: <MaterialCommunityIcons name="qrcode-scan" size={22} color="#ffffff" />,
@@ -166,6 +353,7 @@ export function FarmerDashboard({
 
         {
           id: 'calculator',
+          highlightId: 'home.calculator',
           title: { urdu: 'سمارٹ کیلکولیٹر', english: 'Smart Calculator' },
           subtitle: { urdu: 'کھاد، دوا اور بجٹ پلان', english: 'Fertilizer, pesticide & budget planner' },
           icon: <MaterialCommunityIcons name="calculator" size={22} color="#ffffff" />,
@@ -179,6 +367,7 @@ export function FarmerDashboard({
 
         {
           id: 'marketplace',
+          highlightId: 'home.marketplace',
           title: { urdu: 'مارکیٹ پلیس', english: 'Marketplace' },
           subtitle: { urdu: 'براہ راست گاہکوں کو فروخت', english: 'Sell directly to customers' },
           icon: <Feather name="shopping-bag" size={22} color="#ffffff" />,
@@ -191,6 +380,7 @@ export function FarmerDashboard({
         },
         {
           id: 'CropRecommendations',
+          highlightId: 'home.recommendations',
           title: { urdu: 'فصل کی سفارشات', english: 'Crop Recommendations' },
           subtitle: { urdu: 'موسمی حالات کے مطابق', english: 'Based on seasonal conditions' },
           icon: <MaterialCommunityIcons name="sprout" size={22} color="#ffffff" />,
@@ -202,7 +392,7 @@ export function FarmerDashboard({
             }),
         },
       ],
-    []
+    [router, selectedCrop, textLanguage, voiceLanguage]
   );
 
   const contentMaxWidth = Math.min(520, width);
@@ -362,108 +552,148 @@ export function FarmerDashboard({
       contentContainerStyle={[styles.scroll, { paddingBottom: tabBarHeight + 24 }]}
       showsVerticalScrollIndicator={false}
     >
-      <LinearGradient colors={['#0d5c4b', '#0f7a62', '#10b981']} style={[styles.homeHeader, { paddingHorizontal: r.wp(5) }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-        <View style={styles.headerGlowOne} />
-        <View style={styles.headerGlowTwo} />
-        <View style={styles.homeHeaderRow}>
-          <View style={styles.homeBrandRow}>
-            <View style={styles.homeLogoBox}>
-              <MaterialCommunityIcons name="account-cowboy-hat" size={r.fs(22)} color="#ffffff" />
-            </View>
-            <View>
-              <Text style={styles.homeWelcomeSmall}>{t(greeting)}</Text>
-              <Text style={[styles.homeWelcomeName, { fontSize: r.fs(18) }]}>{t(strings.farmer)}</Text>
-            </View>
-          </View>
-
-          <NotificationBell onHeader localNamespaces={['farmer-notifications']} />
-
-        </View>
-
-        <View style={styles.cropCard}>
-          <View style={styles.cropRow}>
-            <View style={styles.cropLeft}>
-              <View style={styles.cropIconBox}>
-                <Text style={{ fontSize: 22 }}>🌾</Text>
+      <SpeechHighlight
+        active={activeHighlightId === 'home.header' || activeHighlightId === 'home.cropCard'}
+        style={styles.homeHeaderHighlight}
+        highlightStyle={styles.homeHeaderHighlightBorder}
+      >
+        <LinearGradient colors={['#0d5c4b', '#0f7a62', '#10b981']} style={[styles.homeHeader, { paddingHorizontal: r.wp(5) }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+          <View style={styles.headerGlowOne} />
+          <View style={styles.headerGlowTwo} />
+          <View style={styles.homeHeaderRow}>
+            <View style={styles.homeBrandRow}>
+              <View style={styles.homeLogoBox}>
+                <MaterialCommunityIcons name="account-cowboy-hat" size={r.fs(22)} color="#ffffff" />
               </View>
               <View>
-                <Text style={styles.cropTitle} numberOfLines={1}>
-                  {selectedCrop
-                    ? selectedCrop + ' ' + t({ urdu: 'فصل', english: 'Crop' })
-                    : t({ urdu: 'چاول کی فصل', english: 'Rice Crop' })}
-                </Text>
+                <Text style={styles.homeWelcomeSmall}>{t(greeting)}</Text>
+                <Text style={[styles.homeWelcomeName, { fontSize: r.fs(18) }]}>{t(strings.farmer)}</Text>
               </View>
             </View>
 
-            <View style={styles.cropStatusBlock}>
-              <View style={styles.cropHealthRow}>
-                <MaterialCommunityIcons name="leaf" size={16} color="#ffffff" />
-                <Text style={styles.cropHealthText} numberOfLines={2}>
+            <NotificationBell onHeader localNamespaces={['farmer-notifications']} />
+
+          </View>
+
+          <View style={styles.cropCard}>
+            <View style={styles.cropRow}>
+              <View style={styles.cropLeft}>
+                <View style={styles.cropIconBox}>
+                  <Text style={{ fontSize: 22 }}>🌾</Text>
+                </View>
+                <View>
+                  <Text style={styles.cropTitle} numberOfLines={1}>
+                    {selectedCrop
+                      ? selectedCrop + ' ' + t({ urdu: 'فصل', english: 'Crop' })
+                      : t({ urdu: 'چاول کی فصل', english: 'Rice Crop' })}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cropStatusBlock}>
+                <View style={styles.cropHealthRow}>
+                  <MaterialCommunityIcons name="leaf" size={16} color="#ffffff" />
+                  <Text style={styles.cropHealthText} numberOfLines={2}>
+                    {lastScanData ? (
+                      !String(lastScanData?.disease ?? '').trim() ||
+                      lastScanData.disease === 'no disease' ||
+                      lastScanData.disease === 'Healthy'
+                        ? t(strings.healthy)
+                        : lastScanData.disease
+                    ) : t(strings.healthy)}
+                  </Text>
+                </View>
+                <Text style={styles.cropMeta} numberOfLines={1}>
                   {lastScanData ? (
-                    !String(lastScanData?.disease ?? '').trim() ||
-                    lastScanData.disease === 'no disease' ||
-                    lastScanData.disease === 'Healthy'
-                      ? t(strings.healthy)
-                      : lastScanData.disease
-                  ) : t(strings.healthy)}
+                    t({ 
+                      urdu: 'آخری اسکین: ' + lastScanTime, 
+                      english: 'Last scan: ' + lastScanTime 
+                    })
+                  ) : t(strings.lastScan)}
                 </Text>
               </View>
-              <Text style={styles.cropMeta} numberOfLines={1}>
-                {lastScanData ? (
-                  t({ 
-                    urdu: 'آخری اسکین: ' + lastScanTime, 
-                    english: 'Last scan: ' + lastScanTime 
-                  })
-                ) : t(strings.lastScan)}
-              </Text>
             </View>
           </View>
-        </View>
-      </LinearGradient>
+        </LinearGradient>
+      </SpeechHighlight>
 
       <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         <View style={styles.statsCard}>
           {[
             {
+              id: 'home.weather',
               icon: 'weather-cloudy',
               label: { urdu: 'موسم', english: 'Weather' },
               value: weather ? `${weather.temp}°C` : t({ urdu: 'لوڈ ہو رہا ہے', english: 'Loading' }),
               color: '#06b6d4',
             },
             {
+              id: 'home.cropPrice',
               icon: 'trending-up',
               label: { urdu: 'چاول کی قیمت', english: 'Rice Price' },
               value: cropPrice ? `₨${cropPrice}/kg` : t({ urdu: 'لوڈ ہو رہا ہے', english: 'Loading' }),
               color: '#f59e0b',
             },
-            { icon: 'leaf', label: { urdu: 'فصل کی صحت', english: 'Crop Health' }, value: `${cropHealth}%`, color: '#10b981' },
+            {
+              id: 'home.cropHealth',
+              icon: 'leaf',
+              label: { urdu: 'فصل کی صحت', english: 'Crop Health' },
+              value: `${cropHealth}%`,
+              color: '#10b981',
+            },
           ].map((s) => (
-            <View key={t(s.label)} style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: '#f3f4f6' }]}>
-                <MaterialCommunityIcons name={s.icon as any} size={18} color={s.color} />
+            <SpeechHighlight
+              key={t(s.label)}
+              active={activeHighlightId === s.id}
+              style={styles.statHighlight}
+              highlightStyle={styles.statHighlightBorder}
+            >
+              <View style={styles.statItem}>
+                <View style={[styles.statIcon, { backgroundColor: '#f3f4f6' }]}
+                >
+                  <MaterialCommunityIcons name={s.icon as any} size={18} color={s.color} />
+                </View>
+                <Text style={styles.statLabel}>{t(s.label)}</Text>
+                <Text style={styles.statValue}>{s.value}</Text>
               </View>
-              <Text style={styles.statLabel}>{t(s.label)}</Text>
-              <Text style={styles.statValue}>{s.value}</Text>
-            </View>
+            </SpeechHighlight>
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>{t(strings.features)}</Text>
-        <View style={styles.grid}>
+        <SpeechHighlight
+          active={activeHighlightId === 'home.tools'}
+          style={styles.toolsSectionHighlight}
+          highlightStyle={styles.toolsSectionHighlightBorder}
+        >
+          <Text style={styles.sectionTitle}>{t(strings.features)}</Text>
+          <View style={styles.grid}>
           {featureCards.map((f) => (
-            <TouchableOpacity key={f.id} activeOpacity={0.9} style={styles.gridCard} onPress={f.onPress}>
-              <LinearGradient colors={[f.gradient[0], f.gradient[1]]} style={styles.gridIconBox}>
-                {f.icon}
-              </LinearGradient>
-              <Text style={styles.gridTitle}>{t(f.title)}</Text>
-              <Text style={styles.gridDesc} numberOfLines={2}>
-                {t(f.subtitle)}
-              </Text>
-            </TouchableOpacity>
+            <SpeechHighlight
+              key={f.id}
+              active={Boolean(f.highlightId && activeHighlightId === f.highlightId)}
+              style={styles.gridHighlight}
+              highlightStyle={styles.gridHighlightBorder}
+            >
+              <TouchableOpacity activeOpacity={0.9} style={styles.gridCard} onPress={f.onPress}>
+                <LinearGradient colors={[f.gradient[0], f.gradient[1]]} style={styles.gridIconBox}>
+                  {f.icon}
+                </LinearGradient>
+                <Text style={styles.gridTitle}>{t(f.title)}</Text>
+                <Text style={styles.gridDesc} numberOfLines={2}>
+                  {t(f.subtitle)}
+                </Text>
+              </TouchableOpacity>
+            </SpeechHighlight>
           ))}
-        </View>
+          </View>
+        </SpeechHighlight>
 
-        <LinearGradient colors={['#f59e0b', '#fbbf24']} style={styles.promoCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+        <SpeechHighlight
+          active={activeHighlightId === 'home.promo'}
+          style={styles.promoHighlight}
+          highlightStyle={styles.promoHighlightBorder}
+        >
+          <LinearGradient colors={['#f59e0b', '#fbbf24']} style={styles.promoCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
           <View style={styles.promoInner}>
             <View style={styles.promoHeader}>
               <Feather name="message-circle" size={18} color="#111827" />
@@ -477,7 +707,8 @@ export function FarmerDashboard({
               <Feather name="chevron-right" size={18} color="#111827" />
             </TouchableOpacity>
           </View>
-        </LinearGradient>
+          </LinearGradient>
+        </SpeechHighlight>
       </View>
     </ScrollView>
   );
@@ -488,51 +719,83 @@ export function FarmerDashboard({
       showsVerticalScrollIndicator={false}
     >
       <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-        <Text style={styles.scanTitle}>{t(strings.marketplace)}</Text>
-        <Text style={styles.scanSub}>{t({ urdu: 'اپنی مصنوعات براہ راست فروخت کریں', english: 'Sell your products directly' })}</Text>
+        <SpeechHighlight
+          active={activeHighlightId === 'shop.title'}
+          style={styles.shopHeaderHighlight}
+          highlightStyle={styles.shopHeaderHighlightBorder}
+        >
+          <View>
+            <Text style={styles.scanTitle}>{t(strings.marketplace)}</Text>
+            <Text style={styles.scanSub}>{t({ urdu: 'اپنی مصنوعات براہ راست فروخت کریں', english: 'Sell your products directly' })}</Text>
+          </View>
+        </SpeechHighlight>
 
         {characterType === 'farmer' && !isMarketplaceAuthenticated ? (
-          <View style={styles.marketplaceLoginCard}>
-            <View style={styles.marketplaceLoginHead}>
-              <Feather name="lock" size={18} color="#0d5c4b" />
-              <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceLoginTitle)}</Text>
+          <SpeechHighlight
+            active={activeHighlightId === 'shop.card'}
+            style={styles.shopCardHighlight}
+            highlightStyle={styles.shopCardHighlightBorder}
+          >
+            <View style={styles.marketplaceLoginCard}>
+              <View style={styles.marketplaceLoginHead}>
+                <Feather name="lock" size={18} color="#0d5c4b" />
+                <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceLoginTitle)}</Text>
+              </View>
+              <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceLoginDesc)}</Text>
+              <SpeechHighlight
+                active={activeHighlightId === 'shop.button'}
+                style={styles.shopButtonHighlight}
+                highlightStyle={styles.shopButtonHighlightBorder}
+              >
+                <TouchableOpacity
+                  style={styles.sunriseBtn}
+                  activeOpacity={0.9}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/login',
+                      params: { userType: 'farmer', textLanguage, voiceLanguage },
+                    })
+                  }
+                >
+                  <Feather name="log-in" size={18} color="#111827" />
+                  <Text style={styles.sunriseBtnText}>{t(strings.marketplaceLoginBtn)}</Text>
+                </TouchableOpacity>
+              </SpeechHighlight>
             </View>
-            <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceLoginDesc)}</Text>
-            <TouchableOpacity
-              style={styles.sunriseBtn}
-              activeOpacity={0.9}
-              onPress={() =>
-                router.push({
-                  pathname: '/login',
-                  params: { userType: 'farmer', textLanguage, voiceLanguage },
-                })
-              }
-            >
-              <Feather name="log-in" size={18} color="#111827" />
-              <Text style={styles.sunriseBtnText}>{t(strings.marketplaceLoginBtn)}</Text>
-            </TouchableOpacity>
-          </View>
+          </SpeechHighlight>
         ) : characterType === 'farmer' ? (
-          <View style={styles.marketplaceLoginCard}>
-            <View style={styles.marketplaceLoginHead}>
-              <Feather name="users" size={18} color="#0d5c4b" />
-              <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceOpenTitle)}</Text>
+          <SpeechHighlight
+            active={activeHighlightId === 'shop.card'}
+            style={styles.shopCardHighlight}
+            highlightStyle={styles.shopCardHighlightBorder}
+          >
+            <View style={styles.marketplaceLoginCard}>
+              <View style={styles.marketplaceLoginHead}>
+                <Feather name="users" size={18} color="#0d5c4b" />
+                <Text style={styles.marketplaceLoginTitle}>{t(strings.marketplaceOpenTitle)}</Text>
+              </View>
+              <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceOpenDesc)}</Text>
+              <SpeechHighlight
+                active={activeHighlightId === 'shop.button'}
+                style={styles.shopButtonHighlight}
+                highlightStyle={styles.shopButtonHighlightBorder}
+              >
+                <TouchableOpacity
+                  style={styles.sunriseBtn}
+                  activeOpacity={0.9}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/farmer/community',
+                      params: { userType: 'farmer', textLanguage, voiceLanguage },
+                    })
+                  }
+                >
+                  <Feather name="arrow-right-circle" size={18} color="#111827" />
+                  <Text style={styles.sunriseBtnText}>{t(strings.marketplaceOpenBtn)}</Text>
+                </TouchableOpacity>
+              </SpeechHighlight>
             </View>
-            <Text style={styles.marketplaceLoginDesc}>{t(strings.marketplaceOpenDesc)}</Text>
-            <TouchableOpacity
-              style={styles.sunriseBtn}
-              activeOpacity={0.9}
-              onPress={() =>
-                router.push({
-                  pathname: '/farmer/community',
-                  params: { userType: 'farmer', textLanguage, voiceLanguage },
-                })
-              }
-            >
-              <Feather name="arrow-right-circle" size={18} color="#111827" />
-              <Text style={styles.sunriseBtnText}>{t(strings.marketplaceOpenBtn)}</Text>
-            </TouchableOpacity>
-          </View>
+          </SpeechHighlight>
         ) : (
           <>
             <TouchableOpacity
@@ -592,11 +855,13 @@ export function FarmerDashboard({
     textLanguage,
     r,
     bottomInset,
+    keyboardInset,
     onInputFocusChange,
   }: {
     textLanguage: 'urdu' | 'english';
     r: ReturnType<typeof useResponsive>;
     bottomInset: number;
+    keyboardInset: number;
     onInputFocusChange?: (focused: boolean) => void;
   }) => {
     const t = (obj: any) => obj[textLanguage];
@@ -1024,7 +1289,7 @@ export function FarmerDashboard({
 
     const handleComposerFocus = () => onInputFocusChange?.(true);
     const handleComposerBlur = () => onInputFocusChange?.(false);
-
+    const hasAndroidKeyboard = Platform.OS === 'android' && keyboardInset > 0;
 
     const handleSend = async (overrideText?: string) => {
       const rawText = typeof overrideText === 'string' ? overrideText : messageText;
@@ -1087,7 +1352,8 @@ export function FarmerDashboard({
     return (
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: '#f0faf6', paddingBottom: bottomInset }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 10}
       >
         {/* ── Chat header ── */}
         <LinearGradient
@@ -1243,7 +1509,16 @@ export function FarmerDashboard({
         </ScrollView>
 
         {/* ── Composer ── */}
-        <View style={[styles.chatComposer, { paddingHorizontal: r.wp(3.5) }]}>
+        <View
+          style={[
+            styles.chatComposer,
+            {
+              paddingHorizontal: r.wp(3.5),
+              paddingBottom: hasAndroidKeyboard ? 12 : 24,
+              marginBottom: hasAndroidKeyboard ? 14 : 0,
+            },
+          ]}
+        >
           <MessageComposer
             draft={messageText}
             onChangeDraft={setMessageText}
@@ -1388,11 +1663,13 @@ export function FarmerDashboard({
 
   useEffect(() => {
     if (activeTab !== 'chat') return;
-    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
       setIsKeyboardVisible(true);
+      setKeyboardInset(Math.round(event.endCoordinates?.height ?? 0));
     });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
       setIsKeyboardVisible(false);
+      setKeyboardInset(0);
       setIsChatInputFocused(false);
     });
     return () => {
@@ -1456,17 +1733,56 @@ export function FarmerDashboard({
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           const showActiveMarker = isActive && tab.id !== 'chat';
+          const highlightId = `home.tab.${tab.id}`;
+          const announceText =
+            tab.id === 'home'
+              ? tv({
+                  english: 'Home tab. You are on the dashboard overview.',
+                  urdu: 'ہوم ٹیب۔ آپ ڈیش بورڈ کے خلاصے پر ہیں۔',
+                })
+              : tab.id === 'shop'
+                ? tv({
+                    english: 'Shop tab. Open marketplace and farmer community.',
+                    urdu: 'شاپ ٹیب۔ مارکیٹ پلیس اور کسان کمیونٹی کھولیں۔',
+                  })
+                : tab.id === 'chat'
+                  ? tv({
+                      english: 'Chat tab. Talk to the AI farming assistant.',
+                      urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے بات کریں۔',
+                    })
+                  : tv({
+                      english: 'Profile tab. Manage orders, products, and settings.',
+                      urdu: 'پروفائل ٹیب۔ آرڈرز، مصنوعات، اور سیٹنگز منظم کریں۔',
+                    });
           return (
-            <TouchableOpacity
+            <SpeechHighlight
               key={tab.id}
-              onPress={() => setActiveTab(tab.id as Tab)}
-              activeOpacity={0.85}
-              style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}
+              active={activeHighlightId === highlightId || isActive}
+              style={styles.tabHighlight}
+              highlightStyle={styles.tabHighlightBorder}
             >
-              <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
-              <Text style={[styles.tabLabel, { fontSize: r.fs(10.5), color: isActive ? '#0d5c4b' : '#9ca3af' }]}>{t(tab.label)}</Text>
-              {showActiveMarker && <View style={styles.tabDot} />}
-            </TouchableOpacity>
+              <TouchableOpacity
+                accessible
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={t(tab.label)}
+                accessibilityHint={
+                  tab.id === 'chat'
+                    ? t({ english: 'Double tap to open chat', urdu: 'چیٹ کھولنے کے لیے ڈبل ٹیپ کریں' })
+                    : t({ english: 'Double tap to open this tab', urdu: 'یہ ٹیب کھولنے کے لیے ڈبل ٹیپ کریں' })
+                }
+                onPress={() => {
+                  setActiveTab(tab.id as Tab);
+                  void speakVoiceGuidance(announceText, highlightId);
+                }}
+                activeOpacity={0.85}
+                style={[styles.tabBtn, showActiveMarker && styles.tabBtnActive]}
+              >
+                <MaterialCommunityIcons name={tab.icon as any} size={r.fs(21)} color={isActive ? '#0d5c4b' : '#9ca3af'} />
+                <Text style={[styles.tabLabel, { fontSize: r.fs(10.5), color: isActive ? '#0d5c4b' : '#9ca3af' }]}>{t(tab.label)}</Text>
+                {showActiveMarker && <View style={styles.tabDot} />}
+              </TouchableOpacity>
+            </SpeechHighlight>
           );
         })}
       </View>
@@ -1483,6 +1799,7 @@ export function FarmerDashboard({
             textLanguage={textLanguage}
             r={r}
             bottomInset={chatBottomInset}
+            keyboardInset={keyboardInset}
             onInputFocusChange={setIsChatInputFocused}
           />
         )}
@@ -1513,6 +1830,21 @@ const styles = StyleSheet.create({
       ios: { shadowColor: '#064e3b', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 16 },
       android: { elevation: 6 },
     }),
+  },
+  homeHeaderHighlight: {
+    marginBottom: 12,
+    position: 'relative',
+    zIndex: 5,
+  },
+  homeHeaderHighlightBorder: {
+    borderRadius: 34,
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    zIndex: 6,
   },
   headerGlowOne: {
     position: 'absolute',
@@ -1604,18 +1936,48 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   statItem: { flex: 1, alignItems: 'center' },
+  statHighlight: { flex: 1 },
+  statHighlightBorder: {
+    borderRadius: 18,
+  },
   statIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   statLabel: { fontSize: 11, color: '#6b7280' },
   statValue: { fontWeight: '900', color: '#111827', marginTop: 4 },
 
   sectionTitle: { fontSize: 18, fontWeight: '900', color: '#111827', marginTop: 18, marginBottom: 12 },
+  shopHeaderHighlight: {
+    marginBottom: 12,
+  },
+  shopHeaderHighlightBorder: {
+    borderRadius: 22,
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderWidth: 2,
+    borderColor: '#0d5c4b',
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  gridHighlight: { width: '48%', marginBottom: 12 },
+  gridHighlightBorder: {
+    borderRadius: 18,
+  },
+  toolsSectionHighlight: {
+    marginTop: 4,
+  },
+  toolsSectionHighlightBorder: {
+    borderRadius: 20,
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderWidth: 2,
+  },
   gridCard: {
-    width: '48%',
+    width: '100%',
     backgroundColor: '#ffffff',
     borderRadius: 18,
     padding: 14,
-    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#e6f4ee',
     shadowColor: '#000',
@@ -1635,6 +1997,17 @@ const styles = StyleSheet.create({
     marginTop: 6,
     borderWidth: 1,
     borderColor: 'rgba(245,158,11,0.22)',
+  },
+  promoHighlight: {
+    marginTop: 6,
+  },
+  promoHighlightBorder: {
+    borderRadius: 20,
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderWidth: 2,
   },
   promoInner: { gap: 10 },
   promoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1844,9 +2217,33 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
   },
+  shopCardHighlight: {
+    marginTop: 10,
+  },
+  shopCardHighlightBorder: {
+    borderRadius: 20,
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderWidth: 2,
+    borderColor: '#0d5c4b',
+  },
   marketplaceLoginHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   marketplaceLoginTitle: { color: '#0d5c4b', fontWeight: '800', flex: 1, fontSize: 14 },
   marketplaceLoginDesc: { color: '#4b5563', fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
+  shopButtonHighlight: {
+    marginTop: 0,
+  },
+  shopButtonHighlightBorder: {
+    borderRadius: 18,
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderWidth: 2,
+    borderColor: '#f9ce4e',
+  },
 
   // Chat body
   chatBody: { padding: 16, paddingTop: 8 },
@@ -2062,6 +2459,19 @@ const styles = StyleSheet.create({
       ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 16 },
       android: { elevation: 8 },
     }),
+  },
+  tabHighlight: {
+    flex: 1,
+    marginHorizontal: 1,
+  },
+  tabHighlightBorder: {
+    borderRadius: 18,
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderWidth: 2,
+    borderColor: '#0d5c4b',
   },
   tabBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 14 },
   tabBtnActive: { backgroundColor: 'rgba(13,92,75,0.08)' },

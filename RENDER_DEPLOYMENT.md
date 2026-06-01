@@ -92,12 +92,7 @@ FRONTEND_URL=https://your-frontend-domain.example
 API_URL=https://assan-kheti-backend.onrender.com
 ```
 
-Optional chatbot variables:
-
-```text
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_CHAT_MODEL=gpt-3.5-turbo
-```
+The chatbot uses Gemini via `GEMINI_API_KEY`.
 
 ## 5. Deploy
 

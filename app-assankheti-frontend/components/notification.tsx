@@ -25,17 +25,17 @@ export type NotificationItem = {
 
 export type TypeConfig = Record<string, { icon: React.ComponentProps<typeof Feather>['name']; bg: string; fg: string }>;
 
-function formatRelative(iso?: string): string {
+function formatRelative(iso: string | undefined, language: 'english' | 'urdu'): string {
   if (!iso) return '';
   const d = new Date(iso);
   const diff = Math.max(0, Date.now() - d.getTime());
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return language === 'urdu' ? 'ابھی' : 'now';
+  if (minutes < 60) return language === 'urdu' ? `${minutes} منٹ پہلے` : `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return language === 'urdu' ? `${hours} گھنٹے پہلے` : `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return language === 'urdu' ? `${days} دن پہلے` : `${days}d ago`;
 }
 
 function SwipeDismissCard({
@@ -188,14 +188,14 @@ export default function Notification({
 
     const load = async () => {
       const items = await listLocalNotifications(storageNamespaces);
-      setNotifs(
+          setNotifs(
         items.map((item) => ({
           id: item.notification_id,
           type: item.type,
           title: item.title_en,
           titleUrdu: item.title_ur,
           description: textLanguage === 'urdu' ? item.body_ur : item.body_en,
-          time: formatRelative(item.created_at),
+          time: formatRelative(item.created_at, textLanguage),
           isRead: item.read,
         }))
       );

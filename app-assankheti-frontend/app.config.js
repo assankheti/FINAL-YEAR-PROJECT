@@ -36,6 +36,14 @@ export default {
       package: 'com.assankheti.app',
       versionCode: 2,
       permissions: ['INTERNET'],
+      softwareKeyboardLayoutMode: 'resize',
+      intentFilters: [
+        {
+          action: 'VIEW',
+          data: [{ scheme: 'assankhetiapp' }],
+          category: ['BROWSABLE', 'DEFAULT'],
+        },
+      ],
       adaptiveIcon: {
         foregroundImage: './assets/images/logo-removebg.png',
         backgroundColor: '#E6F4FE',
@@ -54,6 +62,7 @@ export default {
     },
     plugins: [
       'expo-router',
+      'expo-localization',
       'expo-notifications',
       'expo-video',
       'expo-audio',

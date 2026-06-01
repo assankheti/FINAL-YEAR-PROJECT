@@ -16,6 +16,7 @@ from app.models.collections import (
     PAYMENTS_COLLECTION,
     PAYOUTS_COLLECTION,
     REFUNDS_COLLECTION,
+    WEBHOOK_LOGS_COLLECTION,
 )
 from app.schemas.stripe_schemas import (
     DisputeStatus,
@@ -47,6 +48,7 @@ async def _ensure_indexes() -> None:
     await db[REFUNDS_COLLECTION].create_index([("order_id", 1)])
     await db[DISPUTES_COLLECTION].create_index([("dispute_id", 1)], unique=True)
     await db[DISPUTES_COLLECTION].create_index([("order_id", 1)])
+    await db[WEBHOOK_LOGS_COLLECTION].create_index([("stripe_event_id", 1)], unique=True)
 
 
 class EscrowService:

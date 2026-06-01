@@ -1,8 +1,10 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useT } from '@/contexts/LanguageContext';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
 import {
+  AccessibilityInfo,
   Animated,
   Platform,
   ScrollView,
@@ -13,7 +15,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 export type CropId = 'rice' | 'wheat' | 'cotton' | 'sugarcane' | 'corn' | 'vegetables';
 
@@ -29,7 +33,7 @@ type Crop = {
 };
 
 const CROPS: Crop[] = [
-  { id: 'rice', name: 'Rice', urduName: 'چاو��', emoji: '🌾', icon: 'grain', available: true, color: '#059669', lightColor: '#d1fae5' },
+  { id: 'rice', name: 'Rice', urduName: 'چاول', emoji: '🌾', icon: 'grain', available: true, color: '#059669', lightColor: '#d1fae5' },
   { id: 'wheat', name: 'Wheat', urduName: 'گندم', emoji: '🌾', icon: 'barley', available: false, color: '#d97706', lightColor: '#fef3c7' },
   { id: 'cotton', name: 'Cotton', urduName: 'کپاس', emoji: '🌿', icon: 'flower-tulip', available: false, color: '#7c3aed', lightColor: '#ede9fe' },
   { id: 'sugarcane', name: 'Sugarcane', urduName: 'گنا', emoji: '🎋', icon: 'grass', available: false, color: '#0d9488', lightColor: '#ccfbf1' },
@@ -49,11 +53,19 @@ const useResponsive = () => {
 };
 
 export function CropSelection({ onContinue }: { onContinue: (selectedCrop: CropId) => void }) {
+  const { textLanguage } = useLanguage();
   const router = useRouter();
   const t = useT();
   const r = useResponsive();
   const [selectedCrop, setSelectedCrop] = useState<CropId | null>(null);
   const [sortAZ, setSortAZ] = useState(false);
+  const {
+    enabled: voiceGuidanceEnabled,
+    speak,
+    activeHighlightId,
+    startGuidedSequence,
+    cancelGuidedSequence,
+  } = useVoiceGuidance();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const cardAnims = useRef(CROPS.map(() => new Animated.Value(0))).current;
@@ -93,12 +105,56 @@ export function CropSelection({ onContinue }: { onContinue: (selectedCrop: CropI
 
   const selected = useMemo(() => CROPS.find((c) => c.id === selectedCrop) ?? null, [selectedCrop]);
 
-  const sortFn = (a: Crop, b: Crop) => (sortAZ ? a.name.localeCompare(b.name) : 0);
-  const availableCrops = useMemo(() => CROPS.filter((c) => c.available).sort(sortFn), [sortAZ]);
-  const comingSoonCrops = useMemo(() => CROPS.filter((c) => !c.available).sort(sortFn), [sortAZ]);
+  const sortFn = useCallback(
+    (a: Crop, b: Crop) => (sortAZ ? a.name.localeCompare(b.name) : 0),
+    [sortAZ]
+  );
+  const availableCrops = useMemo(() => CROPS.filter((c) => c.available).sort(sortFn), [sortFn]);
+  const comingSoonCrops = useMemo(() => CROPS.filter((c) => !c.available).sort(sortFn), [sortFn]);
 
   const maxW = Math.min(480, r.width);
   const cardSize = (r.width - r.wp(9) - 14) / 2; // 2 columns with gap
+  const lang: 'english' | 'urdu' = textLanguage === 'urdu' ? 'urdu' : 'english';
+  const cropTitle = (crop: Crop) => (lang === 'urdu' ? crop.urduName : crop.name);
+  const cropSubtitle = (crop: Crop) => (lang === 'urdu' ? crop.name : crop.urduName);
+
+  const guidedSteps = useMemo(
+    () => [
+      {
+        id: 'crop-selection.header',
+        text:
+          lang === 'urdu'
+            ? 'فصل کا انتخاب۔ وہ فصل منتخب کریں جسے آپ منظم کرنا چاہتے ہیں۔'
+            : 'Crop selection. Choose the crop you want to manage.',
+      },
+      ...availableCrops.map((crop) => ({
+        id: `crop.${crop.id}`,
+        text:
+          lang === 'urdu'
+            ? `${crop.urduName}۔ دستیاب فصل۔ منتخب کرنے کے لیے ڈبل ٹیپ کریں۔`
+            : `${crop.name}. Available crop. Double tap to select.`,
+      })),
+    ],
+    [availableCrops, lang]
+  );
+
+  const selectedAnnouncement = useCallback(
+    (crop: Crop) =>
+      lang === 'urdu'
+        ? `${crop.urduName} منتخب کر لی گئی۔`
+        : `${crop.name} selected.`,
+    [lang]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!voiceGuidanceEnabled) return undefined;
+      startGuidedSequence(guidedSteps);
+      return () => {
+        cancelGuidedSequence();
+      };
+    }, [cancelGuidedSequence, guidedSteps, startGuidedSequence, voiceGuidanceEnabled])
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8faf9' }}>
@@ -117,37 +173,43 @@ export function CropSelection({ onContinue }: { onContinue: (selectedCrop: CropI
             },
           ]}
         >
-          <Animated.View style={{ opacity: fadeAnim }}>
-            <View style={s.headerTopRow}>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Go back"
-                onPress={() => router.push('/user-type-selection')}
-                style={s.backBtn}
-                activeOpacity={0.7}
-              >
-                <Feather name="chevron-left" size={22} color="#ffffff" />
-              </TouchableOpacity>
+          <SpeechHighlight
+            active={activeHighlightId === 'crop-selection.header'}
+            style={s.headerHighlight}
+            highlightStyle={s.headerHighlightBorder}
+          >
+            <Animated.View style={{ opacity: fadeAnim }}>
+              <View style={s.headerTopRow}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                  onPress={() => router.push('/user-type-selection')}
+                  style={s.backBtn}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="chevron-left" size={22} color="#ffffff" />
+                </TouchableOpacity>
 
-              <View style={s.stepBadge}>
-                <Text style={s.stepText}>
-                  {t({ english: 'Step 4 of 4', urdu: '��رحلہ ۴ / ۴' })}
+                <View style={s.stepBadge}>
+                  <Text style={s.stepText}>
+                    {t({ english: 'Step 4 of 4', urdu: 'مرحلہ ۴ / ۴' })}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ marginTop: r.isSmall ? 12 : 18 }}>
+                <Text style={[s.headerTitle, { fontSize: r.fs(26) }]}>
+                  {t({ english: 'Select Your Crop', urdu: 'اپنی فصل منتخب کریں' })}
+                </Text>
+                <Text style={[s.headerHint, { fontSize: r.fs(13.5) }]}>
+                  {t({
+                    english: 'Choose the crop you want to manage',
+                    urdu: 'وہ فصل منتخب کریں جسے آپ منظم کرنا چاہتے ہیں',
+                  })}
                 </Text>
               </View>
-            </View>
-
-            <View style={{ marginTop: r.isSmall ? 12 : 18 }}>
-              <Text style={[s.headerTitle, { fontSize: r.fs(26) }]}>
-                {t({ english: 'Select Your Crop', urdu: 'اپنی فصل منتخب کریں' })}
-              </Text>
-              <Text style={[s.headerHint, { fontSize: r.fs(13.5) }]}>
-                {t({
-                  english: 'Choose the crop you want to manage',
-                  urdu: 'وہ فصل منتخب کریں جسے آپ منظم کرنا چاہتے ہیں',
-                })}
-              </Text>
-            </View>
-          </Animated.View>
+            </Animated.View>
+          </SpeechHighlight>
         </LinearGradient>
 
         {/* Crop grid */}
@@ -191,6 +253,8 @@ export function CropSelection({ onContinue }: { onContinue: (selectedCrop: CropI
               const index = CROPS.indexOf(crop);
               const isSelected = selectedCrop === crop.id;
               const anim = cardAnims[index];
+              const highlightId = `crop.${crop.id}`;
+              const isSpeaking = activeHighlightId === highlightId;
 
               return (
                 <Animated.View
@@ -204,50 +268,70 @@ export function CropSelection({ onContinue }: { onContinue: (selectedCrop: CropI
                     ],
                   }}
                 >
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    onPressIn={() => onPressIn(index)}
-                    onPressOut={() => onPressOut(index)}
-                    onPress={() => setSelectedCrop(crop.id)}
-                    style={[
-                      s.cropCard,
-                      { minHeight: r.isSmall ? 120 : 140 },
-                      isSelected && { borderColor: crop.color, backgroundColor: crop.lightColor + '60' },
-                    ]}
+                  <SpeechHighlight
+                    active={isSelected || isSpeaking}
+                    style={s.cropHighlight}
+                    highlightStyle={[s.cropHighlightBorder, { borderColor: crop.color }]}
                   >
-                    {isSelected && (
-                      <View style={[s.checkBadge, { backgroundColor: crop.color }]}>
-                        <Feather name="check" size={12} color="#ffffff" />
+                    <TouchableOpacity
+                      accessible
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelected }}
+                      accessibilityLabel={`${cropTitle(crop)}. ${cropSubtitle(crop)}`}
+                      accessibilityHint={
+                        lang === 'urdu'
+                          ? 'منتخب کرنے کے لیے ڈبل ٹیپ کریں'
+                          : 'Double tap to select this crop'
+                      }
+                      activeOpacity={1}
+                      onPressIn={() => onPressIn(index)}
+                      onPressOut={() => onPressOut(index)}
+                      onPress={() => {
+                        cancelGuidedSequence();
+                        setSelectedCrop(crop.id);
+                        void AccessibilityInfo.announceForAccessibility(selectedAnnouncement(crop));
+                        void speak(selectedAnnouncement(crop), highlightId);
+                      }}
+                      style={[
+                        s.cropCard,
+                        { minHeight: r.isSmall ? 120 : 140 },
+                        isSelected && { borderColor: crop.color, backgroundColor: crop.lightColor + '60' },
+                      ]}
+                    >
+                      {isSelected && (
+                        <View style={[s.checkBadge, { backgroundColor: crop.color }]}>
+                          <Feather name="check" size={12} color="#ffffff" />
+                        </View>
+                      )}
+
+                      <View
+                        style={[
+                          s.emojiCircle,
+                          {
+                            backgroundColor: isSelected ? crop.lightColor : '#f3f4f6',
+                            width: r.isSmall ? 48 : 56,
+                            height: r.isSmall ? 48 : 56,
+                            borderRadius: r.isSmall ? 14 : 16,
+                          },
+                        ]}
+                      >
+                        <Text style={{ fontSize: r.isSmall ? 24 : 28 }}>{crop.emoji}</Text>
                       </View>
-                    )}
 
-                    <View
-                      style={[
-                        s.emojiCircle,
-                        {
-                          backgroundColor: isSelected ? crop.lightColor : '#f3f4f6',
-                          width: r.isSmall ? 48 : 56,
-                          height: r.isSmall ? 48 : 56,
-                          borderRadius: r.isSmall ? 14 : 16,
-                        },
-                      ]}
-                    >
-                      <Text style={{ fontSize: r.isSmall ? 24 : 28 }}>{crop.emoji}</Text>
-                    </View>
-
-                    <Text
-                      style={[
-                        s.cropName,
-                        { fontSize: r.fs(14) },
-                        isSelected && { color: crop.color },
-                      ]}
-                    >
-                      {t({ english: crop.name, urdu: crop.urduName })}
-                    </Text>
-                    <Text style={[s.cropSub, { fontSize: r.fs(11) }]}>
-                      {t({ english: crop.urduName, urdu: crop.name })}
-                    </Text>
-                  </TouchableOpacity>
+                      <Text
+                        style={[
+                          s.cropName,
+                          { fontSize: r.fs(14) },
+                          isSelected && { color: crop.color },
+                        ]}
+                      >
+                        {t({ english: crop.name, urdu: crop.urduName })}
+                      </Text>
+                      <Text style={[s.cropSub, { fontSize: r.fs(11) }]}>
+                        {t({ english: crop.urduName, urdu: crop.name })}
+                      </Text>
+                    </TouchableOpacity>
+                  </SpeechHighlight>
                 </Animated.View>
               );
             })}
@@ -432,6 +516,17 @@ const s = StyleSheet.create({
     lineHeight: 20,
     letterSpacing: 0.1,
   },
+  headerHighlight: {
+    marginBottom: 2,
+  },
+  headerHighlightBorder: {
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderRadius: 28,
+    borderColor: 'rgba(255,255,255,0.95)',
+  },
 
   /* Section */
   sectionRow: {
@@ -499,6 +594,17 @@ const s = StyleSheet.create({
     }),
   },
   cropCardDisabled: { opacity: 0.55 },
+  cropHighlight: {
+    marginBottom: 0,
+  },
+  cropHighlightBorder: {
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderRadius: 24,
+    borderWidth: 2,
+  },
 
   /* Badges */
   soonBadge: {

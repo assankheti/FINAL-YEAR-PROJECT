@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<coverage generated="1780281606203" clover="3.2.0">
+  <project timestamp="1780281606203" name="All files">
+    <metrics statements="142" coveredstatements="142" conditionals="63" coveredconditionals="57" methods="40" coveredmethods="40" elements="245" coveredelements="239" complexity="0" loc="142" ncloc="142" packages="3" files="4" classes="4"/>
+    <package name="components">
+      <metrics statements="15" coveredstatements="15" conditionals="10" coveredconditionals="10" methods="5" coveredmethods="5"/>
+      <file name="SpeechHighlight.tsx" path="/Users/yaqoob/Desktop/FINAL-YEAR-PROJECT/app-assankheti-frontend/components/SpeechHighlight.tsx">
+        <metrics statements="10" coveredstatements="10" conditionals="4" coveredconditionals="4" methods="3" coveredmethods="3"/>
+        <line num="15" count="2" type="stmt"/>
+        <line num="16" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="18" count="2" type="stmt"/>
+        <line num="19" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="32" count="2" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="44" count="2" type="stmt"/>
+        <line num="52" count="1" type="stmt"/>
+      </file>
+      <file name="TalkBackButton.tsx" path="/Users/yaqoob/Desktop/FINAL-YEAR-PROJECT/app-assankheti-frontend/components/TalkBackButton.tsx">
+        <metrics statements="5" coveredstatements="5" conditionals="6" coveredconditionals="6" methods="2" coveredmethods="2"/>
+        <line num="9" count="3" type="stmt"/>
+        <line num="10" count="3" type="stmt"/>
+        <line num="12" count="3" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="30" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="contexts">
+      <metrics statements="79" coveredstatements="79" conditionals="32" coveredconditionals="27" methods="24" coveredmethods="24"/>
+      <file name="VoiceGuidanceContext.tsx" path="/Users/yaqoob/Desktop/FINAL-YEAR-PROJECT/app-assankheti-frontend/contexts/VoiceGuidanceContext.tsx">
+        <metrics statements="79" coveredstatements="79" conditionals="32" coveredconditionals="27" methods="24" coveredmethods="24"/>
+        <line num="9" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="48" count="32" type="stmt"/>
+        <line num="49" count="32" type="stmt"/>
+        <line num="50" count="32" type="stmt"/>
+        <line num="51" count="32" type="stmt"/>
+        <line num="52" count="32" type="stmt"/>
+        <line num="53" count="32" type="stmt"/>
+        <line num="54" count="32" type="stmt"/>
+        <line num="55" count="32" type="stmt"/>
+        <line num="57" count="32" type="stmt"/>
+        <line num="58" count="8" type="stmt"/>
+        <line num="59" count="8" type="stmt"/>
+        <line num="60" count="8" type="stmt"/>
+        <line num="61" count="8" type="stmt"/>
+        <line num="67" count="8" type="cond" truecount="1" falsecount="1"/>
+        <line num="69" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="70" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="71" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="73" count="8" type="cond" truecount="1" falsecount="1"/>
+        <line num="77" count="8" type="stmt"/>
+        <line num="78" count="8" type="stmt"/>
+        <line num="82" count="32" type="stmt"/>
+        <line num="83" count="8" type="stmt"/>
+        <line num="84" count="8" type="stmt"/>
+        <line num="85" count="8" type="stmt"/>
+        <line num="88" count="32" type="stmt"/>
+        <line num="89" count="6" type="stmt"/>
+        <line num="90" count="6" type="stmt"/>
+        <line num="93" count="32" type="stmt"/>
+        <line num="95" count="6" type="stmt"/>
+        <line num="96" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="97" count="6" type="stmt"/>
+        <line num="98" count="6" type="stmt"/>
+        <line num="107" count="32" type="stmt"/>
+        <line num="108" count="1" type="stmt"/>
+        <line num="109" count="1" type="stmt"/>
+        <line num="112" count="32" type="stmt"/>
+        <line num="113" count="1" type="stmt"/>
+        <line num="114" count="1" type="stmt"/>
+        <line num="117" count="32" type="stmt"/>
+        <line num="119" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="120" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="121" count="3" type="stmt"/>
+        <line num="125" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="126" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="132" count="32" type="stmt"/>
+        <line num="133" count="1" type="stmt"/>
+        <line num="134" count="1" type="stmt"/>
+        <line num="137" count="32" type="stmt"/>
+        <line num="138" count="1" type="stmt"/>
+        <line num="139" count="1" type="stmt"/>
+        <line num="142" count="32" type="stmt"/>
+        <line num="143" count="1" type="stmt"/>
+        <line num="146" count="32" type="stmt"/>
+        <line num="148" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="149" count="1" type="stmt"/>
+        <line num="158" count="32" type="stmt"/>
+        <line num="160" count="1" type="stmt"/>
+        <line num="169" count="32" type="stmt"/>
+        <line num="170" count="1" type="stmt"/>
+        <line num="171" count="1" type="stmt"/>
+        <line num="174" count="32" type="stmt"/>
+        <line num="176" count="3" type="cond" truecount="4" falsecount="0"/>
+        <line num="177" count="1" type="stmt"/>
+        <line num="179" count="1" type="stmt"/>
+        <line num="180" count="1" type="stmt"/>
+        <line num="181" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="182" count="2" type="stmt"/>
+        <line num="183" count="2" type="stmt"/>
+        <line num="188" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="189" count="1" type="stmt"/>
+        <line num="196" count="32" type="stmt"/>
+        <line num="197" count="30" type="stmt"/>
+        <line num="235" count="32" type="stmt"/>
+        <line num="239" count="33" type="stmt"/>
+        <line num="240" count="32" type="cond" truecount="2" falsecount="0"/>
+        <line num="241" count="30" type="stmt"/>
+      </file>
+    </package>
+    <package name="lib.voiceGuidance">
+      <metrics statements="48" coveredstatements="48" conditionals="21" coveredconditionals="20" methods="11" coveredmethods="11"/>
+      <file name="VoiceGuidanceService.ts" path="/Users/yaqoob/Desktop/FINAL-YEAR-PROJECT/app-assankheti-frontend/lib/voiceGuidance/VoiceGuidanceService.ts">
+        <metrics statements="48" coveredstatements="48" conditionals="21" coveredconditionals="20" methods="11" coveredmethods="11"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="28" count="23" type="stmt"/>
+        <line num="29" count="23" type="cond" truecount="2" falsecount="0"/>
+        <line num="31" count="22" type="stmt"/>
+        <line num="32" count="22" type="stmt"/>
+        <line num="33" count="22" type="stmt"/>
+        <line num="34" count="22" type="stmt"/>
+        <line num="35" count="22" type="stmt"/>
+        <line num="37" count="22" type="stmt"/>
+        <line num="38" count="22" type="stmt"/>
+        <line num="39" count="22" type="stmt"/>
+        <line num="45" count="9" type="cond" truecount="2" falsecount="0"/>
+        <line num="46" count="8" type="stmt"/>
+        <line num="47" count="8" type="stmt"/>
+        <line num="48" count="8" type="stmt"/>
+        <line num="51" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="52" count="1" type="stmt"/>
+        <line num="53" count="1" type="stmt"/>
+        <line num="54" count="1" type="stmt"/>
+        <line num="57" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="58" count="2" type="stmt"/>
+        <line num="59" count="2" type="stmt"/>
+        <line num="60" count="2" type="stmt"/>
+        <line num="67" count="2" type="stmt"/>
+        <line num="68" count="2" type="stmt"/>
+        <line num="72" count="1" type="stmt"/>
+        <line num="76" count="34" type="stmt"/>
+        <line num="77" count="34" type="stmt"/>
+        <line num="78" count="34" type="stmt"/>
+        <line num="82" count="2" type="cond" truecount="3" falsecount="1"/>
+        <line num="83" count="2" type="stmt"/>
+        <line num="84" count="2" type="stmt"/>
+        <line num="88" count="3" type="cond" truecount="4" falsecount="0"/>
+        <line num="89" count="2" type="stmt"/>
+        <line num="90" count="2" type="stmt"/>
+        <line num="91" count="2" type="stmt"/>
+        <line num="95" count="45" type="cond" truecount="2" falsecount="0"/>
+        <line num="96" count="21" type="stmt"/>
+        <line num="98" count="45" type="stmt"/>
+        <line num="99" count="45" type="stmt"/>
+        <line num="100" count="45" type="cond" truecount="2" falsecount="0"/>
+        <line num="101" count="11" type="stmt"/>
+        <line num="106" count="1" type="stmt"/>
+      </file>
+    </package>
+  </project>
+</coverage>

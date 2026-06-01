@@ -6,6 +6,8 @@ import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, Touc
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { listAllProducts, normalizeProductImageUrl, productFallbackImage, type ProductCategory, type ProductListing } from '@/lib/productsApi';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 type CategoryKey = 'grains' | 'veggies' | 'fruits' | 'others' | 'rice';
 
@@ -66,6 +68,7 @@ function toCardProduct(product: ProductListing): Product {
 export default function CategoryProductsPage() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { textLanguage } = useLanguage();
 
   const categoryParam = normalizeParam(params?.category)?.toLowerCase();
   const category: CategoryKey =
@@ -84,6 +87,17 @@ export default function CategoryProductsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const categoryData = CATEGORY_INFO[category];
+
+  usePageVoiceGuidance(
+    {
+      english: `${categoryData.title} products`,
+      urdu: `${categoryData.titleUrdu} مصنوعات`,
+    },
+    {
+      english: 'Search products, review farmer names, and open a product to continue.',
+      urdu: 'مصنوعات تلاش کریں، کسانوں کے نام دیکھیں، اور آگے بڑھنے کے لیے پروڈکٹ کھولیں۔',
+    }
+  );
 
   useEffect(() => {
     let cancelled = false;

@@ -17,6 +17,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 
 type ProfileForm = {
   name: string;
@@ -36,6 +37,14 @@ export default function FarmerProfileEditPage() {
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
+
+  usePageVoiceGuidance(
+    { english: 'Edit profile', urdu: 'پروفائل میں ترمیم' },
+    {
+      english: 'Update your name, phone number, farm location, farm size, and primary crop, then save the changes.',
+      urdu: 'اپنا نام، فون نمبر، فارم کا مقام، فارم کا سائز، اور بنیادی فصل اپ ڈیٹ کریں، پھر تبدیلیاں محفوظ کریں۔',
+    }
+  );
 
   const defaultForm = useMemo<ProfileForm>(
     () => ({

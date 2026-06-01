@@ -4,6 +4,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 
+import requests
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -11,17 +12,11 @@ from pydantic import BaseModel
 from app.db.db_connection import get_database
 from app.models.collections import CHAT_MESSAGES_COLLECTION
 
-try:
-    from openai import OpenAI
-except Exception:
-    OpenAI = None
-
 load_dotenv()
 
 router = APIRouter()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-3.5-turbo")
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY and OpenAI else None
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 db = get_database()
 logger = logging.getLogger(__name__)
 
@@ -451,6 +446,68 @@ def build_llm_messages(history_docs: list[dict], user_message: str) -> list[dict
     return messages
 
 
+def _extract_gemini_text(body: dict) -> str:
+    candidates = body.get("candidates") or []
+    if not candidates:
+        return ""
+
+    parts = (((candidates[0] or {}).get("content") or {}).get("parts") or [])
+    return "\n".join(
+        str(part.get("text", "")).strip()
+        for part in parts
+        if isinstance(part, dict) and part.get("text")
+    ).strip()
+
+
+def generate_gemini_reply(messages: list[dict]) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    system_text = SYSTEM_PROMPT
+    contents = []
+    for message in messages:
+        role = message.get("role")
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "system":
+            system_text = content
+            continue
+        contents.append(
+            {
+                "role": "model" if role == "assistant" else "user",
+                "parts": [{"text": content}],
+            }
+        )
+
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+        headers={
+            "x-goog-api-key": GEMINI_API_KEY,
+            "Content-Type": "application/json",
+        },
+        json={
+            "system_instruction": {"parts": [{"text": system_text}]},
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.4,
+                "maxOutputTokens": 420,
+            },
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    text = _extract_gemini_text(response.json())
+    if not text:
+        raise RuntimeError("Gemini returned no chatbot text.")
+    return text
+
+
+def generate_ai_reply(messages: list[dict]) -> str:
+    return generate_gemini_reply(messages)
+
+
 async def save_chat_message(
     mobile_id: str,
     session_id: str,
@@ -520,8 +577,6 @@ async def upsert_chat_session(
         "last_message": safe_last_message,
         "message_count": int(message_count),
     }
-    if is_first and safe_title:
-        set_values["title"] = safe_title
 
     await db[CHAT_SESSIONS_COLLECTION].update_one(
         {"mobile_id": mobile_id, "session_id": session_id},
@@ -716,21 +771,11 @@ async def chat(req: ChatRequest):
         return ChatResponse(reply=reply, session_id=session_id)
 
     messages = build_llm_messages(history_docs, message)
-    raw_reply = ""
-
-    if client is None:
+    try:
+        raw_reply = generate_ai_reply(messages)
+    except Exception:
+        logger.exception("chat_ai_generation_failed provider=gemini")
         raw_reply = build_service_unavailable_reply(language_style)
-    else:
-        try:
-            response = client.chat.completions.create(
-                model=OPENAI_CHAT_MODEL,
-                messages=messages,
-                max_tokens=420,
-                temperature=0.4,
-            )
-            raw_reply = response.choices[0].message.content or ""
-        except Exception:
-            raw_reply = build_service_unavailable_reply(language_style)
 
     reply = clean_reply(raw_reply) or build_service_unavailable_reply(language_style)
 

@@ -1,7 +1,9 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   Animated,
   Platform,
   ScrollView,
@@ -12,7 +14,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 type UserType = 'farmer' | 'simple-user' | 'businessman';
 
@@ -45,6 +49,14 @@ export function UserTypeSelection({
   const [selectedType, setSelectedType] = useState<UserType | null>(null);
   const cardAnims = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
   const scaleAnims = useRef([0, 1, 2].map(() => new Animated.Value(1))).current;
+
+  const {
+    enabled: voiceGuidanceEnabled,
+    speak,
+    activeHighlightId,
+    startGuidedSequence,
+    cancelGuidedSequence,
+  } = useVoiceGuidance();
 
   useEffect(() => {
     fadeAnim.setValue(0);
@@ -107,9 +119,14 @@ export function UserTypeSelection({
         urdu: 'اپنا کردار منتخب کریں اور شروع کریں',
         english: 'Choose your role to personalize your experience',
       },
+      whoVoice: {
+        urdu: 'اپنا کردار منتخب کریں۔ ہم آپ کو دستیاب اختیارات بتائیں گے۔',
+        english: 'Select your role. We will guide you through the available options.',
+      },
       continueAs: { urdu: 'جاری رکھیں بطور', english: 'Continue as' },
       selectRole: { urdu: 'کردار منتخب کریں', english: 'Select your role' },
       step: { urdu: 'مرحلہ ۳ / ۴', english: 'Step 3 of 4' },
+      selected: { urdu: 'منتخب کر لیا گیا', english: 'Selected' },
     }),
     []
   );
@@ -188,6 +205,52 @@ export function UserTypeSelection({
   const iconSize = r.isSmall ? 26 : 30;
   const cardPad = r.isSmall ? 14 : 18;
 
+  const guidedSteps = useMemo(
+    () =>
+      [
+        {
+          id: 'user-type.header',
+          text:
+            lang === 'urdu'
+              ? `${translations.who.urdu}۔ ${translations.whoVoice.urdu}`
+              : `${translations.who.english}. ${translations.whoVoice.english}`,
+        },
+        ...userTypes.map((type) => ({
+          id: `user-type.${type.id}`,
+          text:
+            lang === 'urdu'
+              ? `${type.title.urdu}۔ ${type.subtitle.urdu}`
+              : `${type.title.english}. ${type.subtitle.english}`,
+        })),
+      ],
+    [
+      lang,
+      userTypes,
+      translations.who.english,
+      translations.who.urdu,
+      translations.whoVoice.english,
+      translations.whoVoice.urdu,
+    ]
+  );
+
+  const getCardAnnouncement = useCallback(
+    (type: (typeof userTypes)[number]) =>
+      lang === 'urdu'
+        ? `${type.title.urdu} ${translations.selected.urdu}۔ ${type.subtitle.urdu}`
+        : `${type.title.english} ${translations.selected.english}. ${type.subtitle.english}`,
+    [lang, translations.selected.english, translations.selected.urdu]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!voiceGuidanceEnabled) return undefined;
+      startGuidedSequence(guidedSteps);
+      return () => {
+        cancelGuidedSequence();
+      };
+    }, [cancelGuidedSequence, guidedSteps, startGuidedSequence, voiceGuidanceEnabled])
+  );
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8faf9' }}>
       <View style={s.screen}>
@@ -205,51 +268,54 @@ export function UserTypeSelection({
             },
           ]}
         >
-          <Animated.View style={{ opacity: fadeAnim }}>
-            {/* Top row: back + step */}
-            <View style={s.headerTopRow}>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Go back"
-                onPress={() => router.push('/language-selection')}
-                style={s.backBtn}
-                activeOpacity={0.7}
-              >
-                <Feather name="chevron-left" size={22} color="#ffffff" />
-              </TouchableOpacity>
+          <SpeechHighlight
+            active={activeHighlightId === 'user-type.header'}
+            style={s.headerHighlight}
+            highlightStyle={s.headerHighlightBorder}
+          >
+            <Animated.View style={{ opacity: fadeAnim }}>
+              <View style={s.headerTopRow}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                  onPress={() => router.push('/language-selection')}
+                  style={s.backBtn}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="chevron-left" size={22} color="#ffffff" />
+                </TouchableOpacity>
 
-              <View style={s.stepBadge}>
-                <Text style={[s.stepText, isUrdu(t(translations.step)) && { fontFamily: urduFont() }]}>
-                  {t(translations.step)}
+                <View style={s.stepBadge}>
+                  <Text style={[s.stepText, isUrdu(t(translations.step)) && { fontFamily: urduFont() }]}>
+                    {t(translations.step)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ marginTop: r.isSmall ? 12 : 18 }}>
+                <Text
+                  style={[
+                    s.headerTitle,
+                    { fontSize: r.fs(28) },
+                    isUrdu(t(translations.who)) && { fontFamily: urduFont() },
+                  ]}
+                >
+                  {t(translations.who)}
+                </Text>
+                <Text
+                  style={[
+                    s.headerHint,
+                    { fontSize: r.fs(14) },
+                    isUrdu(t(translations.whoHint)) && { fontFamily: urduFont() },
+                  ]}
+                >
+                  {t(translations.whoHint)}
                 </Text>
               </View>
-            </View>
-
-            {/* Title */}
-            <View style={{ marginTop: r.isSmall ? 12 : 18 }}>
-              <Text
-                style={[
-                  s.headerTitle,
-                  { fontSize: r.fs(28) },
-                  isUrdu(t(translations.who)) && { fontFamily: urduFont() },
-                ]}
-              >
-                {t(translations.who)}
-              </Text>
-              <Text
-                style={[
-                  s.headerHint,
-                  { fontSize: r.fs(14) },
-                  isUrdu(t(translations.whoHint)) && { fontFamily: urduFont() },
-                ]}
-              >
-                {t(translations.whoHint)}
-              </Text>
-            </View>
-          </Animated.View>
+            </Animated.View>
+          </SpeechHighlight>
         </LinearGradient>
 
-        {/* ── Cards ── */}
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={[
@@ -270,6 +336,8 @@ export function UserTypeSelection({
           {userTypes.map((type, index) => {
             const isSelected = selectedType === type.id;
             const anim = cardAnims[index];
+            const highlightId = `user-type.${type.id}`;
+            const isSpeaking = activeHighlightId === highlightId;
 
             return (
               <Animated.View
@@ -282,129 +350,143 @@ export function UserTypeSelection({
                   ],
                 }}
               >
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPressIn={() => onPressIn(index)}
-                  onPressOut={() => onPressOut(index)}
-                  onPress={() => setSelectedType(type.id)}
-                  style={[
-                    s.card,
-                    { padding: cardPad },
-                    isSelected && {
-                      borderColor: type.accentBorder,
-                      backgroundColor: type.accentLight + '40',
-                    },
+                <SpeechHighlight
+                  active={isSelected || isSpeaking}
+                  style={s.cardHighlight}
+                  highlightStyle={[
+                    s.cardHighlightBorder,
+                    { borderColor: isSelected ? type.accentBorder : '#10b981' },
                   ]}
                 >
-                  {/* Selected indicator line */}
-                  {isSelected && (
-                    <View
-                      style={[
-                        s.selectedLine,
-                        { backgroundColor: type.accentBorder },
-                      ]}
-                    />
-                  )}
+                  <TouchableOpacity
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={
+                      lang === 'urdu'
+                        ? `${type.title.urdu}۔ ${type.subtitle.urdu}`
+                        : `${type.title.english}. ${type.subtitle.english}`
+                    }
+                    accessibilityHint={
+                      lang === 'urdu'
+                        ? 'منتخب کرنے کے لیے ڈبل ٹیپ کریں'
+                        : 'Double tap to select this role'
+                    }
+                    activeOpacity={1}
+                    onPressIn={() => onPressIn(index)}
+                    onPressOut={() => onPressOut(index)}
+                    onPress={() => {
+                      cancelGuidedSequence();
+                      setSelectedType(type.id);
+                      void AccessibilityInfo.announceForAccessibility(getCardAnnouncement(type));
+                      void speak(getCardAnnouncement(type), highlightId);
+                    }}
+                    style={[
+                      s.card,
+                      { padding: cardPad },
+                      isSelected && {
+                        borderColor: type.accentBorder,
+                        backgroundColor: type.accentLight + '40',
+                      },
+                    ]}
+                  >
+                    {isSelected && (
+                      <View style={[s.selectedLine, { backgroundColor: type.accentBorder }]} />
+                    )}
 
-                  <View style={s.cardRow}>
-                    {/* Icon */}
-                    <LinearGradient
-                      colors={[type.gradient[0], type.gradient[1]]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={[
-                        s.iconBox,
-                        {
-                          width: r.isSmall ? 52 : 60,
-                          height: r.isSmall ? 52 : 60,
-                          borderRadius: r.isSmall ? 15 : 18,
-                        },
-                        isSelected && s.iconBoxSelected,
-                      ]}
-                    >
-                      {type.icon(iconSize)}
-                    </LinearGradient>
-
-                    {/* Text content */}
-                    <View style={{ flex: 1 }}>
-                      <View style={s.cardTopRow}>
-                        <Text
-                          style={[
-                            s.cardTitle,
-                            { fontSize: r.fs(17) },
-                            isUrdu(t(type.title)) && { fontFamily: urduFont() },
-                          ]}
-                        >
-                          {t(type.title)}
-                        </Text>
-
-                        {/* Radio / Check */}
-                        <View
-                          style={[
-                            s.radioOuter,
-                            isSelected && {
-                              borderColor: type.accentBorder,
-                              backgroundColor: type.accentBorder,
-                            },
-                          ]}
-                        >
-                          {isSelected && (
-                            <Feather name="check" size={13} color="#ffffff" />
-                          )}
-                        </View>
-                      </View>
-
-                      <Text
+                    <View style={s.cardRow}>
+                      <LinearGradient
+                        colors={[type.gradient[0], type.gradient[1]]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
                         style={[
-                          s.cardSubtitle,
-                          { fontSize: r.fs(12.5) },
-                          isUrdu(t(type.subtitle)) && { fontFamily: urduFont() },
+                          s.iconBox,
+                          {
+                            width: r.isSmall ? 52 : 60,
+                            height: r.isSmall ? 52 : 60,
+                            borderRadius: r.isSmall ? 15 : 18,
+                          },
+                          isSelected && s.iconBoxSelected,
                         ]}
-                        numberOfLines={2}
                       >
-                        {t(type.subtitle)}
-                      </Text>
+                        {type.icon(iconSize)}
+                      </LinearGradient>
 
-                      {/* Feature chips */}
-                      <View style={s.featureRow}>
-                        {type.features[lang].map((feat, i) => (
-                          <View
-                            key={i}
+                      <View style={{ flex: 1 }}>
+                        <View style={s.cardTopRow}>
+                          <Text
                             style={[
-                              s.featureChip,
+                              s.cardTitle,
+                              { fontSize: r.fs(17) },
+                              isUrdu(t(type.title)) && { fontFamily: urduFont() },
+                            ]}
+                          >
+                            {t(type.title)}
+                          </Text>
+
+                          <View
+                            style={[
+                              s.radioOuter,
                               isSelected && {
-                                backgroundColor: type.accentLight,
-                                borderColor: type.accentMid,
+                                borderColor: type.accentBorder,
+                                backgroundColor: type.accentBorder,
                               },
                             ]}
                           >
-                            <Feather
-                              name={type.featureIcons[i]}
-                              size={10}
-                              color={isSelected ? type.accentText : '#9ca3af'}
-                            />
-                            <Text
+                            {isSelected && <Feather name="check" size={13} color="#ffffff" />}
+                          </View>
+                        </View>
+
+                        <Text
+                          style={[
+                            s.cardSubtitle,
+                            { fontSize: r.fs(12.5) },
+                            isUrdu(t(type.subtitle)) && { fontFamily: urduFont() },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {t(type.subtitle)}
+                        </Text>
+
+                        <View style={s.featureRow}>
+                          {type.features[lang].map((feat, i) => (
+                            <View
+                              key={i}
                               style={[
-                                s.featureText,
-                                { fontSize: r.fs(10.5) },
-                                isSelected && { color: type.accentText },
-                                isUrdu(feat) && { fontFamily: urduFont() },
+                                s.featureChip,
+                                isSelected && {
+                                  backgroundColor: type.accentLight,
+                                  borderColor: type.accentMid,
+                                },
                               ]}
                             >
-                              {feat}
-                            </Text>
-                          </View>
-                        ))}
+                              <Feather
+                                name={type.featureIcons[i]}
+                                size={10}
+                                color={isSelected ? type.accentText : '#9ca3af'}
+                              />
+                              <Text
+                                style={[
+                                  s.featureText,
+                                  { fontSize: r.fs(10.5) },
+                                  isSelected && { color: type.accentText },
+                                  isUrdu(feat) && { fontFamily: urduFont() },
+                                ]}
+                              >
+                                {feat}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
                       </View>
                     </View>
-                  </View>
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                </SpeechHighlight>
               </Animated.View>
             );
           })}
         </ScrollView>
 
-        {/* ── Bottom CTA ── */}
         <View
           style={[
             s.bottomBar,
@@ -417,7 +499,6 @@ export function UserTypeSelection({
             },
           ]}
         >
-          {/* Subtle divider */}
           <View style={s.divider} />
 
           <TouchableOpacity
@@ -437,9 +518,7 @@ export function UserTypeSelection({
               style={[s.primaryBtnGradient, { minHeight: r.isSmall ? 52 : 58 }]}
             >
               {selectedType && (
-                <View style={s.btnIconCircle}>
-                  {selectedUser!.icon(18)}
-                </View>
+                <View style={s.btnIconCircle}>{selectedUser!.icon(18)}</View>
               )}
               <Text
                 style={[
@@ -468,7 +547,6 @@ export function UserTypeSelection({
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f8faf9' },
 
-  /* ── Header ── */
   header: {
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
@@ -523,13 +601,33 @@ const s = StyleSheet.create({
     lineHeight: 20,
     letterSpacing: 0.1,
   },
+  headerHighlight: {
+    marginBottom: 2,
+  },
+  headerHighlightBorder: {
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderRadius: 28,
+    borderColor: 'rgba(255,255,255,0.95)',
+  },
 
-  /* ── Content ── */
   content: {
     flexGrow: 1,
   },
 
-  /* ── Card ── */
+  cardHighlight: {
+    marginBottom: 0,
+  },
+  cardHighlightBorder: {
+    borderRadius: 24,
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderWidth: 2,
+  },
   card: {
     borderRadius: 20,
     borderWidth: 1.5,
@@ -594,8 +692,6 @@ const s = StyleSheet.create({
     lineHeight: 18,
     letterSpacing: 0.1,
   },
-
-  /* ── Features ── */
   featureRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -618,8 +714,6 @@ const s = StyleSheet.create({
     color: '#6b7280',
     letterSpacing: 0.1,
   },
-
-  /* ── Radio ── */
   radioOuter: {
     width: 24,
     height: 24,
@@ -631,8 +725,6 @@ const s = StyleSheet.create({
     flexShrink: 0,
     backgroundColor: '#f9fafb',
   },
-
-  /* ── Bottom bar ── */
   bottomBar: {
     paddingTop: 4,
   },
