@@ -8,6 +8,8 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import GreenHeader from '@/components/GreenHeader';
 import { SpeechHighlight } from '@/components/SpeechHighlight';
@@ -172,6 +174,49 @@ export default function SmartBudgetForm() {
   const [loadingPesticides, setLoadingPesticides] = useState(true);
   const [loadingSeeds, setLoadingSeeds] = useState(true);
 
+  const DROPDOWN_CACHE_KEY = 'smart-budget-dropdown-cache-v1';
+
+  const saveDropdownCache = async (cacheData: {
+    fertilizers: ItemData[];
+    pesticides: ItemData[];
+    seeds: ItemData[];
+  }) => {
+    try {
+      await AsyncStorage.setItem(DROPDOWN_CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.warn('Failed to save smart budget cache', error);
+    }
+  };
+
+  const loadDropdownCache = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(DROPDOWN_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const hasData =
+        Array.isArray(parsed?.fertilizers) ||
+        Array.isArray(parsed?.pesticides) ||
+        Array.isArray(parsed?.seeds);
+      if (!hasData) return null;
+
+      const cachedData = {
+        fertilizers: parsed.fertilizers ?? [],
+        pesticides: parsed.pesticides ?? [],
+        seeds: parsed.seeds ?? [],
+      };
+      setAvailableFertilizers(cachedData.fertilizers);
+      setAvailablePesticides(cachedData.pesticides);
+      setAvailableSeeds(cachedData.seeds);
+      setLoadingFertilizers(false);
+      setLoadingPesticides(false);
+      setLoadingSeeds(false);
+      return cachedData;
+    } catch (error) {
+      console.warn('Failed to load smart budget cache', error);
+      return null;
+    }
+  };
+
   const T = useMemo(() => {
     const isUrdu = textLanguage === 'urdu';
     return {
@@ -281,33 +326,127 @@ export default function SmartBudgetForm() {
     }
   }, [params.selectedCrop]);
 
-  // Fetch data from APIs
+  // Fetch data from APIs and cache results for offline dropdown use
   useEffect(() => {
+    let mounted = true;
+    let cachedDropdowns = {
+      fertilizers: [] as ItemData[],
+      pesticides: [] as ItemData[],
+      seeds: [] as ItemData[],
+    };
+    const lastConnectionStatus = { current: false };
+
     const fetchData = async () => {
+      if (!mounted) return;
+
+      setLoadingFertilizers(true);
+      setLoadingPesticides(true);
+      setLoadingSeeds(true);
+
+      const newFertilizers: ItemData[] = [];
+      const newPesticides: ItemData[] = [];
+      const newSeeds: ItemData[] = [];
+      let fetchedAny = false;
+
       try {
-        setLoadingFertilizers(true);
         const fertRes = await fetch(`${API_BASE}/api/v1/fertilizer/all?limit=100`);
         const fertData = await fertRes.json();
-        if (fertData.status === 'success') setAvailableFertilizers(fertData.data);
+        if (fertData.status === 'success' && Array.isArray(fertData.data)) {
+          newFertilizers.push(...fertData.data);
+          fetchedAny = true;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch fertilizers', error);
+      }
 
-        setLoadingPesticides(true);
+      try {
         const pestRes = await fetch(`${API_BASE}/api/v1/pesticide/all?limit=100`);
         const pestData = await pestRes.json();
-        if (pestData.status === 'success') setAvailablePesticides(pestData.data);
+        if (pestData.status === 'success' && Array.isArray(pestData.data)) {
+          newPesticides.push(...pestData.data);
+          fetchedAny = true;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch pesticides', error);
+      }
 
-        setLoadingSeeds(true);
+      try {
         const seedRes = await fetch(`${API_BASE}/api/v1/seed/all?limit=100`);
         const seedData = await seedRes.json();
-        if (seedData.status === 'success') setAvailableSeeds(seedData.data);
+        if (seedData.status === 'success' && Array.isArray(seedData.data)) {
+          newSeeds.push(...seedData.data);
+          fetchedAny = true;
+        }
       } catch (error) {
-        console.error(error);
-      } finally {
-        setLoadingFertilizers(false);
-        setLoadingPesticides(false);
-        setLoadingSeeds(false);
+        console.warn('Failed to fetch seeds', error);
+      }
+
+      if (!mounted) return;
+
+      if (newFertilizers.length) setAvailableFertilizers(newFertilizers);
+      if (newPesticides.length) setAvailablePesticides(newPesticides);
+      if (newSeeds.length) setAvailableSeeds(newSeeds);
+
+      setLoadingFertilizers(false);
+      setLoadingPesticides(false);
+      setLoadingSeeds(false);
+
+      if (fetchedAny) {
+        await saveDropdownCache({
+          fertilizers: newFertilizers.length ? newFertilizers : cachedDropdowns.fertilizers,
+          pesticides: newPesticides.length ? newPesticides : cachedDropdowns.pesticides,
+          seeds: newSeeds.length ? newSeeds : cachedDropdowns.seeds,
+        });
       }
     };
-    fetchData();
+
+    const initialize = async () => {
+      const loadedCache = await loadDropdownCache();
+      if (loadedCache) {
+        cachedDropdowns = loadedCache;
+      }
+
+      try {
+        const state = await NetInfo.fetch();
+        if (!mounted) return;
+
+        const connected = state.isConnected ?? false;
+        lastConnectionStatus.current = connected;
+
+        if (connected) {
+          await fetchData();
+        } else if (!loadedCache) {
+          setLoadingFertilizers(false);
+          setLoadingPesticides(false);
+          setLoadingSeeds(false);
+        }
+      } catch (error) {
+        console.warn('Failed to initialize network state for smart budget', error);
+        if (!mounted) return;
+
+        if (!loadedCache) {
+          setLoadingFertilizers(false);
+          setLoadingPesticides(false);
+          setLoadingSeeds(false);
+        }
+      }
+    };
+
+    initialize();
+
+    const subscription = NetInfo.addEventListener(async (state) => {
+      if (!mounted) return;
+      const connected = state.isConnected ?? false;
+      if (connected && lastConnectionStatus.current === false) {
+        await fetchData();
+      }
+      lastConnectionStatus.current = connected;
+    });
+
+    return () => {
+      mounted = false;
+      subscription();
+    };
   }, []);
 
   const fieldGuidedSteps = useMemo(
