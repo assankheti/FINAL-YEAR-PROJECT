@@ -9,16 +9,13 @@ import {
   Animated
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
-import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import GreenHeader from '@/components/GreenHeader';
 import { SpeechHighlight } from '@/components/SpeechHighlight';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { API_BASE } from '@/config/env';
 import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
-
-import { BarChart } from '@/lib/native-charts';
 
 type Crop = {
   name: string;
@@ -40,8 +37,6 @@ export default function SmartCropRecommendation() {
     useVoiceGuidance();
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.8))[0];
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [weatherChartContainerWidth, setWeatherChartContainerWidth] = useState(0);
 
   // navigation helper with fallback
   const handleBack = () => {
@@ -149,8 +144,6 @@ export default function SmartCropRecommendation() {
   };
 
   const weatherSnapshot = useMemo(() => weatherForecast.slice(0, 7), [weatherForecast]);
-  const weatherChartWidth = Math.max(260, Math.round(weatherChartContainerWidth || width - 48));
-  const isCompactWeatherChart = weatherChartWidth < 320;
   const isSmallScreen = width < 360;
 
   const pageGuidedSteps = useMemo(() => {
@@ -290,76 +283,24 @@ export default function SmartCropRecommendation() {
     return riskMap[crop]?.[month] ?? 30;
   };
 
-  // Get user location & soil type
+  // Use safe default location/soil on mobile builds to avoid native permission crashes.
   useEffect(() => {
-    const fetchLocation = async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          console.warn('Location permission denied. Using default coordinates.');
-          setSoilType(DEFAULT_SOIL);
-          setRegion({
-            latitude: DEFAULT_COORDS.latitude,
-            longitude: DEFAULT_COORDS.longitude,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
-          });
-          return;
-        }
-
-        let loc: Location.LocationObject | null = null;
-        try {
-          loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-        } catch (e) {
-          console.warn('Current location unavailable, trying last known location:', e);
-          loc = await Location.getLastKnownPositionAsync();
-        }
-
-        if (!loc) {
-          console.warn('No location available. Using default coordinates.');
-          setSoilType(DEFAULT_SOIL);
-          setRegion({
-            latitude: DEFAULT_COORDS.latitude,
-            longitude: DEFAULT_COORDS.longitude,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
-          });
-          return;
-        }
-
-        setLocation(loc);
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.1,
-          longitudeDelta: 0.1,
-        });
-
-        // Simulate soil type based on latitude (for demo)
-        const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
-        const index = Math.floor((Math.abs(loc.coords.latitude) % 6));
-        setSoilType(soils[index] || DEFAULT_SOIL);
-      } catch (e) {
-        console.warn('Location setup failed. Using defaults:', e);
-        setSoilType(DEFAULT_SOIL);
-        setRegion({
-          latitude: DEFAULT_COORDS.latitude,
-          longitude: DEFAULT_COORDS.longitude,
-          latitudeDelta: 0.1,
-          longitudeDelta: 0.1,
-        });
-      }
-    };
-    fetchLocation();
+    const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
+    const index = Math.floor((Math.abs(DEFAULT_COORDS.latitude) % 6));
+    setSoilType(soils[index] || DEFAULT_SOIL);
+    setRegion({
+      latitude: DEFAULT_COORDS.latitude,
+      longitude: DEFAULT_COORDS.longitude,
+      latitudeDelta: 0.1,
+      longitudeDelta: 0.1,
+    });
   }, []);
 
   // Fetch weather forecast (7-day + monthly approximation)
   useEffect(() => {
     const fetchWeather = async () => {
-      const latitude = location?.coords?.latitude ?? region?.latitude;
-      const longitude = location?.coords?.longitude ?? region?.longitude;
+      const latitude = region?.latitude;
+      const longitude = region?.longitude;
       if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
       try {
         const API_KEY = '529094980f6e4316be96ffc561515561';
@@ -385,7 +326,7 @@ export default function SmartCropRecommendation() {
       }
     };
     fetchWeather();
-  }, [location, region]);
+  }, [region]);
 
   // Fetch market prices
   useEffect(() => {
@@ -507,20 +448,70 @@ export default function SmartCropRecommendation() {
         />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <Animated.View style={{ opacity: fadeAnim }}>
-            <SpeechHighlight
-              active={activeHighlightId === 'croprec.header'}
-              style={styles.headerSectionWrap}
-              highlightStyle={styles.sectionHighlight}
-            >
-              <View style={styles.headerSection}>
-                <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleCompact]}>
-                  {t.pageTitle}
+            {/* Location & Soil Analysis */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>📍 Location & Soil Analysis</Text>
+              <View style={styles.locationStats}>
+                <View style={styles.locationChip}>
+                  <Text style={styles.locationLabel}>Latitude</Text>
+                  <Text style={styles.locationValue}>
+                    {formatCoord(region?.latitude)}
+                  </Text>
+                </View>
+                <View style={styles.locationChip}>
+                  <Text style={styles.locationLabel}>Longitude</Text>
+                  <Text style={styles.locationValue}>
+                    {formatCoord(region?.longitude)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.soilBadge}>
+                <Text style={styles.soilBadgeText}>Soil: {soilType}</Text>
+              </View>
+              <View style={styles.mapFallback}>
+                <Text style={styles.mapFallbackTitle}>Farm location ready</Text>
+                <Text style={styles.mapFallbackText}>
+                  Lat {formatCoord(region?.latitude)} | Lon {formatCoord(region?.longitude)}
                 </Text>
                 <Text style={[styles.headerSubtitle, isSmallScreen && styles.headerSubtitleCompact]}>
                   {t.pageDescription}
                 </Text>
               </View>
-            </SpeechHighlight>
+            </View>
+
+            {/* Weather Forecast */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>🌤️ 7-Day Weather Forecast</Text>
+              <View style={styles.weatherSummaryGrid}>
+                {weatherForecast.slice(0, 7).map((day, index) => (
+                  <View key={`summary-${index}`} style={styles.weatherSummaryCard}>
+                    <Text style={styles.snapshotDay}>{formatForecastDay(day.datetime)}</Text>
+                    <Text style={styles.snapshotTemp}>{Math.round(day.temp)}°</Text>
+                    <Text style={styles.snapshotMeta}>{Math.round(day.rh)}% hum.</Text>
+                  </View>
+                ))}
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.snapshotRow}>
+                {weatherSnapshot.map((day, index) => (
+                  <View key={`snapshot-${index}`} style={styles.snapshotCard}>
+                    <Text style={styles.snapshotDay}>{formatForecastDay(day.datetime)}</Text>
+                    <Text style={styles.snapshotTemp}>{Math.round(day.temp)}°</Text>
+                    <Text style={styles.snapshotMeta}>{Math.round(day.pop)}% rain</Text>
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={styles.weatherDetails}>
+                {weatherForecast.map((day, index) => (
+                  <View key={index} style={styles.weatherDetailRow}>
+                    <Text style={styles.weatherDetailDay}>{formatForecastDay(day.datetime)}</Text>
+                    <Text style={styles.weatherDetailTemp}>{day.temp}°C</Text>
+                    <Text style={styles.weatherDetailHumidity}>{day.rh}% Humidity</Text>
+                    <Text style={styles.weatherDetailRain}>{day.pop}% Rain</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
 
             <SpeechHighlight
               active={activeHighlightId === 'croprec.top'}
@@ -899,41 +890,22 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#4b7c6d',
   },
-  map: {
-    height: 180,
+  weatherSummaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  weatherSummaryCard: {
+    flexBasis: '30%',
+    minWidth: 88,
     borderRadius: 12,
-  },
-  weatherScroll: {
-    // horizontal scroll
-  },
-  weatherCard: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    padding: 15,
-    marginRight: 15,
+    backgroundColor: '#f6fdf9',
+    borderWidth: 1,
+    borderColor: '#dcf3e8',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    minWidth: 100,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  weatherDay: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  weatherTemp: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#059669',
-    marginBottom: 5,
-  },
-  weatherDetail: {
-    fontSize: 12,
-    color: '#6B7280',
   },
   weatherDetails: {
     marginTop: 8,
@@ -1010,15 +982,6 @@ const styles = StyleSheet.create({
     color: '#059669',
     width: 60,
     textAlign: 'center',
-  },
-  chart: {
-    borderRadius: 16,
-    marginVertical: 10,
-    alignSelf: 'center',
-  },
-  chartWrap: {
-    width: '100%',
-    alignItems: 'center',
   },
   cropCard: {
     backgroundColor: '#F9FAFB',
