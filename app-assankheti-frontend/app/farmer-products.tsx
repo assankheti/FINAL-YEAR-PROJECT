@@ -15,6 +15,7 @@ import {
   type ProductListing,
   type ProductStatus,
 } from '@/lib/productsApi';
+import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
 
 type Product = ProductListing & { image?: string };
 
@@ -122,6 +123,14 @@ export default function FarmerProductsPage() {
   const t = useT();
   const formatPrice = (price: number) => `Rs${Number(price || 0).toLocaleString('en-PK')}`;
   const addProductParams = { textLanguage, voiceLanguage, farmerId };
+
+  usePageVoiceGuidance(
+    { english: 'My products', urdu: 'میری مصنوعات' },
+    {
+      english: 'Review your published listings, add a product, edit details, or delete a listing.',
+      urdu: 'اپنی شائع شدہ فہرستیں دیکھیں، مصنوعات شامل کریں، تفصیلات تبدیل کریں، یا فہرست حذف کریں۔',
+    }
+  );
 
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>

@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import InfoPage from '@/components/InfoPage';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 type Section = {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -13,6 +14,8 @@ type Section = {
 
 export default function PrivacyPolicyPage() {
   const router = useRouter();
+  const { textLanguage } = useLanguage();
+  const pick = (english: string, urdu: string) => (textLanguage === 'urdu' ? urdu : english);
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
@@ -21,62 +24,62 @@ export default function PrivacyPolicyPage() {
     () => [
       {
         icon: 'database',
-        title: 'Information We Collect',
+        title: pick('Information We Collect', 'معلومات جو ہم جمع کرتے ہیں'),
         titleUrdu: 'معلومات جو ہم جمع کرتے ہیں',
         content: [
-          'Personal information (name, phone number, location)',
-          'Farm details and crop information',
-          'Transaction history and payment details',
-          'Device information and usage data',
-          'Photos uploaded for disease detection',
+          pick('Personal information (name, phone number, location)', 'ذاتی معلومات (نام، فون نمبر، مقام)'),
+          pick('Farm details and crop information', 'فارم کی تفصیلات اور فصل کی معلومات'),
+          pick('Transaction history and payment details', 'ٹرانزیکشن ہسٹری اور ادائیگی کی تفصیلات'),
+          pick('Device information and usage data', 'ڈیوائس کی معلومات اور استعمال کا ڈیٹا'),
+          pick('Photos uploaded for disease detection', 'بیماری کی شناخت کے لیے اپ لوڈ کی گئی تصاویر'),
         ],
       },
       {
         icon: 'eye',
-        title: 'How We Use Your Data',
+        title: pick('How We Use Your Data', 'ہم آپ کا ڈیٹا کیسے استعمال کرتے ہیں'),
         titleUrdu: 'ہم آپ کا ڈیٹا کیسے استعمال کرتے ہیں',
         content: [
-          'To provide crop disease detection services',
-          'To connect farmers with buyers',
-          'To send weather and price alerts',
-          'To improve our AI models and services',
-          'To process payments securely',
+          pick('To provide crop disease detection services', 'فصل کی بیماری کی شناخت کی خدمات فراہم کرنے کے لیے'),
+          pick('To connect farmers with buyers', 'کسانوں کو خریداروں سے جوڑنے کے لیے'),
+          pick('To send weather and price alerts', 'موسم اور قیمت کے الرٹس بھیجنے کے لیے'),
+          pick('To improve our AI models and services', 'اپنے AI ماڈلز اور خدمات بہتر بنانے کے لیے'),
+          pick('To process payments securely', 'ادائیگیوں کو محفوظ طریقے سے پراسیس کرنے کے لیے'),
         ],
       },
       {
         icon: 'lock',
-        title: 'Data Security',
+        title: pick('Data Security', 'ڈیٹا سیکیورٹی'),
         titleUrdu: 'ڈیٹا سیکیورٹی',
         content: [
-          'All data is encrypted in transit and at rest',
-          'We use secure payment gateways',
-          'Regular security audits are performed',
-          'Access to data is strictly controlled',
-          'We comply with international data protection standards',
+          pick('All data is encrypted in transit and at rest', 'تمام ڈیٹا ٹرانزٹ اور اسٹوریج میں انکرپٹ ہوتا ہے'),
+          pick('We use secure payment gateways', 'ہم محفوظ ادائیگی گیٹ ویز استعمال کرتے ہیں'),
+          pick('Regular security audits are performed', 'باقاعدہ سیکیورٹی آڈٹ کیے جاتے ہیں'),
+          pick('Access to data is strictly controlled', 'ڈیٹا تک رسائی سختی سے محدود ہے'),
+          pick('We comply with international data protection standards', 'ہم بین الاقوامی ڈیٹا پروٹیکشن معیار کی پیروی کرتے ہیں'),
         ],
       },
       {
         icon: 'users',
-        title: 'Data Sharing',
+        title: pick('Data Sharing', 'ڈیٹا شیئرنگ'),
         titleUrdu: 'ڈیٹا شیئرنگ',
         content: [
-          'We do not sell your personal data',
-          'Data is shared with buyers only for transactions',
-          'We may share anonymized data for research',
-          'Government compliance when legally required',
-          'Third-party services for app functionality only',
+          pick('We do not sell your personal data', 'ہم آپ کا ذاتی ڈیٹا فروخت نہیں کرتے'),
+          pick('Data is shared with buyers only for transactions', 'ڈیٹا صرف لین دین کے لیے خریداروں کے ساتھ شیئر ہوتا ہے'),
+          pick('We may share anonymized data for research', 'ہم تحقیق کے لیے غیر شناخت شدہ ڈیٹا شیئر کر سکتے ہیں'),
+          pick('Government compliance when legally required', 'قانونی ضرورت پر حکومتی تعمیل'),
+          pick('Third-party services for app functionality only', 'تھرڈ پارٹی خدمات صرف ایپ کے کام کے لیے'),
         ],
       },
       {
         icon: 'bell',
-        title: 'Your Rights',
+        title: pick('Your Rights', 'آپ کے حقوق'),
         titleUrdu: 'آپ کے حقوق',
         content: [
-          'Access your personal data anytime',
-          'Request data correction or deletion',
-          'Opt-out of marketing communications',
-          'Download your data in portable format',
-          'Lodge complaints with data authorities',
+          pick('Access your personal data anytime', 'اپنے ذاتی ڈیٹا تک کسی بھی وقت رسائی حاصل کریں'),
+          pick('Request data correction or deletion', 'ڈیٹا کی اصلاح یا حذف کی درخواست کریں'),
+          pick('Opt-out of marketing communications', 'مارکیٹنگ پیغامات سے انکار کریں'),
+          pick('Download your data in portable format', 'اپنا ڈیٹا قابلِ نقل فارمیٹ میں ڈاؤن لوڈ کریں'),
+          pick('Lodge complaints with data authorities', 'ڈیٹا اتھارٹیز کے پاس شکایت درج کریں'),
         ],
       },
     ],
@@ -88,18 +91,17 @@ export default function PrivacyPolicyPage() {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: horizontalPadding, marginTop: 14 }}>
           <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
-            <Text style={styles.lastUpdated}>Last updated: December 30, 2024 | آخری تازہ کاری: 30 دسمبر 2024</Text>
+            <Text style={styles.lastUpdated}>{pick('Last updated: December 30, 2024', 'آخری تازہ کاری: 30 دسمبر 2024')}</Text>
           </View>
         </View>
 
         <View style={{ paddingHorizontal: horizontalPadding, marginTop: 16 }}>
           <View style={[styles.introCard, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}> 
             <Text style={styles.introText}>
-              At <Text style={styles.brand}>Assan Kheti</Text>, we are committed to protecting your privacy and ensuring the
-              security of your personal information. This policy explains how we collect, use, and safeguard your data.
-            </Text>
-            <Text style={styles.introUrdu}>
-              آسان کھیتی میں، ہم آپ کی پرائیویسی کی حفاظت اور آپ کی ذاتی معلومات کی سیکیورٹی کو یقینی بنانے کے لیے پرعزم ہیں۔
+              {pick(
+                'At Assan Kheti, we are committed to protecting your privacy and ensuring the security of your personal information. This policy explains how we collect, use, and safeguard your data.',
+                'آسان کھیتی میں، ہم آپ کی پرائیویسی کی حفاظت اور آپ کی ذاتی معلومات کی سیکیورٹی کو یقینی بنانے کے لیے پرعزم ہیں۔ یہ پالیسی بتاتی ہے کہ ہم آپ کا ڈیٹا کیسے جمع، استعمال اور محفوظ کرتے ہیں۔'
+              )}
             </Text>
           </View>
         </View>
@@ -114,7 +116,6 @@ export default function PrivacyPolicyPage() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.sectionTitle}>{section.title}</Text>
-                    <Text style={styles.sectionTitleUrdu}>{section.titleUrdu}</Text>
                   </View>
                 </View>
 
@@ -130,8 +131,7 @@ export default function PrivacyPolicyPage() {
             ))}
 
             <View style={styles.contactCard}>
-              <Text style={styles.contactTitle}>Questions about our privacy policy?</Text>
-              <Text style={styles.contactSub}>رازداری کی پالیسی کے بارے میں سوالات؟</Text>
+              <Text style={styles.contactTitle}>{pick('Questions about our privacy policy?', 'رازداری کی پالیسی کے بارے میں سوالات؟')}</Text>
               <Text style={styles.contactEmail}>privacy@assankheti.pk</Text>
             </View>
           </View>

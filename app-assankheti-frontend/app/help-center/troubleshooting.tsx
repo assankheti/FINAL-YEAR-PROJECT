@@ -4,17 +4,30 @@ import { useRouter } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
 
 export default function TroubleshootingPage() {
   const router = useRouter();
+  const { textLanguage } = useLanguage();
+  const t = useT();
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
+  const pick = (english: string, urdu: string) => (textLanguage === 'urdu' ? urdu : english);
 
   const items = [
-    { title: 'App not opening', desc: 'Try clearing app cache or reinstalling the app. Restart your device.' },
-    { title: 'Cannot upload image', desc: 'Check app permissions for camera and storage. Try granting access in Settings.' },
-    { title: 'Payments failing', desc: 'Ensure your internet is stable and your payment method details are correct.' },
+    {
+      title: pick('App not opening', 'ایپ نہیں کھل رہی'),
+      desc: pick('Try clearing app cache or reinstalling the app. Restart your device.', 'ایپ کی کیش صاف کریں یا دوبارہ انسٹال کریں۔ اپنے ڈیوائس کو ری اسٹارٹ کریں۔'),
+    },
+    {
+      title: pick('Cannot upload image', 'تصویر اپ لوڈ نہیں ہو رہی'),
+      desc: pick('Check app permissions for camera and storage. Try granting access in Settings.', 'کیمرہ اور اسٹوریج کی اجازت چیک کریں۔ سیٹنگز میں اجازت دیں۔'),
+    },
+    {
+      title: pick('Payments failing', 'ادائیگی ناکام ہو رہی ہے'),
+      desc: pick('Ensure your internet is stable and your payment method details are correct.', 'اپنا انٹرنیٹ مستحکم رکھیں اور ادائیگی کی تفصیلات درست ہوں۔'),
+    },
   ];
 
   return (
@@ -23,11 +36,10 @@ export default function TroubleshootingPage() {
         <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
           <View style={[styles.headerRow, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%', justifyContent: 'space-between' }]}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={styles.headerTitle}>Troubleshooting</Text>
-              <Text style={styles.headerSub}>مسائل حل کریں</Text>
+              <Text style={styles.headerTitle}>{pick('Troubleshooting', 'مسائل حل کریں')}</Text>
             </View>
 
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.9} accessibilityLabel="Back">
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.9} accessibilityLabel={t({ english: 'Back', urdu: 'واپس' })}>
               <Feather name="arrow-left" size={18} color="#ffffff" />
             </TouchableOpacity>
           </View>

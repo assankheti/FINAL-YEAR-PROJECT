@@ -62,6 +62,7 @@ export default {
     },
     plugins: [
       'expo-router',
+      'expo-localization',
       'expo-notifications',
       'expo-video',
       'expo-audio',
