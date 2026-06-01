@@ -8,6 +8,8 @@ import {
   useWindowDimensions,
   Animated
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -61,6 +63,45 @@ export default function SmartCropRecommendation() {
   const [fetchKey, setFetchKey] = useState(0);
   const [weatherChartContainerWidth, setWeatherChartContainerWidth] = useState(0);
   const [isCompactWeatherChart, setIsCompactWeatherChart] = useState(false);
+  const [isConnected, setIsConnected] = useState<boolean | null>(null);
+  const [hasCachedData, setHasCachedData] = useState(false);
+  const [cacheLoaded, setCacheLoaded] = useState(false);
+
+  const CACHE_KEY = 'crop-recommendation-cache-v1';
+
+  const saveRecommendationCache = async (cacheData: {
+    crops: Crop[];
+    weatherForecast: any[];
+    marketPrices: Record<string, number>;
+    soilType: string;
+    region: any;
+  }) => {
+    try {
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (e) {
+      console.warn('Failed to save crop recommendation cache', e);
+    }
+  };
+
+  const loadRecommendationCache = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed?.crops?.length) {
+        setCrops(parsed.crops);
+        setWeatherForecast(parsed.weatherForecast ?? []);
+        setMarketPrices(parsed.marketPrices ?? {});
+        setSoilType(parsed.soilType ?? DEFAULT_SOIL);
+        setRegion(parsed.region ?? DEFAULT_COORDS);
+        setHasCachedData(true);
+        setError(null);
+        setLoading(false);
+      }
+    } catch (e) {
+      console.warn('Failed to load crop recommendation cache', e);
+    }
+  };
 
   // ensure fetchKey is referenced so linters don't mark it unused
   useEffect(() => {
@@ -312,7 +353,53 @@ export default function SmartCropRecommendation() {
 
   // Fetch weather forecast (7-day + monthly approximation)
   useEffect(() => {
+    let mounted = true;
+    const subscription = NetInfo.addEventListener((state) => {
+      if (mounted) setIsConnected(state.isConnected ?? false);
+    });
+
+    const initialize = async () => {
+      try {
+        const state = await NetInfo.fetch();
+        if (mounted) setIsConnected(state.isConnected ?? false);
+      } catch (err) {
+        console.warn('Failed to fetch initial network state', err);
+        if (mounted) setIsConnected(false);
+      }
+
+      await loadRecommendationCache();
+      if (mounted) setCacheLoaded(true);
+    };
+
+    initialize();
+    return () => {
+      mounted = false;
+      subscription();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hasCachedData) {
+      setError(null);
+    }
+  }, [hasCachedData]);
+
+  useEffect(() => {
     const fetchWeather = async () => {
+      if (isConnected === null || !cacheLoaded) return;
+
+      if (isConnected === false) {
+        if (!hasCachedData) {
+          setError('Offline and no cached weather data available');
+          setWeatherForecast(buildFallbackWeather());
+          setLoading(false);
+        } else {
+          setError(null);
+          setLoading(false);
+        }
+        return;
+      }
+
       const latitude = region?.latitude;
       const longitude = region?.longitude;
       if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
@@ -321,41 +408,63 @@ export default function SmartCropRecommendation() {
         const url = `https://api.weatherbit.io/v2.0/forecast/daily?lat=${latitude}&lon=${longitude}&key=${API_KEY}`;
         const res = await fetch(url);
         if (!res.ok) {
-          setWeatherForecast(buildFallbackWeather());
+          if (!hasCachedData) {
+            setError('Failed to load weather data');
+            setWeatherForecast(buildFallbackWeather());
+          }
           return;
         }
         const text = await res.text();
         if (!text || !text.trim()) {
-          setWeatherForecast(buildFallbackWeather());
+          if (!hasCachedData) {
+            setError('Failed to load weather data');
+            setWeatherForecast(buildFallbackWeather());
+          }
           return;
         }
         const data = JSON.parse(text);
         if (data && Array.isArray(data.data)) {
           setWeatherForecast(normalizeSevenDayForecast(data.data));
-        } else {
+          setError(null);
+        } else if (!hasCachedData) {
           setWeatherForecast(buildFallbackWeather());
         }
       } catch (err) {
         console.error('Weather fetch failed', err);
-        setError('Failed to load weather data');
-        setWeatherForecast(buildFallbackWeather());
+        if (!hasCachedData) {
+          setError('Failed to load weather data');
+          setWeatherForecast(buildFallbackWeather());
+        }
       }
     };
-    // run guarded
-    try {
-      fetchWeather().catch((e) => {
-        console.error('Unhandled fetchWeather rejection', e);
-        setError('Weather fetch failed');
-      });
-    } catch (e) {
-      console.error('fetchWeather wrapper error', e);
-      setError('Weather initialization failed');
-    }
-  }, [region]);
 
-  // Fetch market prices
+    fetchWeather().catch((e) => {
+      console.error('Unhandled fetchWeather rejection', e);
+      if (!hasCachedData) setError('Weather fetch failed');
+    });
+  }, [region, fetchKey, isConnected, hasCachedData]);
+
   useEffect(() => {
     const fetchMarketPrices = async () => {
+      if (isConnected === null || !cacheLoaded) return;
+
+      if (isConnected === false) {
+        if (!hasCachedData) {
+          setError('Offline and no cached market data available');
+          setMarketPrices({
+            Rice: 120,
+            Wheat: 100,
+            Corn: 90,
+            Sugarcane: 80,
+            Potato: 70,
+          });
+          setLoading(false);
+        } else {
+          setError(null);
+          setLoading(false);
+        }
+        return;
+      }
       try {
         const res = await fetch(`${API_BASE}/api/v1/calculator/prices/crop`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
@@ -385,27 +494,30 @@ export default function SmartCropRecommendation() {
           setMarketPrices(defaultPrices);
         } else {
           setMarketPrices(data);
+          setError(null);
         }
       } catch (err) {
         console.warn('Failed to fetch market prices, using defaults:', err);
         console.error(err);
-        setError('Failed to load market prices');
-        setMarketPrices({
-          Rice: 120,
-          Wheat: 100,
-          Corn: 90,
-          Sugarcane: 80,
-          Potato: 70,
-        });
+        if (!hasCachedData) {
+          setError('Failed to load market prices');
+          setMarketPrices({
+            Rice: 120,
+            Wheat: 100,
+            Corn: 90,
+            Sugarcane: 80,
+            Potato: 70,
+          });
+        }
       }
     };
-    // include fetchKey to support retries
     fetchMarketPrices().catch((e) => {
       console.error('Unhandled fetchMarketPrices rejection', e);
-      setError('Market prices fetch failed');
+      if (!hasCachedData) setError('Market prices fetch failed');
     });
-  }, []);
+  }, [fetchKey, isConnected, hasCachedData]);
 
+  // Fetch market prices
   // Calculate crop suitability scores
   useEffect(() => {
     console.log('Calculating crops...', { weatherForecast: weatherForecast.length, marketPrices: Object.keys(marketPrices).length, soilType });
@@ -434,7 +546,15 @@ export default function SmartCropRecommendation() {
       const totalScore = Math.round((tempScore + humidityScore + soilScore + areaScore + marketScore + pestRiskScore) / 6);
       return { name: cropName, weatherScore: tempScore, soilScore, areaScore, marketScore, pestRiskScore, totalScore };
     });
-    setCrops(calculatedCrops.sort((a,b)=>b.totalScore-a.totalScore));
+    const sortedCrops = calculatedCrops.sort((a,b) => b.totalScore - a.totalScore);
+    setCrops(sortedCrops);
+    saveRecommendationCache({
+      crops: sortedCrops,
+      weatherForecast,
+      marketPrices,
+      soilType,
+      region,
+    });
     setLoading(false);
     Animated.parallel([
       Animated.timing(fadeAnim, {
