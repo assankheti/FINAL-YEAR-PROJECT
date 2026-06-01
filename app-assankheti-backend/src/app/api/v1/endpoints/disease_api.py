@@ -88,6 +88,7 @@ async def model_status():
             "enabled": predictor.is_offline_model_enabled(),
             "available": predictor.is_offline_model_enabled() and predictor.offline_model_file_exists(),
             "tensorflow_loaded": predictor.is_tensorflow_loaded(),
+            "tflite_runtime_loaded": predictor.is_tflite_runtime_loaded(),
             "name": "YOLO TFLite",
             "type": "local"
         },

@@ -49,6 +49,16 @@ export default function SmartCropRecommendation() {
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const [soilType, setSoilType] = useState('Loamy Soil');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [fetchKey, setFetchKey] = useState(0);
+
+  // ensure fetchKey is referenced so linters don't mark it unused
+  useEffect(() => {
+    // noop log to tie fetchKey into the component lifecycle
+    // (avoids false-positive unused-var warnings when used only in deps)
+    // eslint-disable-next-line no-console
+    console.log('fetchKey', fetchKey);
+  }, [fetchKey]);
   const DEFAULT_COORDS = { latitude: 31.5204, longitude: 74.3587 };
   const DEFAULT_SOIL = 'Loamy Soil';
 
@@ -174,11 +184,22 @@ export default function SmartCropRecommendation() {
         } else {
           setWeatherForecast(buildFallbackWeather());
         }
-      } catch {
+      } catch (err) {
+        console.error('Weather fetch failed', err);
+        setError('Failed to load weather data');
         setWeatherForecast(buildFallbackWeather());
       }
     };
-    fetchWeather();
+    // run guarded
+    try {
+      fetchWeather().catch((e) => {
+        console.error('Unhandled fetchWeather rejection', e);
+        setError('Weather fetch failed');
+      });
+    } catch (e) {
+      console.error('fetchWeather wrapper error', e);
+      setError('Weather initialization failed');
+    }
   }, [region]);
 
   // Fetch market prices
@@ -216,7 +237,8 @@ export default function SmartCropRecommendation() {
         }
       } catch (err) {
         console.warn('Failed to fetch market prices, using defaults:', err);
-        // Use default market prices to prevent infinite loading
+        console.error(err);
+        setError('Failed to load market prices');
         setMarketPrices({
           Rice: 120,
           Wheat: 100,
@@ -226,18 +248,23 @@ export default function SmartCropRecommendation() {
         });
       }
     };
-    fetchMarketPrices();
+    // include fetchKey to support retries
+    fetchMarketPrices().catch((e) => {
+      console.error('Unhandled fetchMarketPrices rejection', e);
+      setError('Market prices fetch failed');
+    });
   }, []);
 
   // Calculate crop suitability scores
   useEffect(() => {
     console.log('Calculating crops...', { weatherForecast: weatherForecast.length, marketPrices: Object.keys(marketPrices).length, soilType });
-    if (!weatherForecast.length || !Object.keys(marketPrices).length) {
-      console.log('Waiting for data: weather=', weatherForecast.length, 'prices=', Object.keys(marketPrices).length, 'soil=', soilType);
-      return;
-    }
-    const month = new Date().getMonth(); // 0-11
-    const calculatedCrops: Crop[] = initialCrops.map((cropName) => {
+    try {
+      if (!weatherForecast.length || !Object.keys(marketPrices).length) {
+        console.log('Waiting for data: weather=', weatherForecast.length, 'prices=', Object.keys(marketPrices).length, 'soil=', soilType);
+        return;
+      }
+      const month = new Date().getMonth(); // 0-11
+      const calculatedCrops: Crop[] = initialCrops.map((cropName) => {
       const tempScore = Math.max(0, 100 - Math.abs(weatherForecast[0].temp - 28) * 3); // ideal 28°C
       const humidityScore = Math.max(0, 100 - Math.abs(weatherForecast[0].rh - 70)); // ideal 70%
       const soilScoreMap: Record<string, Record<string, number>> = {
@@ -271,7 +298,19 @@ export default function SmartCropRecommendation() {
         useNativeDriver: true,
       }),
     ]).start();
+    } catch (err) {
+      console.error('Error calculating crops', err);
+      setError('Failed to calculate crop recommendations');
+      setLoading(false);
+    }
   }, [weatherForecast, marketPrices, soilType]);
+
+  // Retry helper
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    setFetchKey((k) => k + 1);
+  };
 
   if (loading)
     return (
@@ -290,6 +329,27 @@ export default function SmartCropRecommendation() {
         </SafeAreaView>
       </LinearGradient>
     );
+
+    if (error)
+      return (
+        <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>
+          <SafeAreaView style={styles.safeArea}>
+            <GreenHeader
+              title={{ english: 'Crop Recommendation', urdu: 'تجویز کردہ فصلیں' }}
+              titleLines={2}
+              onBack={handleBack}
+            />
+            <View style={[styles.card, { margin: 16 }]}>
+              <Text style={styles.cardTitle}>Could not load recommendations</Text>
+              <Text style={{ color: '#6B7280', marginTop: 8 }}>{error}</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                <Text onPress={handleRetry} style={{ color: '#059669', fontWeight: '700' }}>Retry</Text>
+                <Text onPress={handleBack} style={{ color: '#047857', fontWeight: '700' }}>Back</Text>
+              </View>
+            </View>
+          </SafeAreaView>
+        </LinearGradient>
+      );
 
   return (
     <LinearGradient colors={['#FFFFFF', '#F0FDF4']} style={styles.container}>

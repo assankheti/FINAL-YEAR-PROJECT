@@ -12,9 +12,37 @@ const extra =
   (Constants as any).manifest?.extra ??
   (Constants as any).manifest2?.extra?.expoClient?.extra ??
   {};
+
+function normalizeConfiguredUrl(value: string): string | null {
+  let normalized = value.trim();
+  if (!normalized) return null;
+
+  // Fix common protocol typos seen in manual environment values.
+  normalized = normalized
+    .replace(/^https;\/\//i, 'https://')
+    .replace(/^http;\/\//i, 'http://')
+    .replace(/^https:\/(?!\/)/i, 'https://')
+    .replace(/^http:\/(?!\/)/i, 'http://');
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    normalized = `https://${normalized}`;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    // Keep this correction narrow to avoid changing unrelated hosts.
+    if (parsed.hostname === 'assam-kethi-backend.onrender.com') {
+      parsed.hostname = 'assan-kheti-backend.onrender.com';
+    }
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
 const PRODUCTION_API_URL =
   typeof extra.PRODUCTION_API_URL === 'string' && extra.PRODUCTION_API_URL.trim()
-    ? extra.PRODUCTION_API_URL.trim()
+    ? normalizeConfiguredUrl(extra.PRODUCTION_API_URL) ?? 'https://assan-kheti-backend.onrender.com'
     : 'https://assan-kheti-backend.onrender.com';
 const hasProductionFlag = Object.prototype.hasOwnProperty.call(extra, 'USE_PRODUCTION_API');
 
@@ -54,10 +82,13 @@ function getExplicitApiUrl(): string | null {
   const configured = typeof extra.API_URL === 'string' ? extra.API_URL.trim() : '';
   if (!configured) return null;
 
-  const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?\/?$/i.test(configured);
+  const normalized = normalizeConfiguredUrl(configured);
+  if (!normalized) return null;
+
+  const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?\/?$/i.test(normalized);
   if (isLoopback) return null;
 
-  return configured;
+  return normalized;
 }
 
 function getExpoLanApiUrl(): string | null {

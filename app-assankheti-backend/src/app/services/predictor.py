@@ -7,6 +7,9 @@ import requests
 tf = None
 _tf_import_error = None
 _tf_import_attempted = False
+tflite_interpreter = None
+_tflite_import_error = None
+_tflite_import_attempted = False
 
 # Online model endpoints - comment out the ones you don't want to use
 API_KEY = "nKR7maxkLCNkzO6PCUa0"
@@ -53,6 +56,10 @@ def is_tensorflow_loaded() -> bool:
     return tf is not None
 
 
+def is_tflite_runtime_loaded() -> bool:
+    return tflite_interpreter is not None
+
+
 def _load_tensorflow():
     global tf, _tf_import_error, _tf_import_attempted
 
@@ -74,6 +81,29 @@ def _load_tensorflow():
     tf = tensorflow_module
     _tf_import_error = None
     return tf
+
+
+def _load_tflite_runtime():
+    global tflite_interpreter, _tflite_import_error, _tflite_import_attempted
+
+    if not is_offline_model_enabled():
+        raise RuntimeError("Offline disease model is disabled.")
+
+    if _tflite_import_attempted:
+        if tflite_interpreter is None:
+            raise RuntimeError(f"tflite-runtime is unavailable: {_tflite_import_error}")
+        return tflite_interpreter
+
+    _tflite_import_attempted = True
+    try:
+        from tflite_runtime import interpreter as tflite_runtime_interpreter
+    except Exception as exc:
+        _tflite_import_error = exc
+        raise RuntimeError(f"tflite-runtime is unavailable: {exc}") from exc
+
+    tflite_interpreter = tflite_runtime_interpreter
+    _tflite_import_error = None
+    return tflite_interpreter
 
 
 def confidence_to_percent(value) -> float:
@@ -128,13 +158,35 @@ def _ensure_interpreter():
     if interpreter is not None:
         return interpreter, input_details, output_details
 
-    tensorflow_module = _load_tensorflow()
-
     if not os.path.exists(MODEL_PATH):
         raise RuntimeError(f"Offline model file not found at {MODEL_PATH}")
 
+    backend_error_messages = []
+
+    # Prefer TensorFlow when available; fallback to tflite-runtime for lightweight deploys.
+    tensorflow_module = None
     try:
-        interpreter = tensorflow_module.lite.Interpreter(model_path=MODEL_PATH)
+        tensorflow_module = _load_tensorflow()
+    except Exception as exc:
+        backend_error_messages.append(str(exc))
+
+    runtime_module = None
+    if tensorflow_module is None:
+        try:
+            runtime_module = _load_tflite_runtime()
+        except Exception as exc:
+            backend_error_messages.append(str(exc))
+
+    if tensorflow_module is None and runtime_module is None:
+        raise RuntimeError(
+            "Failed to load offline model runtime. " + " | ".join(backend_error_messages)
+        )
+
+    try:
+        if tensorflow_module is not None:
+            interpreter = tensorflow_module.lite.Interpreter(model_path=MODEL_PATH)
+        else:
+            interpreter = runtime_module.Interpreter(model_path=MODEL_PATH)
         interpreter.allocate_tensors()
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
