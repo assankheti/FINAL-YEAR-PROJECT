@@ -9,8 +9,10 @@ import {
   Animated
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BarChart } from 'react-native-chart-kit';
 import GreenHeader from '@/components/GreenHeader';
 import { SpeechHighlight } from '@/components/SpeechHighlight';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -57,6 +59,8 @@ export default function SmartCropRecommendation() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchKey, setFetchKey] = useState(0);
+  const [weatherChartContainerWidth, setWeatherChartContainerWidth] = useState(0);
+  const [isCompactWeatherChart, setIsCompactWeatherChart] = useState(false);
 
   // ensure fetchKey is referenced so linters don't mark it unused
   useEffect(() => {
@@ -655,7 +659,7 @@ export default function SmartCropRecommendation() {
                           ),
                           datasets: [{ data: weatherForecast.map((d) => d.temp) }],
                         }}
-                        width={weatherChartWidth}
+                        width={weatherChartContainerWidth || width - 40}
                         height={220}
                         chartConfig={{
                           backgroundColor: '#ffffff',
