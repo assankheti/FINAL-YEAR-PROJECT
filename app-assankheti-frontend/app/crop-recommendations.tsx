@@ -21,6 +21,22 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { API_BASE } from '@/config/env';
 import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
+// ============================================================================
+// DEFENSIVE LOGGING UTILITIES
+// ============================================================================
+const logError = (context: string, err: unknown) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`❌ [${context}]`, msg);
+};
+
+const logWarn = (context: string, msg: string) => {
+  console.warn(`⚠️  [${context}]`, msg);
+};
+
+const logInfo = (context: string, msg: string) => {
+  console.log(`ℹ️  [${context}]`, msg);
+};
+
 type Crop = {
   name: string;
   weatherScore: number;
@@ -31,6 +47,13 @@ type Crop = {
   totalScore: number;
 };
 
+type WeatherData = {
+  datetime: string;
+  temp: number;
+  rh: number;
+  pop: number;
+};
+
 const initialCrops = ['Rice', 'Wheat', 'Corn', 'Sugarcane', 'Potato'];
 
 export default function SmartCropRecommendation() {
@@ -39,6 +62,14 @@ export default function SmartCropRecommendation() {
   const { textLanguage } = useLanguage();
   const { enabled: voiceEnabled, activeHighlightId, startGuidedSequence, cancelGuidedSequence, stop } =
     useVoiceGuidance();
+  
+  // ============================================================================
+  // SAFE DEFAULTS - MUST BE DECLARED BEFORE STATE TO AVOID ReferenceError
+  // ============================================================================
+  const DEFAULT_COORDS = { latitude: 31.5204, longitude: 74.3587 };
+  const DEFAULT_SOIL = 'Loamy Soil';
+  const CACHE_KEY = 'crop-recommendation-cache-v1';
+  
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.8))[0];
 
@@ -49,15 +80,15 @@ export default function SmartCropRecommendation() {
   };
 
   const [region, setRegion] = useState<any>({
-    latitude: 31.5204,
-    longitude: 74.3587,
+    latitude: DEFAULT_COORDS.latitude,
+    longitude: DEFAULT_COORDS.longitude,
     latitudeDelta: 0.1,
     longitudeDelta: 0.1,
   });
   const [crops, setCrops] = useState<Crop[]>([]);
-  const [weatherForecast, setWeatherForecast] = useState<any[]>([]);
+  const [weatherForecast, setWeatherForecast] = useState<WeatherData[]>([]);
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
-  const [soilType, setSoilType] = useState('Loamy Soil');
+  const [soilType, setSoilType] = useState(DEFAULT_SOIL);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchKey, setFetchKey] = useState(0);
@@ -67,51 +98,62 @@ export default function SmartCropRecommendation() {
   const [hasCachedData, setHasCachedData] = useState(false);
   const [cacheLoaded, setCacheLoaded] = useState(false);
 
-  const CACHE_KEY = 'crop-recommendation-cache-v1';
-
   const saveRecommendationCache = async (cacheData: {
     crops: Crop[];
-    weatherForecast: any[];
+    weatherForecast: WeatherData[];
     marketPrices: Record<string, number>;
     soilType: string;
     region: any;
   }) => {
     try {
+      logInfo('Cache', `Saving cache with ${cacheData.crops.length} crops`);
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
     } catch (e) {
-      console.warn('Failed to save crop recommendation cache', e);
+      logWarn('Cache.Save', 'Failed to save crop recommendation cache');
     }
   };
 
   const loadRecommendationCache = async () => {
     try {
       const raw = await AsyncStorage.getItem(CACHE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed?.crops?.length) {
-        setCrops(parsed.crops);
-        setWeatherForecast(parsed.weatherForecast ?? []);
-        setMarketPrices(parsed.marketPrices ?? {});
-        setSoilType(parsed.soilType ?? DEFAULT_SOIL);
-        setRegion(parsed.region ?? DEFAULT_COORDS);
-        setHasCachedData(true);
-        setError(null);
-        setLoading(false);
+      if (!raw) {
+        logInfo('Cache.Load', 'No cached data found');
+        return;
       }
+      
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (parseErr) {
+        logWarn('Cache.Load', 'Failed to parse cached JSON, skipping cache');
+        return;
+      }
+
+      // Validate cache structure with defensive checks
+      const cachedCrops = Array.isArray(parsed?.crops) ? parsed.crops : null;
+      if (!cachedCrops?.length) {
+        logInfo('Cache.Load', 'Cache exists but has no crops, skipping');
+        return;
+      }
+
+      logInfo('Cache.Load', `Loading ${cachedCrops.length} crops from cache`);
+      setCrops(cachedCrops);
+      setWeatherForecast(Array.isArray(parsed?.weatherForecast) ? parsed.weatherForecast : []);
+      setMarketPrices(typeof parsed?.marketPrices === 'object' ? parsed.marketPrices : {});
+      setSoilType(typeof parsed?.soilType === 'string' ? parsed.soilType : DEFAULT_SOIL);
+      setRegion(typeof parsed?.region === 'object' ? parsed.region : DEFAULT_COORDS);
+      setHasCachedData(true);
+      setError(null);
+      setLoading(false);
     } catch (e) {
-      console.warn('Failed to load crop recommendation cache', e);
+      logWarn('Cache.Load', `Failed to load crop recommendation cache: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
   // ensure fetchKey is referenced so linters don't mark it unused
   useEffect(() => {
-    // noop log to tie fetchKey into the component lifecycle
-    // (avoids false-positive unused-var warnings when used only in deps)
-    // eslint-disable-next-line no-console
-    console.log('fetchKey', fetchKey);
+    logInfo('Lifecycle', `fetchKey updated: ${fetchKey}`);
   }, [fetchKey]);
-  const DEFAULT_COORDS = { latitude: 31.5204, longitude: 74.3587 };
-  const DEFAULT_SOIL = 'Loamy Soil';
 
   const topCrop = crops[0];
   const formatCoord = (value?: number) =>
@@ -181,21 +223,36 @@ export default function SmartCropRecommendation() {
     [textLanguage]
   );
 
-  const normalizeSevenDayForecast = (items: any[]): any[] => {
-    const normalized = (Array.isArray(items) ? items : [])
-      .slice(0, 7)
-      .map((entry, idx) => ({
-        datetime: entry?.datetime || new Date(Date.now() + idx * 86400000).toISOString(),
-        temp: Number(entry?.temp ?? 28),
-        rh: Number(entry?.rh ?? 70),
-        pop: Number(entry?.pop ?? 20),
-      }));
+  const normalizeSevenDayForecast = (items: any[]): WeatherData[] => {
+    try {
+      const normalized: WeatherData[] = (Array.isArray(items) ? items : [])
+        .slice(0, 7)
+        .map((entry, idx) => {
+          // Defensive: ensure all fields have defaults
+          const datetime = typeof entry?.datetime === 'string' ? entry.datetime : new Date(Date.now() + idx * 86400000).toISOString();
+          const temp = typeof entry?.temp === 'number' ? Number(entry.temp) : 28;
+          const rh = typeof entry?.rh === 'number' ? Number(entry.rh) : 70;
+          const pop = typeof entry?.pop === 'number' ? Number(entry.pop) : 20;
+          
+          // Validate numbers are finite
+          return {
+            datetime,
+            temp: Number.isFinite(temp) ? temp : 28,
+            rh: Number.isFinite(rh) ? rh : 70,
+            pop: Number.isFinite(pop) ? pop : 20,
+          };
+        });
 
-    if (normalized.length >= 7) return normalized;
-    const startMs = normalized.length
-      ? new Date(normalized[normalized.length - 1].datetime).getTime() + 86400000
-      : Date.now();
-    return normalized.concat(buildFallbackWeather(startMs, 7 - normalized.length));
+      // Pad with fallback data if needed
+      if (normalized.length >= 7) return normalized;
+      const startMs = normalized.length
+        ? new Date(normalized[normalized.length - 1].datetime).getTime() + 86400000
+        : Date.now();
+      return normalized.concat(buildFallbackWeather(startMs, 7 - normalized.length));
+    } catch (err) {
+      logWarn('Weather.Normalize', `Failed to normalize forecast, using fallback: ${err}`);
+      return buildFallbackWeather();
+    }
   };
 
   const weatherSnapshot = useMemo(() => weatherForecast.slice(0, 7), [weatherForecast]);
@@ -222,12 +279,16 @@ export default function SmartCropRecommendation() {
       });
     }
 
+    // FIX: Use region instead of undefined location variable
+    const safeLatitude = region?.latitude ?? DEFAULT_COORDS.latitude;
+    const safeLongitude = region?.longitude ?? DEFAULT_COORDS.longitude;
+
     steps.push({
       id: 'croprec.location',
       text:
         textLanguage === 'urdu'
-          ? `${t.locationTitle}۔ ${t.latitude} ${formatCoord(location?.coords?.latitude ?? region?.latitude)}۔ ${t.longitude} ${formatCoord(location?.coords?.longitude ?? region?.longitude)}۔ ${t.soil} ${soilType}۔ ${t.liveMapDisabled}`
-          : `${t.locationTitle}. ${t.latitude} ${formatCoord(location?.coords?.latitude ?? region?.latitude)}. ${t.longitude} ${formatCoord(location?.coords?.longitude ?? region?.longitude)}. ${t.soil} ${soilType}. ${t.liveMapDisabled}`,
+          ? `${t.locationTitle}۔ ${t.latitude} ${formatCoord(safeLatitude)}۔ ${t.longitude} ${formatCoord(safeLongitude)}۔ ${t.soil} ${soilType}۔ ${t.liveMapDisabled}`
+          : `${t.locationTitle}. ${t.latitude} ${formatCoord(safeLatitude)}. ${t.longitude} ${formatCoord(safeLongitude)}. ${t.soil} ${soilType}. ${t.liveMapDisabled}`,
     });
 
     steps.push({
@@ -269,7 +330,7 @@ export default function SmartCropRecommendation() {
     });
 
     return steps;
-  }, [cropNameMap, crops, formatCoord, location, region, soilType, t, textLanguage, topCrop, weatherSnapshot]);
+  }, [cropNameMap, crops, formatCoord, region, soilType, t, textLanguage, topCrop, weatherSnapshot]);
 
   const pageSequenceStartedRef = useRef(false);
 
@@ -295,7 +356,7 @@ export default function SmartCropRecommendation() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (loading && crops.length === 0) {
-        console.warn('Loading timeout - using fallback data');
+        logWarn('Timeout', 'Loading timeout - using fallback data');
         // Create default crops if still loading
         const defaultCrops: Crop[] = initialCrops.map((cropName) => ({
           name: cropName,
@@ -306,25 +367,31 @@ export default function SmartCropRecommendation() {
           pestRiskScore: 75,
           totalScore: 80,
         }));
-        setCrops(defaultCrops.sort((a,b)=>b.totalScore-a.totalScore));
+        setCrops(defaultCrops.sort((a, b) => b.totalScore - a.totalScore));
         setLoading(false);
-        Animated.parallel([
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            tension: 10,
-            friction: 3,
-            useNativeDriver: true,
-          }),
-        ]).start();
+        
+        // Safe animated parallel start
+        try {
+          Animated.parallel([
+            Animated.timing(fadeAnim, {
+              toValue: 1,
+              duration: 800,
+              useNativeDriver: true,
+            }),
+            Animated.spring(scaleAnim, {
+              toValue: 1,
+              tension: 10,
+              friction: 3,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        } catch (err) {
+          logWarn('Animation', `Failed to start parallel animations: ${err}`);
+        }
       }
     }, 8000);
     return () => clearTimeout(timeout);
-  }, [loading, crops.length]);
+  }, [loading, crops.length, fadeAnim, scaleAnim]);
   
   // Helper: Simulate seasonal pest risk
   const simulatePestRisk = (crop: string, month: number) => {
@@ -340,9 +407,12 @@ export default function SmartCropRecommendation() {
 
   // Use safe default location/soil on mobile builds to avoid native permission crashes.
   useEffect(() => {
+    logInfo('Init.Soil', 'Initializing soil type and region');
     const soils = ['Loamy Soil', 'Clay Soil', 'Sandy Soil', 'Silty Soil', 'Alluvial Soil', 'Saline Soil'];
-    const index = Math.floor((Math.abs(DEFAULT_COORDS.latitude) % 6));
-    setSoilType(soils[index] || DEFAULT_SOIL);
+    const index = Math.floor(Math.abs(DEFAULT_COORDS.latitude % 6));
+    const selectedSoil = soils[index] || DEFAULT_SOIL;
+    setSoilType(selectedSoil);
+    logInfo('Init.Soil', `Set soil type: ${selectedSoil}`);
     setRegion({
       latitude: DEFAULT_COORDS.latitude,
       longitude: DEFAULT_COORDS.longitude,
@@ -355,23 +425,39 @@ export default function SmartCropRecommendation() {
   useEffect(() => {
     let mounted = true;
     const subscription = NetInfo.addEventListener((state) => {
-      if (mounted) setIsConnected(state.isConnected ?? false);
+      if (mounted) {
+        const connected = state.isConnected ?? false;
+        logInfo('NetInfo', `Network state: ${connected ? 'connected' : 'disconnected'}`);
+        setIsConnected(connected);
+      }
     });
 
     const initialize = async () => {
       try {
+        logInfo('Init', 'Fetching initial network state');
         const state = await NetInfo.fetch();
-        if (mounted) setIsConnected(state.isConnected ?? false);
+        if (mounted) {
+          const connected = state.isConnected ?? false;
+          logInfo('NetInfo', `Initial network state: ${connected ? 'connected' : 'disconnected'}`);
+          setIsConnected(connected);
+        }
       } catch (err) {
-        console.warn('Failed to fetch initial network state', err);
+        logWarn('NetInfo', `Failed to fetch initial network state: ${err}`);
         if (mounted) setIsConnected(false);
       }
 
       await loadRecommendationCache();
-      if (mounted) setCacheLoaded(true);
+      if (mounted) {
+        logInfo('Cache', 'Cache load complete');
+        setCacheLoaded(true);
+      }
     };
 
-    initialize();
+    initialize().catch((err) => {
+      logError('Initialize', err);
+      if (mounted) setCacheLoaded(true);
+    });
+
     return () => {
       mounted = false;
       subscription();
@@ -386,10 +472,15 @@ export default function SmartCropRecommendation() {
 
   useEffect(() => {
     const fetchWeather = async () => {
-      if (isConnected === null || !cacheLoaded) return;
+      if (isConnected === null || !cacheLoaded) {
+        logInfo('Weather.Fetch', 'Skipping: network state or cache not ready');
+        return;
+      }
 
       if (isConnected === false) {
+        logWarn('Weather.Fetch', 'Offline mode');
         if (!hasCachedData) {
+          logWarn('Weather.Fetch', 'Offline and no cached data');
           setError('Offline and no cached weather data available');
           setWeatherForecast(buildFallbackWeather());
           setLoading(false);
@@ -402,35 +493,61 @@ export default function SmartCropRecommendation() {
 
       const latitude = region?.latitude;
       const longitude = region?.longitude;
-      if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
+      if (typeof latitude !== 'number' || typeof longitude !== 'number' || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        logWarn('Weather.Fetch', 'Invalid coordinates');
+        return;
+      }
+
       try {
         const API_KEY = '529094980f6e4316be96ffc561515561';
         const url = `https://api.weatherbit.io/v2.0/forecast/daily?lat=${latitude}&lon=${longitude}&key=${API_KEY}`;
+        logInfo('Weather.Fetch', `Fetching from ${url}`);
+        
         const res = await fetch(url);
         if (!res.ok) {
+          logError('Weather.Fetch', `HTTP ${res.status}`);
           if (!hasCachedData) {
             setError('Failed to load weather data');
             setWeatherForecast(buildFallbackWeather());
           }
           return;
         }
+
         const text = await res.text();
         if (!text || !text.trim()) {
+          logWarn('Weather.Fetch', 'Empty response body');
           if (!hasCachedData) {
             setError('Failed to load weather data');
             setWeatherForecast(buildFallbackWeather());
           }
           return;
         }
-        const data = JSON.parse(text);
+
+        // SAFE JSON PARSE WITH ERROR HANDLING
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          logError('Weather.Fetch.JSON', parseErr);
+          if (!hasCachedData) {
+            setError('Invalid weather data format');
+            setWeatherForecast(buildFallbackWeather());
+          }
+          return;
+        }
+
         if (data && Array.isArray(data.data)) {
+          logInfo('Weather.Fetch', `Loaded ${data.data.length} days of forecast`);
           setWeatherForecast(normalizeSevenDayForecast(data.data));
           setError(null);
-        } else if (!hasCachedData) {
-          setWeatherForecast(buildFallbackWeather());
+        } else {
+          logWarn('Weather.Fetch', 'Invalid response structure');
+          if (!hasCachedData) {
+            setWeatherForecast(buildFallbackWeather());
+          }
         }
       } catch (err) {
-        console.error('Weather fetch failed', err);
+        logError('Weather.Fetch', err);
         if (!hasCachedData) {
           setError('Failed to load weather data');
           setWeatherForecast(buildFallbackWeather());
@@ -439,17 +556,22 @@ export default function SmartCropRecommendation() {
     };
 
     fetchWeather().catch((e) => {
-      console.error('Unhandled fetchWeather rejection', e);
+      logError('Weather.Fetch.Unhandled', e);
       if (!hasCachedData) setError('Weather fetch failed');
     });
   }, [region, fetchKey, isConnected, hasCachedData]);
 
   useEffect(() => {
     const fetchMarketPrices = async () => {
-      if (isConnected === null || !cacheLoaded) return;
+      if (isConnected === null || !cacheLoaded) {
+        logInfo('Market.Fetch', 'Skipping: network state or cache not ready');
+        return;
+      }
 
       if (isConnected === false) {
+        logWarn('Market.Fetch', 'Offline mode');
         if (!hasCachedData) {
+          logWarn('Market.Fetch', 'Offline and no cached data');
           setError('Offline and no cached market data available');
           setMarketPrices({
             Rice: 120,
@@ -465,14 +587,22 @@ export default function SmartCropRecommendation() {
         }
         return;
       }
+
       try {
-        const res = await fetch(`${API_BASE}/api/v1/calculator/prices/crop`);
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        const apiUrl = `${API_BASE}/api/v1/calculator/prices/crop`;
+        logInfo('Market.Fetch', `Fetching from ${apiUrl}`);
+        
+        const res = await fetch(apiUrl);
+        if (!res.ok) {
+          logError('Market.Fetch', `HTTP ${res.status}`);
+          throw new Error(`API error: ${res.status}`);
+        }
+
         let data: any = null;
         try {
           data = await res.json();
         } catch (e) {
-          console.warn('Market prices: failed to parse JSON response', e);
+          logWarn('Market.Fetch.JSON', `Failed to parse JSON response: ${e}`);
           data = null;
         }
 
@@ -484,20 +614,27 @@ export default function SmartCropRecommendation() {
           Potato: 70,
         };
 
+        // Validate response is object with numeric values
         const isValidPrices =
-          data && typeof data === 'object' && !Array.isArray(data) &&
+          data && 
+          typeof data === 'object' && 
+          !Array.isArray(data) &&
           Object.keys(data).length > 0 &&
-          Object.keys(data).every((k) => typeof (data as any)[k] === 'number');
+          Object.keys(data).every((k) => {
+            const val = (data as any)[k];
+            return typeof val === 'number' && Number.isFinite(val);
+          });
 
         if (!isValidPrices) {
-          console.warn('Market prices response invalid, falling back to defaults', data);
+          logWarn('Market.Fetch', `Invalid response structure: ${JSON.stringify(data)}`);
           setMarketPrices(defaultPrices);
         } else {
+          logInfo('Market.Fetch', `Loaded prices for ${Object.keys(data).length} crops`);
           setMarketPrices(data);
           setError(null);
         }
       } catch (err) {
-        console.warn('Failed to fetch market prices, using defaults:', err);
+        logWarn('Market.Fetch', `Failed to fetch: ${err}`);
         console.error(err);
         if (!hasCachedData) {
           setError('Failed to load market prices');
@@ -511,70 +648,119 @@ export default function SmartCropRecommendation() {
         }
       }
     };
+
     fetchMarketPrices().catch((e) => {
-      console.error('Unhandled fetchMarketPrices rejection', e);
+      logError('Market.Fetch.Unhandled', e);
       if (!hasCachedData) setError('Market prices fetch failed');
     });
   }, [fetchKey, isConnected, hasCachedData]);
 
-  // Fetch market prices
   // Calculate crop suitability scores
   useEffect(() => {
-    console.log('Calculating crops...', { weatherForecast: weatherForecast.length, marketPrices: Object.keys(marketPrices).length, soilType });
     try {
+      logInfo('Crops.Calc', `weatherForecast=${weatherForecast.length}, marketPrices=${Object.keys(marketPrices).length}, soilType=${soilType}`);
+      
       if (!weatherForecast.length || !Object.keys(marketPrices).length) {
-        console.log('Waiting for data: weather=', weatherForecast.length, 'prices=', Object.keys(marketPrices).length, 'soil=', soilType);
+        logInfo('Crops.Calc', `Waiting for data: weather=${weatherForecast.length}, prices=${Object.keys(marketPrices).length}`);
         return;
       }
+
+      // Defensive: ensure first weather entry has valid values
+      const firstWeather = weatherForecast[0];
+      if (!firstWeather) {
+        logWarn('Crops.Calc', 'First weather entry is missing');
+        return;
+      }
+
+      const baseTemp = typeof firstWeather.temp === 'number' ? firstWeather.temp : 28;
+      const baseHumidity = typeof firstWeather.rh === 'number' ? firstWeather.rh : 70;
+
       const month = new Date().getMonth(); // 0-11
       const calculatedCrops: Crop[] = initialCrops.map((cropName) => {
-      const tempScore = Math.max(0, 100 - Math.abs(weatherForecast[0].temp - 28) * 3); // ideal 28°C
-      const humidityScore = Math.max(0, 100 - Math.abs(weatherForecast[0].rh - 70)); // ideal 70%
-      const soilScoreMap: Record<string, Record<string, number>> = {
-        'Rice': { 'Loamy Soil': 90, 'Clay Soil': 60, 'Sandy Soil': 40, 'Silty Soil': 80, 'Alluvial Soil': 95, 'Saline Soil': 20 },
-        'Wheat': { 'Loamy Soil': 95, 'Clay Soil': 80, 'Sandy Soil': 50, 'Silty Soil': 70, 'Alluvial Soil': 60, 'Saline Soil': 30 },
-        'Corn': { 'Loamy Soil': 90, 'Clay Soil': 70, 'Sandy Soil': 60, 'Silty Soil': 80, 'Alluvial Soil': 65, 'Saline Soil': 25 },
-        'Sugarcane': { 'Loamy Soil': 85, 'Clay Soil': 70, 'Sandy Soil': 50, 'Silty Soil': 75, 'Alluvial Soil': 90, 'Saline Soil': 20 },
-        'Potato': { 'Loamy Soil': 90, 'Clay Soil': 80, 'Sandy Soil': 55, 'Silty Soil': 70, 'Alluvial Soil': 60, 'Saline Soil': 20 },
-      };
-      const soilScore = soilScoreMap[cropName]?.[soilType] ?? 50;
-      const areaScore = 100; // Assuming all area suitable
-      const marketRaw = marketPrices[cropName];
-      const marketVal = Number(marketRaw);
-      const marketScore = Number.isFinite(marketVal) && marketVal > 0 ? Math.min(100, marketVal) : 50;
-      const pestRiskScore = 100 - simulatePestRisk(cropName, month);
-      const totalScore = Math.round((tempScore + humidityScore + soilScore + areaScore + marketScore + pestRiskScore) / 6);
-      return { name: cropName, weatherScore: tempScore, soilScore, areaScore, marketScore, pestRiskScore, totalScore };
-    });
-    const sortedCrops = calculatedCrops.sort((a,b) => b.totalScore - a.totalScore);
-    setCrops(sortedCrops);
-    saveRecommendationCache({
-      crops: sortedCrops,
-      weatherForecast,
-      marketPrices,
-      soilType,
-      region,
-    });
-    setLoading(false);
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 10,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-    ]).start();
+        try {
+          // Ensure valid numeric calculations
+          const tempScore = Math.max(0, 100 - Math.abs(baseTemp - 28) * 3);
+          const humidityScore = Math.max(0, 100 - Math.abs(baseHumidity - 70));
+
+          const soilScoreMap: Record<string, Record<string, number>> = {
+            'Rice': { 'Loamy Soil': 90, 'Clay Soil': 60, 'Sandy Soil': 40, 'Silty Soil': 80, 'Alluvial Soil': 95, 'Saline Soil': 20 },
+            'Wheat': { 'Loamy Soil': 95, 'Clay Soil': 80, 'Sandy Soil': 50, 'Silty Soil': 70, 'Alluvial Soil': 60, 'Saline Soil': 30 },
+            'Corn': { 'Loamy Soil': 90, 'Clay Soil': 70, 'Sandy Soil': 60, 'Silty Soil': 80, 'Alluvial Soil': 65, 'Saline Soil': 25 },
+            'Sugarcane': { 'Loamy Soil': 85, 'Clay Soil': 70, 'Sandy Soil': 50, 'Silty Soil': 75, 'Alluvial Soil': 90, 'Saline Soil': 20 },
+            'Potato': { 'Loamy Soil': 90, 'Clay Soil': 80, 'Sandy Soil': 55, 'Silty Soil': 70, 'Alluvial Soil': 60, 'Saline Soil': 20 },
+          };
+
+          const soilScore = soilScoreMap[cropName]?.[soilType] ?? 50;
+          const areaScore = 100;
+
+          // Defensive: ensure market price is valid number
+          const marketRaw = marketPrices[cropName];
+          const marketVal = typeof marketRaw === 'number' ? marketRaw : 0;
+          const marketScore = Number.isFinite(marketVal) && marketVal > 0 ? Math.min(100, marketVal) : 50;
+
+          const pestRiskScore = 100 - simulatePestRisk(cropName, month);
+          const totalScore = Math.round((tempScore + humidityScore + soilScore + areaScore + marketScore + pestRiskScore) / 6);
+
+          return { 
+            name: cropName, 
+            weatherScore: Math.round(tempScore),
+            soilScore: Math.round(soilScore),
+            areaScore,
+            marketScore: Math.round(marketScore),
+            pestRiskScore: Math.round(pestRiskScore),
+            totalScore 
+          };
+        } catch (err) {
+          logError(`Crops.Calc.${cropName}`, err);
+          // Return safe default
+          return {
+            name: cropName,
+            weatherScore: 75,
+            soilScore: 75,
+            areaScore: 100,
+            marketScore: 75,
+            pestRiskScore: 75,
+            totalScore: 75,
+          };
+        }
+      });
+
+      const sortedCrops = calculatedCrops.sort((a, b) => b.totalScore - a.totalScore);
+      logInfo('Crops.Calc', `Calculated ${sortedCrops.length} crops`);
+      setCrops(sortedCrops);
+      saveRecommendationCache({
+        crops: sortedCrops,
+        weatherForecast,
+        marketPrices,
+        soilType,
+        region,
+      });
+      setLoading(false);
+
+      // Safe animated parallel start
+      try {
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            tension: 10,
+            friction: 3,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      } catch (err) {
+        logWarn('Animation.Parallel', `Failed to start animations: ${err}`);
+      }
     } catch (err) {
-      console.error('Error calculating crops', err);
+      logError('Crops.Calc.Global', err);
       setError('Failed to calculate crop recommendations');
       setLoading(false);
     }
-  }, [weatherForecast, marketPrices, soilType]);
+  }, [weatherForecast, marketPrices, soilType, fadeAnim, scaleAnim]);
 
   // Retry helper
   const handleRetry = () => {
@@ -728,13 +914,13 @@ export default function SmartCropRecommendation() {
                     <View style={styles.locationChip}>
                       <Text style={styles.locationLabel}>{t.latitude}</Text>
                       <Text style={styles.locationValue}>
-                        {formatCoord(location?.coords?.latitude ?? region?.latitude)}
+                        {formatCoord(region?.latitude)}
                       </Text>
                     </View>
                     <View style={styles.locationChip}>
                       <Text style={styles.locationLabel}>{t.longitude}</Text>
                       <Text style={styles.locationValue}>
-                        {formatCoord(location?.coords?.longitude ?? region?.longitude)}
+                        {formatCoord(region?.longitude)}
                       </Text>
                     </View>
                   </View>
@@ -767,19 +953,26 @@ export default function SmartCropRecommendation() {
                     onLayout={(event) => {
                       const next = Math.round(event.nativeEvent.layout.width);
                       if (next > 0 && Math.abs(next - weatherChartContainerWidth) > 2) {
+                        logInfo('Chart.Layout', `Container width: ${next}px`);
                         setWeatherChartContainerWidth(next);
                       }
                     }}
                   >
-                    {BarChart && weatherForecast.length > 0 && (
+                    {/* DEFENSIVE: Only render BarChart if all required conditions are met */}
+                    {BarChart && weatherForecast.length > 0 && weatherChartContainerWidth > 0 && (
                       <BarChart
                         data={{
-                          labels: weatherForecast.map((d) =>
-                            new Date(d.datetime).toLocaleDateString(textLanguage === 'urdu' ? 'ur-PK' : 'en-US', { weekday: 'short' })
-                          ),
-                          datasets: [{ data: weatherForecast.map((d) => d.temp) }],
+                          labels: weatherForecast.slice(0, 7).map((d) => {
+                            try {
+                              const dt = new Date(d?.datetime ?? Date.now());
+                              return dt.toLocaleDateString(textLanguage === 'urdu' ? 'ur-PK' : 'en-US', { weekday: 'short' });
+                            } catch {
+                              return 'N/A';
+                            }
+                          }),
+                          datasets: [{ data: weatherForecast.slice(0, 7).map((d) => Number(d?.temp ?? 28)) }],
                         }}
-                        width={weatherChartContainerWidth || width - 40}
+                        width={weatherChartContainerWidth}
                         height={220}
                         chartConfig={{
                           backgroundColor: '#ffffff',
@@ -797,6 +990,11 @@ export default function SmartCropRecommendation() {
                         verticalLabelRotation={isCompactWeatherChart ? 20 : 0}
                         fromZero={true}
                       />
+                    )}
+                    {(!BarChart || weatherForecast.length === 0 || weatherChartContainerWidth === 0) && (
+                      <View style={styles.chartFallback}>
+                        <Text style={styles.chartFallbackText}>Loading chart...</Text>
+                      </View>
                     )}
                   </View>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.snapshotRow}>
@@ -1134,6 +1332,10 @@ const styles = StyleSheet.create({
     right: -6,
     bottom: -6,
   },
+  chart: {
+    marginVertical: 8,
+    borderRadius: 16,
+  },
   weatherDetailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1237,5 +1439,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     fontWeight: '600',
+  },
+  chartWrap: {
+    marginVertical: 8,
+  },
+  chartFallback: {
+    height: 220,
+    borderRadius: 16,
+    backgroundColor: '#f0fdf4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+  },
+  chartFallbackText: {
+    color: '#6B7280',
+    fontSize: 14,
   },
 });
