@@ -20,6 +20,8 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { API_BASE } from '@/config/env';
 import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
+import NetInfo from '@react-native-community/netinfo';
+import { detectDiseaseOffline } from '@/lib/localDiseaseModel';
 
 const API_URL = `${API_BASE}/api/v1/disease/predict_disease`;
 
@@ -342,6 +344,28 @@ export default function DiseaseDetection() {
     try {
       console.log('🔍 Starting disease detection...');
       console.log('Image URI:', image);
+
+      const netState = await NetInfo.fetch();
+      const isOnline = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+
+      if (!isOnline) {
+        console.log('📴 No internet detected, using offline TFLite model.');
+        const data = await detectDiseaseOffline(image);
+        const normalized = {
+          ...data,
+          disease: String(data.disease ?? '').trim(),
+          confidence: Number(data.confidence ?? 0),
+        };
+
+        if (!normalized.disease) {
+          throw new Error('Offline model returned no disease prediction.');
+        }
+
+        setResult(normalized);
+        setTreatment('Offline mode: treatment advice requires internet connection.');
+        setStatusText(tText.analyzeScroll);
+        return;
+      }
 
       await performUpload(image);
       setStatusText(tText.analyzeScroll);

@@ -1,5 +1,27 @@
 import 'react-native-gesture-handler';
 import 'react-native-reanimated';
+
+if (typeof globalThis.window === 'undefined') {
+  (globalThis as any).window = globalThis;
+}
+
+if (typeof globalThis.location === 'undefined') {
+  const href = 'exp://localhost/';
+  (globalThis as any).location = {
+    href,
+    origin: href.replace(/\/\/$/, ''),
+    protocol: 'exp:',
+    host: 'localhost',
+    hostname: 'localhost',
+    pathname: '/',
+    search: '',
+    hash: '',
+    toString() {
+      return href;
+    },
+  };
+}
+
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

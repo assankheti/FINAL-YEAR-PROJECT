@@ -56,6 +56,7 @@ export default {
       output: 'static',
       favicon: './assets/images/logo-removebg.png',
     },
+    assetBundlePatterns: ['assets/**/*'],
     splash: {
       resizeMode: 'contain',
       backgroundColor: '#ffffff',
