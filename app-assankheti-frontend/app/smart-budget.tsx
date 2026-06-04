@@ -151,6 +151,7 @@ export default function SmartBudgetForm() {
   const { textLanguage } = useLanguage();
   const { enabled: voiceEnabled, activeHighlightId, startGuidedSequence, cancelGuidedSequence, speak, stop } =
     useVoiceGuidance();
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const selectedCropFromParams = params.selectedCrop 
     ? (params.selectedCrop as string).charAt(0).toUpperCase() + (params.selectedCrop as string).slice(1)
@@ -166,6 +167,7 @@ export default function SmartBudgetForm() {
   const [open, setOpen] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [isResultSectionSpeaking, setIsResultSectionSpeaking] = useState(false);
+  const [errors, setErrors] = useState<{ [key: string]: boolean }>({});
 
   const [availableFertilizers, setAvailableFertilizers] = useState<ItemData[]>([]);
   const [availablePesticides, setAvailablePesticides] = useState<ItemData[]>([]);
@@ -690,7 +692,8 @@ export default function SmartBudgetForm() {
     keyName: string,
     setValue: (v: string) => void,
     highlightId: string,
-    voiceLabel: string
+    voiceLabel: string,
+    fieldKey: string
   ) => (
     <SpeechHighlight
       active={activeHighlightId === highlightId}
@@ -700,7 +703,10 @@ export default function SmartBudgetForm() {
       <View style={{ marginBottom: 12 }}>
         <Text style={styles.label}>{label}</Text>
         <TouchableOpacity
-          style={styles.dropdown}
+          style={[
+            styles.dropdown,
+            errors[fieldKey] && styles.dropdownError,
+          ]}
           onPress={() => setOpen(open === keyName ? null : keyName)}
           accessibilityRole="button"
           accessibilityLabel={voiceLabel}
@@ -708,6 +714,12 @@ export default function SmartBudgetForm() {
           <Text style={styles.dropdownText}>{value}</Text>
           <Feather name="chevron-down" size={18} color="#2f6f5f" />
         </TouchableOpacity>
+
+        {errors[fieldKey] && (
+          <Text style={styles.errorText}>
+            {textLanguage === 'urdu' ? '✗ براہ کرم منتخب کریں' : '✗ Required'}
+          </Text>
+        )}
 
         {open === keyName && (
           <View style={styles.dropdownList}>
@@ -718,6 +730,7 @@ export default function SmartBudgetForm() {
                 onPress={() => {
                   setValue(item.value);
                   setOpen(null);
+                  if (errors[fieldKey]) setErrors((prev) => ({ ...prev, [fieldKey]: false }));
                   void speak(textLanguage === 'urdu' ? `${voiceLabel}۔ ${item.label}` : `${voiceLabel}. ${item.label}`, highlightId);
                 }}
                 accessibilityRole="button"
@@ -766,7 +779,26 @@ export default function SmartBudgetForm() {
       ? T.selectSeed
       : `${seed} - ${currencyText} ${selectedSeedPrice}`;
 
+  const validateFields = () => {
+    const newErrors: { [key: string]: boolean } = {};
+
+    if (crop === 'Select Crop') newErrors.crop = true;
+    if (soilType === 'Select Soil Type') newErrors.soilType = true;
+    if (!area.trim() || parseFloat(area) <= 0) newErrors.area = true;
+    if (fertilizer.toLowerCase().startsWith('select ')) newErrors.fertilizer = true;
+    if (pesticide.toLowerCase().startsWith('select ')) newErrors.pesticide = true;
+    if (seed.toLowerCase().startsWith('select ')) newErrors.seed = true;
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const calculateBudget = () => {
+    if (!validateFields()) {
+      void speak(textLanguage === 'urdu' ? 'براہ کرم تمام فیلڈز کو منتخب کریں' : 'Please fill in all required fields', 'budget.error');
+      return;
+    }
+
     const areaNum = parseFloat(area) || 0;
     const otherNum = parseFloat(otherCosts) || 0;
     let soilFactor = 1;
@@ -815,6 +847,11 @@ export default function SmartBudgetForm() {
       pesticideName: pesticideSelected || 'Not selected',
       seedName: seedSelected || 'Not selected',
     });
+
+    // Scroll to results after a short delay to ensure state is updated
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 300);
   };
 
   return (
@@ -836,7 +873,7 @@ export default function SmartBudgetForm() {
         </SpeechHighlight>
       </GreenHeader>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <SpeechHighlight
           active={activeHighlightId === 'budget.intro'}
           style={styles.introWrap}
@@ -869,7 +906,8 @@ export default function SmartBudgetForm() {
             'soil',
             setSoilType,
             soilFieldHighlightId,
-            T.soilType
+            T.soilType,
+            'soilType'
           )}
 
           <SpeechHighlight
@@ -880,14 +918,26 @@ export default function SmartBudgetForm() {
             <View style={{ marginBottom: 12 }}>
               <Text style={styles.label}>{T.landArea}</Text>
               <TextInput
-                style={[styles.input, isUrdu ? styles.inputUrdu : styles.inputEnglish]}
+                style={[
+                  styles.input,
+                  isUrdu ? styles.inputUrdu : styles.inputEnglish,
+                  errors.area && styles.inputError,
+                ]}
                 placeholder={T.areaPlaceholder}
                 placeholderTextColor="#94a3b8"
                 keyboardType="numeric"
                 value={area}
-                onChangeText={setArea}
+                onChangeText={(text) => {
+                  setArea(text);
+                  if (errors.area) setErrors((prev) => ({ ...prev, area: false }));
+                }}
                 onFocus={() => void speak(textLanguage === 'urdu' ? `${T.landArea}۔ ${T.areaPlaceholder}` : `${T.landArea}. ${T.areaPlaceholder}`, areaFieldHighlightId)}
               />
+              {errors.area && (
+                <Text style={styles.errorText}>
+                  {textLanguage === 'urdu' ? '✗ رقبہ درج کریں' : '✗ Area is required'}
+                </Text>
+              )}
             </View>
           </SpeechHighlight>
 
@@ -901,7 +951,8 @@ export default function SmartBudgetForm() {
             'fertilizer',
             setFertilizer,
             fertilizerFieldHighlightId,
-            T.fertilizer
+            T.fertilizer,
+            'fertilizer'
           )}
 
           {renderDropdown(
@@ -914,7 +965,8 @@ export default function SmartBudgetForm() {
             'pesticide',
             setPesticide,
             pesticideFieldHighlightId,
-            T.pesticide
+            T.pesticide,
+            'pesticide'
           )}
 
           {renderDropdown(
@@ -927,7 +979,8 @@ export default function SmartBudgetForm() {
             'seed',
             setSeed,
             seedFieldHighlightId,
-            T.seed
+            T.seed,
+            'seed'
           )}
 
           <SpeechHighlight
@@ -1203,4 +1256,7 @@ const styles = StyleSheet.create({
   cost: { color: '#b91c1c', fontWeight: '700' },
   revenue: { color: '#047857', fontWeight: '700' },
   profit: { color: '#065f46', fontWeight: '800', fontSize: 17 },
+  inputError: { borderColor: '#dc2626', borderWidth: 1.5, backgroundColor: '#fef2f2' },
+  dropdownError: { borderColor: '#dc2626', borderWidth: 1.5, backgroundColor: '#fef2f2' },
+  errorText: { color: '#dc2626', fontSize: 12, marginTop: 4, fontWeight: '600' },
 });
