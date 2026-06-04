@@ -1,7 +1,8 @@
 import NetInfo from '@react-native-community/netinfo';
 import { Asset } from 'expo-asset';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { Buffer } from 'buffer';
+import { Buffer } from 'buffer'; 
+
 
 if (typeof globalThis.Buffer === 'undefined') {
   globalThis.Buffer = Buffer as any;
