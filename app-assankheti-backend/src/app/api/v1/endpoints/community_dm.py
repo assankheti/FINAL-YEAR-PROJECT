@@ -20,6 +20,7 @@ from app.schemas.community import MessageCreate, MessageOut
 from app.services.community_helpers import (
     get_or_create_dm_conversation,
     is_blocked,
+    normalize_participant_id,
 )
 from app.services.security import get_current_mobile_id
 from app.services.notifications import notify
@@ -69,7 +70,8 @@ async def dm_send(
     payload: MessageCreate,
     sender_id: str = Depends(get_current_mobile_id),
 ):
-    recipient_id = (payload.recipient_id or "").strip()
+    sender_id = normalize_participant_id(sender_id)
+    recipient_id = normalize_participant_id(payload.recipient_id or "")
     if not recipient_id:
         raise HTTPException(status_code=400, detail="recipient_id is required")
     if recipient_id == sender_id:
@@ -147,7 +149,11 @@ async def dm_send(
     try:
         await db[COMMUNITY_CONVERSATIONS_COLLECTION].update_one(
             {"conversation_id": conversation_id},
-            {"$set": {"last_message_at": now, "last_message_preview": preview}},
+            {
+                "$set": {"last_message_at": now, "last_message_preview": preview},
+                # A new message un-hides the thread for anyone who deleted it.
+                "$pull": {"hidden_for": {"$in": [sender_id, recipient_id]}},
+            },
         )
     except Exception:
         logger.exception(
@@ -196,7 +202,8 @@ async def dm_resolve(
     Creates the conversation if it does not exist yet — idempotent on
     (sorted participant pair).
     """
-    other_id = (payload.other_mobile_id or "").strip()
+    caller_id = normalize_participant_id(caller_id)
+    other_id = normalize_participant_id(payload.other_mobile_id or "")
     if not other_id:
         raise HTTPException(status_code=400, detail="other_mobile_id is required")
     if other_id == caller_id:
@@ -241,6 +248,9 @@ async def dm_inbox(
     items: List[Dict[str, Any]] = []
     async for conv in cursor:
         conv = _strip_id(conv)
+        # Hidden for this user (they "deleted" the conversation on their side).
+        if mobile_id in (conv.get("hidden_for") or []):
+            continue
         participants = conv.get("participants", [])
         other = next((p for p in participants if p != mobile_id), None)
         last_read_map = conv.get("last_read_at") or {}
@@ -277,6 +287,46 @@ async def dm_inbox(
     return {"conversations": items}
 
 
+# ---------- Delete a conversation (for me) ----------
+
+@router.delete("/dm/conversations/{conversation_id}")
+async def dm_delete_conversation(
+    conversation_id: str,
+    caller_id: str = Depends(get_current_mobile_id),
+):
+    """Remove a conversation from the caller's inbox.
+
+    This is a "delete for me" — the thread is hidden for the caller only, so the
+    other participant keeps their copy. It reappears for the caller if the other
+    person sends a new message.
+    """
+    caller_id = normalize_participant_id(caller_id)
+    coll = db[COMMUNITY_CONVERSATIONS_COLLECTION]
+    conv = await coll.find_one({"conversation_id": conversation_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if caller_id not in [normalize_participant_id(p) for p in (conv.get("participants") or [])]:
+        raise HTTPException(status_code=403, detail="Not a participant")
+
+    try:
+        await coll.update_one(
+            {"conversation_id": conversation_id},
+            {"$addToSet": {"hidden_for": caller_id}},
+        )
+    except Exception:
+        logger.exception(
+            "dm_delete_conversation_failed conversation_id=%s caller_id=%s",
+            conversation_id, caller_id,
+        )
+        raise HTTPException(status_code=500, detail="Failed to delete conversation")
+
+    logger.info(
+        "dm_conversation_hidden conversation_id=%s caller_id=%s",
+        conversation_id, caller_id,
+    )
+    return {"ok": True, "conversation_id": conversation_id}
+
+
 # ---------- Messages history ----------
 
 @router.get("/dm/messages/{conversation_id}")
@@ -309,6 +359,67 @@ async def dm_messages(
     )
     messages = [_strip_id(doc) async for doc in cursor]
     return {"messages": messages}
+
+
+# ---------- Delete a message ----------
+
+@router.delete("/dm/messages/{message_id}")
+async def dm_delete_message(
+    message_id: str,
+    caller_id: str = Depends(get_current_mobile_id),
+):
+    """Delete a single direct message.
+
+    Only the original sender may delete their own message.
+    """
+    caller_id = normalize_participant_id(caller_id)
+    msgs = db[COMMUNITY_MESSAGES_COLLECTION]
+    msg = await msgs.find_one({"message_id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if normalize_participant_id(msg.get("sender_id")) != caller_id:
+        raise HTTPException(
+            status_code=403, detail="You can only delete your own messages"
+        )
+
+    try:
+        await msgs.delete_one({"message_id": message_id})
+    except Exception:
+        logger.exception(
+            "dm_delete_failed message_id=%s caller_id=%s", message_id, caller_id
+        )
+        raise HTTPException(status_code=500, detail="Failed to delete message")
+
+    # Keep the inbox preview accurate if we just removed the latest message.
+    conversation_id = msg.get("conversation_id")
+    if conversation_id:
+        try:
+            latest = await msgs.find_one(
+                {"conversation_id": conversation_id},
+                sort=[("created_at", -1)],
+            )
+            if latest:
+                await db[COMMUNITY_CONVERSATIONS_COLLECTION].update_one(
+                    {"conversation_id": conversation_id},
+                    {"$set": {
+                        "last_message_at": latest.get("created_at"),
+                        "last_message_preview": _preview(
+                            latest.get("body"), latest.get("image_url")
+                        ),
+                    }},
+                )
+            else:
+                await db[COMMUNITY_CONVERSATIONS_COLLECTION].update_one(
+                    {"conversation_id": conversation_id},
+                    {"$set": {"last_message_preview": ""}},
+                )
+        except Exception:
+            logger.exception(
+                "dm_delete_preview_update_failed conversation_id=%s", conversation_id
+            )
+
+    logger.info("dm_deleted message_id=%s caller_id=%s", message_id, caller_id)
+    return {"ok": True, "message_id": message_id}
 
 
 # ---------- Read ----------

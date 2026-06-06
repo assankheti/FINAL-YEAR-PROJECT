@@ -168,6 +168,9 @@ export function VoiceGuidanceProvider({ children }: { children: React.ReactNode 
 
   const cancelGuidedSequence = useCallback(() => {
     sequenceIdRef.current += 1;
+    // Stop any audio that is mid-utterance, not just the loop counter — otherwise
+    // a sequence started on a previous tab keeps speaking after we switch tabs.
+    voiceGuidanceService.stop();
     setActiveHighlightId(null);
   }, []);
 

@@ -201,6 +201,66 @@ async def group_messages(
     return {"messages": messages}
 
 
+# ---------- Delete a message ----------
+
+@router.delete("/groups/{group_id}/messages/{message_id}")
+async def group_delete_message(
+    group_id: str,
+    message_id: str,
+    caller_id: str = Depends(get_current_mobile_id),
+):
+    """Delete a single group message.
+
+    Only the original sender may delete their own message.
+    """
+    await _require_membership(group_id, caller_id)
+
+    msgs = db[COMMUNITY_MESSAGES_COLLECTION]
+    msg = await msgs.find_one({"message_id": message_id, "group_id": group_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.get("sender_id") != caller_id:
+        raise HTTPException(
+            status_code=403, detail="You can only delete your own messages"
+        )
+
+    try:
+        await msgs.delete_one({"message_id": message_id})
+    except Exception:
+        logger.exception(
+            "group_delete_failed group_id=%s message_id=%s caller_id=%s",
+            group_id, message_id, caller_id,
+        )
+        raise HTTPException(status_code=500, detail="Failed to delete message")
+
+    # Keep the group list preview accurate if we removed the latest message.
+    try:
+        latest = await _last_group_message(group_id)
+        update = (
+            {
+                "last_message_at": latest.get("created_at"),
+                "last_message_preview": _preview(
+                    latest.get("body"), latest.get("image_url")
+                ),
+            }
+            if latest
+            else {"last_message_preview": ""}
+        )
+        await db[COMMUNITY_GROUPS_COLLECTION].update_one(
+            {"group_id": group_id}, {"$set": update}
+        )
+    except Exception:
+        logger.exception(
+            "group_delete_preview_update_failed group_id=%s", group_id
+        )
+
+    logger.info(
+        "group_deleted group_id=%s message_id=%s caller_id=%s",
+        group_id, message_id, caller_id,
+    )
+    return {"ok": True, "message_id": message_id}
+
+
 # ---------- Send ----------
 
 @router.post("/groups/{group_id}/send")

@@ -17,6 +17,8 @@ type Props = {
   onOfferStatusChange?: (offerId: string, newStatus: OfferStatus) => void;
   /** When provided, long-pressing a message from another user offers a Block action. */
   onBlockUser?: (mobileId: string) => void;
+  /** When provided, long-pressing your own message offers a Delete action. */
+  onDeleteMessage?: (message: ChatMessage) => void;
 };
 
 function formatTime(iso: string): string {
@@ -47,21 +49,36 @@ export default function MessageBubble({
   onLongPress,
   onOfferStatusChange,
   onBlockUser,
+  onDeleteMessage,
 }: Props) {
   const t = useT();
   const { width } = useWindowDimensions();
-  const isMe = message.sender_id === myMobileId || message.sender_id === 'me';
+  const normId = (id?: string | null) => (id ?? '').replace(/^device:/, '');
+  const isMe = normId(message.sender_id) === normId(myMobileId) || message.sender_id === 'me';
   const time = formatTime(message.created_at);
   const bubbleMaxWidth = Math.min(width * 0.78, 340);
   const offerWidth = Math.min(width * 0.84, 360);
   const imageSize = Math.min(width * 0.62, 280);
+
+  // Request deletion — the chat screen shows a professional confirm dialog.
+  const confirmDelete = () => {
+    onDeleteMessage?.(message);
+  };
+
+  const canDelete = isMe && !!onDeleteMessage;
 
   const handleLongPress = () => {
     if (onLongPress) {
       onLongPress();
       return;
     }
-    if (isMe || !onBlockUser || !message.sender_id) return;
+    // Your own message → offer to delete it.
+    if (isMe) {
+      confirmDelete();
+      return;
+    }
+    // Someone else's message → offer to block the sender.
+    if (!onBlockUser || !message.sender_id) return;
     Alert.alert(
       t({ english: `Block this user?`, urdu: 'اس صارف کو بلاک کریں؟' }),
       message.sender_id,
@@ -86,18 +103,30 @@ export default function MessageBubble({
 
   if (message.message_type === 'offer') {
     return (
-      <View style={[styles.row, isMe ? styles.rowMe : styles.rowThem]}>
+      <TouchableOpacity
+        activeOpacity={1}
+        onLongPress={handleLongPress}
+        delayLongPress={250}
+        style={[styles.row, isMe ? styles.rowMe : styles.rowThem]}
+      >
         <View style={[styles.offerWrap, { width: offerWidth, maxWidth: '100%' }]}>
           <OfferCard
             offer={message.payload as any}
             myMobileId={myMobileId}
             onLocalStatusChange={onOfferStatusChange}
           />
-          <Text style={[styles.timeBelow, isMe ? styles.timeBelowMe : styles.timeBelowThem]}>
-            {time}
-          </Text>
+          <View style={[styles.offerMetaRow, isMe ? styles.offerMetaRowMe : styles.offerMetaRowThem]}>
+            <Text style={[styles.timeBelow, isMe ? styles.timeBelowMe : styles.timeBelowThem]}>
+              {time}
+            </Text>
+            {canDelete ? (
+              <TouchableOpacity onPress={confirmDelete} hitSlop={10} style={styles.offerDeleteBtn}>
+                <Feather name="trash-2" size={13} color="#9ca3af" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   }
 
@@ -120,6 +149,11 @@ export default function MessageBubble({
           </Text>
         ) : null}
         <View style={styles.metaRow}>
+          {canDelete ? (
+            <TouchableOpacity onPress={confirmDelete} hitSlop={10} style={styles.deleteBtn}>
+              <Feather name="trash-2" size={12} color="rgba(255,255,255,0.85)" />
+            </TouchableOpacity>
+          ) : null}
           <Text style={[styles.time, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
           {isMe ? <StatusIcon status={message.status} /> : null}
         </View>
@@ -151,6 +185,11 @@ const styles = StyleSheet.create({
   textThem: { color: '#111827' },
   image: { borderRadius: 14, marginBottom: 8, backgroundColor: '#0001' },
   metaRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 4 },
+  deleteBtn: { marginRight: 6 },
+  offerMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  offerMetaRowMe: { justifyContent: 'flex-end' },
+  offerMetaRowThem: { justifyContent: 'flex-start' },
+  offerDeleteBtn: { padding: 2 },
   time: { fontWeight: '700', fontSize: 11 },
   timeMe: { color: 'rgba(255,255,255,0.75)' },
   timeThem: { color: '#9ca3af' },

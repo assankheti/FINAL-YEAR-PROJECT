@@ -132,6 +132,22 @@ export async function markLocalNotificationsRead(options?: {
   emitChange();
 }
 
+export async function setLocalNotificationRead(notificationId: string, read: boolean) {
+  const existing = await readAllLocalNotifications();
+  let changed = false;
+  const next = existing.map((item) => {
+    if (item.notification_id === notificationId && item.read !== read) {
+      changed = true;
+      return { ...item, read };
+    }
+    return item;
+  });
+
+  if (!changed) return;
+  await writeAllLocalNotifications(next);
+  emitChange();
+}
+
 export async function removeLocalNotification(notificationId: string) {
   const existing = await readAllLocalNotifications();
   const next = existing.filter((item) => item.notification_id !== notificationId);

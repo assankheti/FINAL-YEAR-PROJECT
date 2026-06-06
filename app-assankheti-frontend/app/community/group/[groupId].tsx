@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import ConfirmDialog from '@/components/ConfirmDialog';
 import ImagePickerButton from '@/components/community/ImagePickerButton';
 import MessageBubble from '@/components/community/MessageBubble';
 import { useT } from '@/contexts/LanguageContext';
@@ -50,7 +51,27 @@ export default function CommunityGroupScreen() {
   const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
   const scrollRef = useRef<ScrollView>(null);
 
-  const { messages, isLoading, error, sendMessage, markRead } = useGroupMessages(groupId);
+  const { messages, isLoading, error, sendMessage, deleteMessage, markRead } = useGroupMessages(groupId);
+
+  const [pendingDeleteMsg, setPendingDeleteMsg] = useState<{ message_id: string } | null>(null);
+  const [deletingMsg, setDeletingMsg] = useState(false);
+
+  const confirmDeleteMessage = useCallback(async () => {
+    const m = pendingDeleteMsg;
+    if (!m) return;
+    setDeletingMsg(true);
+    try {
+      await deleteMessage(m.message_id);
+    } catch (e: any) {
+      Alert.alert(
+        t({ english: 'Delete failed', urdu: 'حذف ناکام' }),
+        e?.message ?? t({ english: 'Please try again.', urdu: 'دوبارہ کوشش کریں۔' })
+      );
+    } finally {
+      setDeletingMsg(false);
+      setPendingDeleteMsg(null);
+    }
+  }, [pendingDeleteMsg, deleteMessage, t]);
 
   useEffect(() => {
     let mounted = true;
@@ -228,7 +249,7 @@ export default function CommunityGroupScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f5f1e8' }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 0}
       >
         <LinearGradient
@@ -290,6 +311,7 @@ export default function CommunityGroupScreen() {
                 key={m.message_id}
                 message={m}
                 myMobileId={myMobileId}
+                onDeleteMessage={(msg) => setPendingDeleteMsg(msg)}
                 onBlockUser={async (blockedId) => {
                   try {
                     const res = await authFetch('/api/v1/community/dm/block', {
@@ -345,6 +367,17 @@ export default function CommunityGroupScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <ConfirmDialog
+        visible={!!pendingDeleteMsg}
+        title={t({ english: 'Delete message?', urdu: 'پیغام حذف کریں؟' })}
+        message={t({ english: 'This message will be permanently deleted.', urdu: 'یہ پیغام مستقل طور پر حذف ہو جائے گا۔' })}
+        confirmLabel={t({ english: 'Delete', urdu: 'حذف کریں' })}
+        cancelLabel={t({ english: 'Cancel', urdu: 'منسوخ' })}
+        loading={deletingMsg}
+        onConfirm={confirmDeleteMessage}
+        onCancel={() => setPendingDeleteMsg(null)}
+      />
     </SafeAreaView>
   );
 }

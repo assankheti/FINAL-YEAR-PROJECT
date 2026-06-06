@@ -17,12 +17,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import ConfirmDialog from '@/components/ConfirmDialog';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
 import ImagePickerButton from '@/components/community/ImagePickerButton';
 import MessageBubble from '@/components/community/MessageBubble';
 import PinnedProductCard from '@/components/community/PinnedProductCard';
 import PresenceDot from '@/components/community/PresenceDot';
-import { useT } from '@/contexts/LanguageContext';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
 import { useChatMessages } from '@/hooks/useChatMessages';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
@@ -89,7 +92,7 @@ export default function CommunityChatScreen() {
     };
   }, []);
 
-  const { messages, isLoading, error, sendMessage, markRead, applyOfferStatus } =
+  const { messages, isLoading, error, sendMessage, deleteMessage, markRead, applyOfferStatus } =
     useChatMessages({
       conversationId: conversationId && conversationId !== 'new' ? conversationId : undefined,
       otherParticipantId: recipientId || undefined,
@@ -165,6 +168,73 @@ export default function CommunityChatScreen() {
   }, [contextType, t]);
   const canSend = !!draft.trim() && !!recipientId;
 
+  // ── Voice guidance: read the screen sections AND each chat message aloud,
+  //    highlighting the bubble being read (offline via on-device TTS). ──
+  const { voiceLanguage } = useLanguage();
+  const {
+    enabled: voiceEnabled,
+    activeHighlightId,
+    speak: speakVoice,
+    startGuidedSequence,
+    cancelGuidedSequence,
+  } = useVoiceGuidance();
+
+  const v = useCallback(
+    (english: string, urdu: string) => (voiceLanguage === 'urdu' ? urdu : english),
+    [voiceLanguage]
+  );
+
+  const messageVoiceText = useCallback(
+    (m: { sender_id?: string | null; body?: string | null; image_url?: string | null; message_type?: string }) => {
+      const norm = (id?: string | null) => (id ?? '').replace(/^device:/, '');
+      const mine = norm(m.sender_id) === norm(myMobileId);
+      const who = mine ? v('You said', 'آپ نے کہا') : v('Message', 'پیغام');
+      const content = m.body?.trim()
+        ? m.body
+        : m.image_url
+          ? v('Photo', 'تصویر')
+          : m.message_type === 'offer'
+            ? v('Offer', 'پیشکش')
+            : '';
+      return content ? `${who}: ${content}` : who;
+    },
+    [myMobileId, v]
+  );
+
+  const startedRef = useRef(false);
+  const spokenMsgIdRef = useRef<string | null>(null);
+
+  // On open: read sections + existing messages once (after history loads).
+  useEffect(() => {
+    if (!voiceEnabled || isLoading || startedRef.current) return;
+    startedRef.current = true;
+    if (messages.length) spokenMsgIdRef.current = messages[messages.length - 1].message_id;
+    const steps = [
+      { id: 'chat.header', text: v('Chat screen. You are messaging a community member.', 'چیٹ اسکرین۔ آپ کسی کمیونٹی ممبر کو پیغام بھیج رہے ہیں۔') },
+      ...(showPinnedProduct
+        ? [{ id: 'chat.product', text: v('This chat is about a product listing.', 'یہ گفتگو ایک مصنوع کی فہرست کے بارے میں ہے۔') }]
+        : []),
+      ...messages.map((m) => ({ id: `chat.msg.${m.message_id}`, text: messageVoiceText(m) })),
+      { id: 'chat.composer', text: v('Type your message in the box below and tap send.', 'نیچے باکس میں اپنا پیغام لکھیں اور بھیجیں دبائیں۔') },
+    ];
+    const timer = setTimeout(() => startGuidedSequence(steps), 350);
+    return () => {
+      clearTimeout(timer);
+      cancelGuidedSequence();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceEnabled, isLoading]);
+
+  // Read each new message aloud as it arrives.
+  useEffect(() => {
+    if (!voiceEnabled || !startedRef.current || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (spokenMsgIdRef.current === last.message_id) return;
+    spokenMsgIdRef.current = last.message_id;
+    void speakVoice(messageVoiceText(last), `chat.msg.${last.message_id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, voiceEnabled]);
+
   const handleDraftChange = useCallback((text: string) => {
     setDraft(text);
   }, []);
@@ -225,22 +295,34 @@ export default function CommunityChatScreen() {
     [router, t]
   );
 
+  const [pendingDeleteMsg, setPendingDeleteMsg] = useState<{ message_id: string } | null>(null);
+  const [deletingMsg, setDeletingMsg] = useState(false);
+
+  const handleDeleteMessage = useCallback((message: { message_id: string }) => {
+    setPendingDeleteMsg(message);
+  }, []);
+
+  const confirmDeleteMessage = useCallback(async () => {
+    const m = pendingDeleteMsg;
+    if (!m) return;
+    setDeletingMsg(true);
+    try {
+      await deleteMessage(m.message_id);
+    } catch (e: any) {
+      Alert.alert(
+        t({ english: 'Delete failed', urdu: 'حذف ناکام' }),
+        e?.message ?? t({ english: 'Please try again.', urdu: 'دوبارہ کوشش کریں۔' })
+      );
+    } finally {
+      setDeletingMsg(false);
+      setPendingDeleteMsg(null);
+    }
+  }, [pendingDeleteMsg, deleteMessage, t]);
+
   const handleBack = useCallback(() => {
     if (router.canGoBack()) router.back();
     else router.replace('/community/inbox');
   }, [router]);
-
-  const handleHeaderActions = useCallback(() => {
-    if (!recipientId) return;
-    Alert.alert(chatTitle, chatSubline, [
-      { text: t({ english: 'Cancel', urdu: 'منسوخ' }), style: 'cancel' },
-      {
-        text: t({ english: 'Block user', urdu: 'صارف کو بلاک کریں' }),
-        style: 'destructive',
-        onPress: () => handleBlockUser(recipientId),
-      },
-    ]);
-  }, [chatSubline, chatTitle, handleBlockUser, recipientId, t]);
 
   const handleImageUploaded = async (url: string) => {
     if (!recipientId) {
@@ -269,9 +351,10 @@ export default function CommunityChatScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f5f1e8' }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 0}
       >
+        <SpeechHighlight active={activeHighlightId === 'chat.header'}>
         <LinearGradient
           colors={['#0d5c4b', '#10b981']}
           start={{ x: 0, y: 0 }}
@@ -306,15 +389,6 @@ export default function CommunityChatScreen() {
               >
                 <Feather name="chevron-left" size={20} color="#ffffff" />
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleHeaderActions}
-                style={styles.glassBtn}
-                accessibilityRole="button"
-                accessibilityLabel={t({ english: 'Chat options', urdu: 'چیٹ کے اختیارات' })}
-                disabled={!recipientId}
-              >
-                <Feather name="more-horizontal" size={18} color="#ffffff" />
-              </TouchableOpacity>
             </View>
             <View style={styles.headerProfileRow}>
               <View style={styles.avatarWrap}>
@@ -338,8 +412,10 @@ export default function CommunityChatScreen() {
             </View>
           </View>
         </LinearGradient>
+        </SpeechHighlight>
 
         {showPinnedProduct ? (
+          <SpeechHighlight active={activeHighlightId === 'chat.product'}>
           <PinnedProductCard
             productId={contextRef || (params?.productName as string)}
             productName={params?.productName as string}
@@ -348,10 +424,13 @@ export default function CommunityChatScreen() {
             productImageUrl={params?.productImageUrl as string}
             productEmoji={params?.productEmoji as string}
           />
+          </SpeechHighlight>
         ) : null}
 
+        <SpeechHighlight active={activeHighlightId === 'chat.messages'} fill>
         <ScrollView
           ref={scrollRef}
+          style={{ flex: 1 }}
           contentContainerStyle={[
             styles.messagesWrap,
             {
@@ -372,17 +451,21 @@ export default function CommunityChatScreen() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           {messages.map((m) => (
-            <MessageBubble
-              key={m.message_id}
-              message={m}
-              myMobileId={myMobileId}
-              onOfferStatusChange={applyOfferStatus}
-              onBlockUser={handleBlockUser}
-            />
+            <SpeechHighlight key={m.message_id} active={activeHighlightId === `chat.msg.${m.message_id}`}>
+              <MessageBubble
+                message={m}
+                myMobileId={myMobileId}
+                onOfferStatusChange={applyOfferStatus}
+                onBlockUser={handleBlockUser}
+                onDeleteMessage={handleDeleteMessage}
+              />
+            </SpeechHighlight>
           ))}
 
         </ScrollView>
+        </SpeechHighlight>
 
+        <SpeechHighlight active={activeHighlightId === 'chat.composer'}>
         <View
           style={[
             styles.composerArea,
@@ -424,7 +507,19 @@ export default function CommunityChatScreen() {
           </TouchableOpacity>
           </View>
         </View>
+        </SpeechHighlight>
       </KeyboardAvoidingView>
+
+      <ConfirmDialog
+        visible={!!pendingDeleteMsg}
+        title={t({ english: 'Delete message?', urdu: 'پیغام حذف کریں؟' })}
+        message={t({ english: 'This message will be permanently deleted.', urdu: 'یہ پیغام مستقل طور پر حذف ہو جائے گا۔' })}
+        confirmLabel={t({ english: 'Delete', urdu: 'حذف کریں' })}
+        cancelLabel={t({ english: 'Cancel', urdu: 'منسوخ' })}
+        loading={deletingMsg}
+        onConfirm={confirmDeleteMessage}
+        onCancel={() => setPendingDeleteMsg(null)}
+      />
     </SafeAreaView>
   );
 }

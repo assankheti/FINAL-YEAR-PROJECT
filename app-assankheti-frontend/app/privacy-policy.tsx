@@ -1,139 +1,178 @@
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import InfoPage from '@/components/InfoPage';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { usePageVoiceReadout } from '@/hooks/usePageVoiceReadout';
+
+type Pair = { english: string; urdu: string };
 
 type Section = {
   icon: React.ComponentProps<typeof Feather>['name'];
-  title: string;
-  titleUrdu: string;
-  content: string[];
+  title: Pair;
+  content: Pair[];
 };
 
+const PAGE_TITLE: Pair = { english: 'Privacy Policy', urdu: 'رازداری کی پالیسی' };
+
+const INTRO: Pair = {
+  english:
+    'At Assan Kheti, we are committed to protecting your privacy and ensuring the security of your personal information. This policy explains how we collect, use, and safeguard your data.',
+  urdu: 'آسان کھیتی میں، ہم آپ کی پرائیویسی کی حفاظت اور آپ کی ذاتی معلومات کی سیکیورٹی کو یقینی بنانے کے لیے پرعزم ہیں۔ یہ پالیسی بتاتی ہے کہ ہم آپ کا ڈیٹا کیسے جمع، استعمال اور محفوظ کرتے ہیں۔',
+};
+
+const SECTIONS: Section[] = [
+  {
+    icon: 'database',
+    title: { english: 'Information We Collect', urdu: 'معلومات جو ہم جمع کرتے ہیں' },
+    content: [
+      { english: 'Personal information (name, phone number, location)', urdu: 'ذاتی معلومات (نام، فون نمبر، مقام)' },
+      { english: 'Farm details and crop information', urdu: 'فارم کی تفصیلات اور فصل کی معلومات' },
+      { english: 'Transaction history and payment details', urdu: 'ٹرانزیکشن ہسٹری اور ادائیگی کی تفصیلات' },
+      { english: 'Device information and usage data', urdu: 'ڈیوائس کی معلومات اور استعمال کا ڈیٹا' },
+      { english: 'Photos uploaded for disease detection', urdu: 'بیماری کی شناخت کے لیے اپ لوڈ کی گئی تصاویر' },
+    ],
+  },
+  {
+    icon: 'eye',
+    title: { english: 'How We Use Your Data', urdu: 'ہم آپ کا ڈیٹا کیسے استعمال کرتے ہیں' },
+    content: [
+      { english: 'To provide crop disease detection services', urdu: 'فصل کی بیماری کی شناخت کی خدمات فراہم کرنے کے لیے' },
+      { english: 'To connect farmers with buyers', urdu: 'کسانوں کو خریداروں سے جوڑنے کے لیے' },
+      { english: 'To send weather and price alerts', urdu: 'موسم اور قیمت کے الرٹس بھیجنے کے لیے' },
+      { english: 'To improve our AI models and services', urdu: 'اپنے AI ماڈلز اور خدمات بہتر بنانے کے لیے' },
+      { english: 'To process payments securely', urdu: 'ادائیگیوں کو محفوظ طریقے سے پراسیس کرنے کے لیے' },
+    ],
+  },
+  {
+    icon: 'lock',
+    title: { english: 'Data Security', urdu: 'ڈیٹا سیکیورٹی' },
+    content: [
+      { english: 'All data is encrypted in transit and at rest', urdu: 'تمام ڈیٹا ٹرانزٹ اور اسٹوریج میں انکرپٹ ہوتا ہے' },
+      { english: 'We use secure payment gateways', urdu: 'ہم محفوظ ادائیگی گیٹ ویز استعمال کرتے ہیں' },
+      { english: 'Regular security audits are performed', urdu: 'باقاعدہ سیکیورٹی آڈٹ کیے جاتے ہیں' },
+      { english: 'Access to data is strictly controlled', urdu: 'ڈیٹا تک رسائی سختی سے محدود ہے' },
+      { english: 'We comply with international data protection standards', urdu: 'ہم بین الاقوامی ڈیٹا پروٹیکشن معیار کی پیروی کرتے ہیں' },
+    ],
+  },
+  {
+    icon: 'users',
+    title: { english: 'Data Sharing', urdu: 'ڈیٹا شیئرنگ' },
+    content: [
+      { english: 'We do not sell your personal data', urdu: 'ہم آپ کا ذاتی ڈیٹا فروخت نہیں کرتے' },
+      { english: 'Data is shared with buyers only for transactions', urdu: 'ڈیٹا صرف لین دین کے لیے خریداروں کے ساتھ شیئر ہوتا ہے' },
+      { english: 'We may share anonymized data for research', urdu: 'ہم تحقیق کے لیے غیر شناخت شدہ ڈیٹا شیئر کر سکتے ہیں' },
+      { english: 'Government compliance when legally required', urdu: 'قانونی ضرورت پر حکومتی تعمیل' },
+      { english: 'Third-party services for app functionality only', urdu: 'تھرڈ پارٹی خدمات صرف ایپ کے کام کے لیے' },
+    ],
+  },
+  {
+    icon: 'bell',
+    title: { english: 'Your Rights', urdu: 'آپ کے حقوق' },
+    content: [
+      { english: 'Access your personal data anytime', urdu: 'اپنے ذاتی ڈیٹا تک کسی بھی وقت رسائی حاصل کریں' },
+      { english: 'Request data correction or deletion', urdu: 'ڈیٹا کی اصلاح یا حذف کی درخواست کریں' },
+      { english: 'Opt-out of marketing communications', urdu: 'مارکیٹنگ پیغامات سے انکار کریں' },
+      { english: 'Download your data in portable format', urdu: 'اپنا ڈیٹا قابلِ نقل فارمیٹ میں ڈاؤن لوڈ کریں' },
+      { english: 'Lodge complaints with data authorities', urdu: 'ڈیٹا اتھارٹیز کے پاس شکایت درج کریں' },
+    ],
+  },
+];
+
+const CONTACT_TITLE: Pair = {
+  english: 'Questions about our privacy policy?',
+  urdu: 'رازداری کی پالیسی کے بارے میں سوالات؟',
+};
+
+// Highlight ids — also used as the voice step ids so the spoken section and the
+// highlighted card stay in sync.
+const INTRO_ID = 'privacy.intro';
+const CONTACT_ID = 'privacy.contact';
+const sectionId = (index: number) => `privacy.section.${index}`;
+
 export default function PrivacyPolicyPage() {
-  const router = useRouter();
-  const { textLanguage } = useLanguage();
-  const pick = (english: string, urdu: string) => (textLanguage === 'urdu' ? urdu : english);
+  const { textLanguage, voiceLanguage } = useLanguage();
+
+  const pick = (p: Pair) => (textLanguage === 'urdu' ? p.urdu : p.english);
+  const pickV = (p: Pair) => (voiceLanguage === 'urdu' ? p.urdu : p.english);
+
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
 
-  const sections = useMemo<Section[]>(
+  // ── Voice assistant: read the whole policy aloud, highlighting each card as
+  //    it is spoken (works offline via on-device TTS). ──
+  const voiceSteps = useMemo(
     () => [
-      {
-        icon: 'database',
-        title: pick('Information We Collect', 'معلومات جو ہم جمع کرتے ہیں'),
-        titleUrdu: 'معلومات جو ہم جمع کرتے ہیں',
-        content: [
-          pick('Personal information (name, phone number, location)', 'ذاتی معلومات (نام، فون نمبر، مقام)'),
-          pick('Farm details and crop information', 'فارم کی تفصیلات اور فصل کی معلومات'),
-          pick('Transaction history and payment details', 'ٹرانزیکشن ہسٹری اور ادائیگی کی تفصیلات'),
-          pick('Device information and usage data', 'ڈیوائس کی معلومات اور استعمال کا ڈیٹا'),
-          pick('Photos uploaded for disease detection', 'بیماری کی شناخت کے لیے اپ لوڈ کی گئی تصاویر'),
-        ],
-      },
-      {
-        icon: 'eye',
-        title: pick('How We Use Your Data', 'ہم آپ کا ڈیٹا کیسے استعمال کرتے ہیں'),
-        titleUrdu: 'ہم آپ کا ڈیٹا کیسے استعمال کرتے ہیں',
-        content: [
-          pick('To provide crop disease detection services', 'فصل کی بیماری کی شناخت کی خدمات فراہم کرنے کے لیے'),
-          pick('To connect farmers with buyers', 'کسانوں کو خریداروں سے جوڑنے کے لیے'),
-          pick('To send weather and price alerts', 'موسم اور قیمت کے الرٹس بھیجنے کے لیے'),
-          pick('To improve our AI models and services', 'اپنے AI ماڈلز اور خدمات بہتر بنانے کے لیے'),
-          pick('To process payments securely', 'ادائیگیوں کو محفوظ طریقے سے پراسیس کرنے کے لیے'),
-        ],
-      },
-      {
-        icon: 'lock',
-        title: pick('Data Security', 'ڈیٹا سیکیورٹی'),
-        titleUrdu: 'ڈیٹا سیکیورٹی',
-        content: [
-          pick('All data is encrypted in transit and at rest', 'تمام ڈیٹا ٹرانزٹ اور اسٹوریج میں انکرپٹ ہوتا ہے'),
-          pick('We use secure payment gateways', 'ہم محفوظ ادائیگی گیٹ ویز استعمال کرتے ہیں'),
-          pick('Regular security audits are performed', 'باقاعدہ سیکیورٹی آڈٹ کیے جاتے ہیں'),
-          pick('Access to data is strictly controlled', 'ڈیٹا تک رسائی سختی سے محدود ہے'),
-          pick('We comply with international data protection standards', 'ہم بین الاقوامی ڈیٹا پروٹیکشن معیار کی پیروی کرتے ہیں'),
-        ],
-      },
-      {
-        icon: 'users',
-        title: pick('Data Sharing', 'ڈیٹا شیئرنگ'),
-        titleUrdu: 'ڈیٹا شیئرنگ',
-        content: [
-          pick('We do not sell your personal data', 'ہم آپ کا ذاتی ڈیٹا فروخت نہیں کرتے'),
-          pick('Data is shared with buyers only for transactions', 'ڈیٹا صرف لین دین کے لیے خریداروں کے ساتھ شیئر ہوتا ہے'),
-          pick('We may share anonymized data for research', 'ہم تحقیق کے لیے غیر شناخت شدہ ڈیٹا شیئر کر سکتے ہیں'),
-          pick('Government compliance when legally required', 'قانونی ضرورت پر حکومتی تعمیل'),
-          pick('Third-party services for app functionality only', 'تھرڈ پارٹی خدمات صرف ایپ کے کام کے لیے'),
-        ],
-      },
-      {
-        icon: 'bell',
-        title: pick('Your Rights', 'آپ کے حقوق'),
-        titleUrdu: 'آپ کے حقوق',
-        content: [
-          pick('Access your personal data anytime', 'اپنے ذاتی ڈیٹا تک کسی بھی وقت رسائی حاصل کریں'),
-          pick('Request data correction or deletion', 'ڈیٹا کی اصلاح یا حذف کی درخواست کریں'),
-          pick('Opt-out of marketing communications', 'مارکیٹنگ پیغامات سے انکار کریں'),
-          pick('Download your data in portable format', 'اپنا ڈیٹا قابلِ نقل فارمیٹ میں ڈاؤن لوڈ کریں'),
-          pick('Lodge complaints with data authorities', 'ڈیٹا اتھارٹیز کے پاس شکایت درج کریں'),
-        ],
-      },
+      { id: INTRO_ID, text: `${pickV(PAGE_TITLE)}. ${pickV(INTRO)}` },
+      ...SECTIONS.map((section, index) => ({
+        id: sectionId(index),
+        text: `${pickV(section.title)}. ${section.content.map(pickV).join('. ')}`,
+      })),
+      { id: CONTACT_ID, text: `${pickV(CONTACT_TITLE)} privacy@assankheti.pk` },
     ],
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [voiceLanguage]
   );
 
+  const { activeHighlightId } = usePageVoiceReadout(voiceSteps);
+
   return (
-    <InfoPage title={{ english: 'Privacy Policy', urdu: 'رازداری کی پالیسی' }} contentStyle={{ paddingBottom: 28 }}>
+    <InfoPage title={PAGE_TITLE} contentStyle={{ paddingBottom: 28 }}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: horizontalPadding, marginTop: 14 }}>
           <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
-            <Text style={styles.lastUpdated}>{pick('Last updated: December 30, 2024', 'آخری تازہ کاری: 30 دسمبر 2024')}</Text>
+            <Text style={styles.lastUpdated}>{pick({ english: 'Last updated: June 01, 2026', urdu: 'آخری تازہ کاری: 01 جون 2026' })}</Text>
           </View>
         </View>
 
         <View style={{ paddingHorizontal: horizontalPadding, marginTop: 16 }}>
-          <View style={[styles.introCard, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}> 
-            <Text style={styles.introText}>
-              {pick(
-                'At Assan Kheti, we are committed to protecting your privacy and ensuring the security of your personal information. This policy explains how we collect, use, and safeguard your data.',
-                'آسان کھیتی میں، ہم آپ کی پرائیویسی کی حفاظت اور آپ کی ذاتی معلومات کی سیکیورٹی کو یقینی بنانے کے لیے پرعزم ہیں۔ یہ پالیسی بتاتی ہے کہ ہم آپ کا ڈیٹا کیسے جمع، استعمال اور محفوظ کرتے ہیں۔'
-              )}
-            </Text>
+          <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
+            <SpeechHighlight active={activeHighlightId === INTRO_ID}>
+              <View style={styles.introCard}>
+                <Text style={styles.introText}>{pick(INTRO)}</Text>
+              </View>
+            </SpeechHighlight>
           </View>
         </View>
 
         <View style={{ paddingHorizontal: horizontalPadding, marginTop: 18 }}>
           <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
-            {sections.map((section) => (
-              <View key={section.title} style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.sectionIconBox}>
-                    <Feather name={section.icon as any} size={18} color="#0d5c4b" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sectionTitle}>{section.title}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.sectionBody}>
-                  {section.content.map((item) => (
-                    <View key={item} style={styles.bulletRow}>
-                      <View style={styles.bulletDot} />
-                      <Text style={styles.bulletText}>{item}</Text>
+            {SECTIONS.map((section, index) => (
+              <SpeechHighlight
+                key={section.title.english}
+                active={activeHighlightId === sectionId(index)}
+                style={{ marginBottom: 14 }}
+              >
+                <View style={styles.sectionCard}>
+                  <View style={styles.sectionHeader}>
+                    <View style={styles.sectionIconBox}>
+                      <Feather name={section.icon as any} size={18} color="#0d5c4b" />
                     </View>
-                  ))}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sectionTitle}>{pick(section.title)}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.sectionBody}>
+                    {section.content.map((item) => (
+                      <View key={item.english} style={styles.bulletRow}>
+                        <View style={styles.bulletDot} />
+                        <Text style={styles.bulletText}>{pick(item)}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
-              </View>
+              </SpeechHighlight>
             ))}
 
-            <View style={styles.contactCard}>
-              <Text style={styles.contactTitle}>{pick('Questions about our privacy policy?', 'رازداری کی پالیسی کے بارے میں سوالات؟')}</Text>
-              <Text style={styles.contactEmail}>privacy@assankheti.pk</Text>
-            </View>
+            <SpeechHighlight active={activeHighlightId === CONTACT_ID}>
+              <View style={styles.contactCard}>
+                <Text style={styles.contactTitle}>{pick(CONTACT_TITLE)}</Text>
+                <Text style={styles.contactEmail}>privacy@assankheti.pk</Text>
+              </View>
+            </SpeechHighlight>
           </View>
         </View>
       </ScrollView>
@@ -193,7 +232,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 14,
     elevation: 2,
-    marginBottom: 14,
   },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: 'rgba(17,24,39,0.03)' },
   sectionIconBox: {

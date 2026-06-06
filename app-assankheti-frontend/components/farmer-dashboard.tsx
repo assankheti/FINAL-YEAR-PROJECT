@@ -22,6 +22,7 @@ import MessageComposer from '@/components/MessageComposer';
 import NotificationBell from '@/components/NotificationBell';
 import { SpeechHighlight } from '@/components/SpeechHighlight';
 import { API_BASE } from '@/config/env';
+import { loadCachedChat, saveCachedChat } from '@/lib/chatCache';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
@@ -83,8 +84,19 @@ export function FarmerDashboard({
   const [lastScanData, setLastScanData] = useState<any>(null);
   const [isMarketplaceAuthenticated, setIsMarketplaceAuthenticated] = useState(false);
   const lastSpokenRef = useRef({ weather: '', price: '', disease: '', marketplace: '' });
-  const homeSequenceStartedRef = useRef(false);
-  const shopSequenceStartedRef = useRef(false);
+  // Tracks which tab's voice (tour/announcement) has already played, so data
+  // updates (weather/price/auth) don't restart it while you stay on a tab.
+  const announcedTabRef = useRef<string | null>(null);
+
+  // Only voice this screen while it is focused, so it doesn't keep talking
+  // under pushed screens (e.g. orders, chat, settings sub-pages).
+  const [screenFocused, setScreenFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, [])
+  );
 
   const refreshMarketplaceAuth = useCallback(async () => {
     const token = await AsyncStorage.getItem('auth.access_token');
@@ -175,7 +187,7 @@ export function FarmerDashboard({
       { id: 'home.tab.home', text: tv({ english: 'Home tab. You are on the dashboard overview.', urdu: 'ہوم ٹیب۔ آپ ڈیش بورڈ کے خلاصے پر ہیں۔' }) },
       { id: 'home.tab.shop', text: tv({ english: 'Shop tab. Open marketplace and farmer community.', urdu: 'شاپ ٹیب۔ مارکیٹ پلیس اور کسان کمیونٹی کھولیں۔' }) },
       { id: 'home.tab.chat', text: tv({ english: 'Chat tab. Talk to the AI farming assistant.', urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے بات کریں۔' }) },
-      { id: 'home.tab.profile', text: tv({ english: 'Profile tab. Manage orders, products, and settings.', urdu: 'پروفائل ٹیب۔ آرڈرز، مصنوعات، اور سیٹنگز منظم کریں۔' }) },
+      { id: 'home.tab.profile', text: tv({ english: 'Settings tab. Open Help Center and Privacy Policy, or switch character and language.', urdu: 'ترتیبات ٹیب۔ مدد کا مرکز اور رازداری کی پالیسی کھولیں، یا کردار اور زبان تبدیل کریں۔' }) },
     ];
   }, [cropHealth, cropPrice, selectedCrop, tv, weather]);
 
@@ -213,6 +225,17 @@ export function FarmerDashboard({
     ];
   }, [characterType, isMarketplaceAuthenticated, tv]);
 
+  const profileGuidedSteps = useMemo(
+    () => [
+      { id: 'settings.header', text: tv({ english: 'Settings tab. Manage your help, privacy, and account options.', urdu: 'ترتیبات ٹیب۔ مدد، رازداری، اور اکاؤنٹ کے اختیارات منظم کریں۔' }) },
+      { id: 'settings.help', text: tv({ english: 'Help Center. Open help articles and troubleshooting.', urdu: 'مدد کا مرکز۔ مدد کے مضامین اور مسائل کا حل کھولیں۔' }) },
+      { id: 'settings.privacy', text: tv({ english: 'Privacy Policy. Read how we protect your data.', urdu: 'رازداری کی پالیسی۔ پڑھیں کہ ہم آپ کا ڈیٹا کیسے محفوظ رکھتے ہیں۔' }) },
+      { id: 'settings.character', text: tv({ english: 'Back to Character Selection button. Switch between farmer and buyer.', urdu: 'کردار کے انتخاب پر واپس جائیں بٹن۔ کسان اور خریدار کے درمیان تبدیل کریں۔' }) },
+      { id: 'settings.language', text: tv({ english: 'Back to Language Selection button. Change the app language.', urdu: 'زبان کے انتخاب پر واپس جائیں بٹن۔ ایپ کی زبان تبدیل کریں۔' }) },
+    ],
+    [tv]
+  );
+
   useEffect(() => {
     showMobileNotificationsOnce('farmer-notifications', [
       {
@@ -242,51 +265,38 @@ export function FarmerDashboard({
     ]);
   }, []);
 
+  // Single source of truth for per-tab voice. On a real tab change we stop
+  // whatever the previous tab was saying, then do exactly ONE thing for the new
+  // tab: a guided tour (home/shop) or a short announcement (chat/profile). This
+  // prevents the tabs' voices from fighting (e.g. the Shop "login required" line
+  // bleeding into the Settings tab).
   useEffect(() => {
-    if (!voiceGuidanceEnabled || activeTab !== 'home') {
-      homeSequenceStartedRef.current = false;
+    if (!voiceGuidanceEnabled || !screenFocused) {
+      announcedTabRef.current = null;
       cancelGuidedSequence();
       return;
     }
-    if (homeSequenceStartedRef.current) return;
-    homeSequenceStartedRef.current = true;
-    startGuidedSequence(guidedSteps);
-  }, [activeTab, cancelGuidedSequence, guidedSteps, startGuidedSequence, voiceGuidanceEnabled]);
+    if (announcedTabRef.current === activeTab) return;
+    announcedTabRef.current = activeTab;
 
-  useEffect(() => {
-    if (!voiceGuidanceEnabled || activeTab !== 'shop') {
-      shopSequenceStartedRef.current = false;
-      return;
+    cancelGuidedSequence();
+
+    if (activeTab === 'home') {
+      startGuidedSequence(guidedSteps);
+    } else if (activeTab === 'shop') {
+      startGuidedSequence(shopGuidedSteps);
+    } else if (activeTab === 'chat') {
+      void speakVoiceGuidance(
+        tv({
+          english: 'Chat tab. Ask the AI farming assistant anything.',
+          urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے کچھ بھی پوچھیں۔',
+        })
+      );
+    } else {
+      startGuidedSequence(profileGuidedSteps);
     }
-    if (shopSequenceStartedRef.current) return;
-    shopSequenceStartedRef.current = true;
-    startGuidedSequence(shopGuidedSteps);
-  }, [activeTab, shopGuidedSteps, startGuidedSequence, voiceGuidanceEnabled]);
-
-  useEffect(() => {
-    if (!voiceGuidanceEnabled) return;
-    const tabAnnouncement =
-      activeTab === 'home'
-        ? tv({
-            english: 'Home tab. Weather, crop status, featured tools, and chat shortcut are available.',
-            urdu: 'ہوم ٹیب۔ موسم، فصل کی حالت، نمایاں ٹولز، اور چیٹ شارٹ کٹ دستیاب ہیں۔',
-          })
-        : activeTab === 'shop'
-          ? tv({
-              english: 'Shop tab. Browse marketplace tools and farmer community options.',
-              urdu: 'شاپ ٹیب۔ مارکیٹ پلیس ٹولز اور کسان کمیونٹی کے اختیارات دیکھیں۔',
-            })
-          : activeTab === 'chat'
-            ? tv({
-                english: 'Chat tab. Ask the AI farming assistant anything.',
-                urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے کچھ بھی پوچھیں۔',
-              })
-            : tv({
-                english: 'Profile tab. Manage orders, products, help, privacy, and settings.',
-                urdu: 'پروفائل ٹیب۔ آرڈرز، مصنوعات، مدد، رازداری، اور سیٹنگز منظم کریں۔',
-              });
-    void speakVoiceGuidance(tabAnnouncement);
-  }, [activeTab, speakVoiceGuidance, tv, voiceGuidanceEnabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, voiceGuidanceEnabled, screenFocused]);
 
   useEffect(() => {
     if (!voiceGuidanceEnabled) return;
@@ -857,16 +867,27 @@ export function FarmerDashboard({
     bottomInset,
     keyboardInset,
     onInputFocusChange,
+    voiceEnabled,
+    activeHighlightId,
+    speakVoice,
+    startGuidedSequence,
+    cancelGuidedSequence,
+    tv,
   }: {
     textLanguage: 'urdu' | 'english';
     r: ReturnType<typeof useResponsive>;
     bottomInset: number;
     keyboardInset: number;
     onInputFocusChange?: (focused: boolean) => void;
+    voiceEnabled: boolean;
+    activeHighlightId: string | null;
+    speakVoice: (text: string, highlightId?: string | null) => Promise<void>;
+    startGuidedSequence: (steps: { id: string; text: string }[]) => void;
+    cancelGuidedSequence: () => void;
+    tv: (obj: any) => any;
   }) => {
     const t = (obj: any) => obj[textLanguage];
     const [messageText, setMessageText] = useState('');
-    const [isListening, setIsListening] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [loadingHistory, setLoadingHistory] = useState(true);
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -886,6 +907,8 @@ export function FarmerDashboard({
     const scrollRef = useRef<ScrollView | null>(null);
     const autoRestoreLatestRef = useRef(true);
     const historyLoadTokenRef = useRef(0);
+    const spokenMsgIdRef = useRef<string | null>(null);
+    const chatSequenceStartedRef = useRef(false);
     const logChatDebug = (...args: any[]) => {
       if (__DEV__) console.log('[Chat]', ...args);
     };
@@ -1128,6 +1151,21 @@ export function FarmerDashboard({
           }
         } catch (err) {
           logChatDebug('history_bootstrap error=', err);
+          // Offline fallback: show the last cached conversation so it stays
+          // visible and the voice assistant can read it without connectivity.
+          try {
+            const mobileId = await getChatMobileId();
+            const cached = await loadCachedChat(mobileId);
+            if (cached.length > 0 && autoRestoreLatestRef.current) {
+              setMessages(cached);
+              setHasExistingHistory(true);
+              setHasLoadedRemoteHistory(true);
+              setLoadingHistory(false);
+              return;
+            }
+          } catch (cacheErr) {
+            logChatDebug('history_bootstrap cache_error=', cacheErr);
+          }
           setHistoryError(
             t({
               english: 'Could not load previous chat history right now.',
@@ -1167,12 +1205,20 @@ export function FarmerDashboard({
       } catch (err) {
         if (token !== historyLoadTokenRef.current) return;
         logChatDebug('history_load_session error=', err);
-        setHistoryError(
-          t({
-            english: 'Could not load this conversation. Please try again.',
-            urdu: 'یہ گفتگو لوڈ نہیں ہو سکی۔ براہ کرم دوبارہ کوشش کریں۔',
-          })
-        );
+        // Offline fallback: surface the cached conversation if we have one.
+        const cached = await loadCachedChat(mobileId);
+        if (token !== historyLoadTokenRef.current) return;
+        if (cached.length > 0) {
+          setHasExistingHistory(true);
+          setMessages(cached);
+        } else {
+          setHistoryError(
+            t({
+              english: 'Could not load this conversation. Please try again.',
+              urdu: 'یہ گفتگو لوڈ نہیں ہو سکی۔ براہ کرم دوبارہ کوشش کریں۔',
+            })
+          );
+        }
       }
       setHasLoadedRemoteHistory(true);
       setLoadingHistory(false);
@@ -1291,6 +1337,66 @@ export function FarmerDashboard({
     const handleComposerBlur = () => onInputFocusChange?.(false);
     const hasAndroidKeyboard = Platform.OS === 'android' && keyboardInset > 0;
 
+    // ── Voice assistant: read the chatbot page out loud on open ──
+    useEffect(() => {
+      if (!voiceEnabled || loadingHistory || chatSequenceStartedRef.current) return;
+      chatSequenceStartedRef.current = true;
+
+      const lastAi = [...messages].reverse().find((m) => m.sender !== 'user');
+      if (messages.length) spokenMsgIdRef.current = messages[messages.length - 1].id;
+
+      const steps = [
+        {
+          id: 'chat.header',
+          text: tv({
+            english: 'AI Farming Assistant. Online and available 24 hours a day.',
+            urdu: 'اے آئی فارمنگ اسسٹنٹ۔ آن لائن اور چوبیس گھنٹے دستیاب۔',
+          }),
+        },
+        ...(lastAi ? [{ id: `chat.msg.${lastAi.id}`, text: lastAi.text }] : []),
+        {
+          id: 'chat.input',
+          text: tv({
+            english: 'Type your farming question in the message box below and press send.',
+            urdu: 'نیچے میسج باکس میں اپنا سوال لکھیں اور بھیجیں کا بٹن دبائیں۔',
+          }),
+        },
+      ];
+      startGuidedSequence(steps);
+
+      return () => cancelGuidedSequence();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [voiceEnabled, loadingHistory]);
+
+    // ── Voice assistant: speak each new AI reply at runtime ──
+    useEffect(() => {
+      if (!voiceEnabled || messages.length === 0) return;
+      const last = messages[messages.length - 1];
+      if (last.sender === 'user') {
+        spokenMsgIdRef.current = last.id;
+        return;
+      }
+      if (spokenMsgIdRef.current === last.id) return;
+      spokenMsgIdRef.current = last.id;
+      void speakVoice(last.text, `chat.msg.${last.id}`);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages, voiceEnabled]);
+
+    // ── Offline cache: persist the conversation so it can be shown and read
+    //    aloud without connectivity (the voice assistant must work offline). ──
+    useEffect(() => {
+      if (loadingHistory || messages.length === 0) return;
+      (async () => {
+        try {
+          const mobileId = await getChatMobileId();
+          await saveCachedChat(mobileId, messages);
+        } catch {
+          // best-effort cache
+        }
+      })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages, loadingHistory]);
+
     const handleSend = async (overrideText?: string) => {
       const rawText = typeof overrideText === 'string' ? overrideText : messageText;
       const trimmed = rawText.trim();
@@ -1356,6 +1462,7 @@ export function FarmerDashboard({
         keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 10}
       >
         {/* ── Chat header ── */}
+        <SpeechHighlight active={activeHighlightId === 'chat.header'}>
         <LinearGradient
           colors={['#0d5c4b', '#0f7a62', '#10b981']}
           start={{ x: 0, y: 0 }}
@@ -1399,6 +1506,7 @@ export function FarmerDashboard({
             </TouchableOpacity>
           </View>
         </LinearGradient>
+        </SpeechHighlight>
 
         {/* ── Messages ── */}
         {loadingHistory && (
@@ -1464,7 +1572,8 @@ export function FarmerDashboard({
           {messages.map((m) => {
             const isUser = m.sender === 'user';
             return (
-              <View key={m.id} style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAi]}>
+              <SpeechHighlight key={m.id} active={activeHighlightId === `chat.msg.${m.id}`} style={styles.msgHighlightWrap}>
+              <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAi]}>
                 {!isUser && (
                   <LinearGradient
                     colors={['#0d5c4b', '#10b981']}
@@ -1489,6 +1598,7 @@ export function FarmerDashboard({
                   </View>
                 )}
               </View>
+              </SpeechHighlight>
             );
           })}
 
@@ -1509,6 +1619,7 @@ export function FarmerDashboard({
         </ScrollView>
 
         {/* ── Composer ── */}
+        <SpeechHighlight active={activeHighlightId === 'chat.input'} style={styles.composerHighlightWrap}>
         <View
           style={[
             styles.chatComposer,
@@ -1526,18 +1637,10 @@ export function FarmerDashboard({
             onInputFocus={handleComposerFocus}
             onInputBlur={handleComposerBlur}
             placeholder={strings.typeQuestion}
-            leftElement={(
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setIsListening((v) => !v)}
-                style={[styles.micBtn, isListening && styles.micBtnActive]}
-              >
-                <Feather name={isListening ? 'mic-off' : 'mic'} size={r.fs(18)} color={isListening ? '#ffffff' : '#6b7280'} />
-              </TouchableOpacity>
-            )}
             style={{ flex: 1 }}
           />
         </View>
+        </SpeechHighlight>
 
         {/* ── History Modal ── */}
         <Modal visible={showHistory} animationType="slide" transparent>
@@ -1684,33 +1787,56 @@ export function FarmerDashboard({
       showsVerticalScrollIndicator={false}
     >
       <View style={[styles.sectionWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%', paddingHorizontal: r.wp(4) }]}>
-        <View style={{ alignItems: 'center', marginTop: r.isSmall ? 6 : 12, marginBottom: r.isSmall ? 14 : 20 }}>
-          <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.profileAvatar, { width: r.fs(88), height: r.fs(88), borderRadius: r.fs(44) }]}>
-            <MaterialCommunityIcons name="account-cowboy-hat" size={r.fs(36)} color="#ffffff" />
-          </LinearGradient>
-          <Text style={[styles.profileTitle, { fontSize: r.fs(18) }]}>{t(strings.profileTitle)}</Text>
-          <Text style={[styles.profileSub, { fontSize: r.fs(13) }]}>{t({ urdu: 'چاول کے کسان • پنجاب', english: 'Rice Farmer • Punjab' })}</Text>
-        </View>
-
-        <Text style={styles.profileSectionTitle}>
-          {t({ urdu: 'اکاؤنٹ اور نیویگیشن', english: 'Account & Navigation' })}
-        </Text>
+        <SpeechHighlight active={activeHighlightId === 'settings.header'}>
+          <View style={{ alignItems: 'center', marginTop: r.isSmall ? 6 : 12, marginBottom: r.isSmall ? 14 : 20 }}>
+            <LinearGradient colors={['#0d5c4b', '#10b981']} style={[styles.profileAvatar, { width: r.fs(88), height: r.fs(88), borderRadius: r.fs(44) }]}>
+              <MaterialCommunityIcons name="account-cowboy-hat" size={r.fs(36)} color="#ffffff" />
+            </LinearGradient>
+            <Text style={[styles.profileTitle, { fontSize: r.fs(18) }]}>{t(strings.profileTitle)}</Text>
+            <Text style={[styles.profileSub, { fontSize: r.fs(13) }]}>{t({ urdu: 'چاول کے کسان • پنجاب', english: 'Rice Farmer • Punjab' })}</Text>
+          </View>
+        </SpeechHighlight>
 
         {[
-          { label: { urdu: 'میرے آرڈرز', english: 'My Orders' }, icon: 'shopping-outline', onPress: () => router.push({ pathname: '/farmer-orders', params: { textLanguage, voiceLanguage } }) },
-          { label: { urdu: 'میری مصنوعات', english: 'My Products' }, icon: 'leaf', onPress: () => router.push({ pathname: '/farmer-products', params: { textLanguage, voiceLanguage } }) },
-          { label: { urdu: 'مدد کا مرکز', english: 'Help Center' }, icon: 'help-circle-outline', onPress: () => router.push({ pathname: '/help-center', params: { textLanguage, voiceLanguage } }) },
-          { label: { urdu: 'رازداری کی پالیسی', english: 'Privacy Policy' }, icon: 'shield-lock-outline', onPress: () => router.push({ pathname: '/privacy-policy', params: { textLanguage, voiceLanguage } }) },
-          { label: { urdu: 'ترتیبات', english: 'Settings' }, icon: 'cog-outline', onPress: () => router.push({ pathname: '/farmer-settings', params: { textLanguage, voiceLanguage } }) },
+          { id: 'settings.help', label: { urdu: 'مدد کا مرکز', english: 'Help Center' }, icon: 'help-circle-outline', onPress: () => router.push({ pathname: '/help-center', params: { textLanguage, voiceLanguage } }) },
+          { id: 'settings.privacy', label: { urdu: 'رازداری کی پالیسی', english: 'Privacy Policy' }, icon: 'shield-lock-outline', onPress: () => router.push({ pathname: '/privacy-policy', params: { textLanguage, voiceLanguage } }) },
         ].map((item) => (
-          <TouchableOpacity key={item.label.english} style={[styles.profileRow, { padding: r.isSmall ? 12 : 14 }]} activeOpacity={0.85} onPress={item.onPress}>
-            <View style={[styles.profileRowIcon, { width: r.fs(40), height: r.fs(40), borderRadius: r.fs(12) }]}>
-              <MaterialCommunityIcons name={item.icon as any} size={r.fs(18)} color="#0d5c4b" />
-            </View>
-            <Text style={[styles.profileRowText, { fontSize: r.fs(14) }]}>{t(item.label)}</Text>
-            <Feather name="chevron-right" size={r.fs(17)} color="#9ca3af" />
-          </TouchableOpacity>
+          <SpeechHighlight key={item.label.english} active={activeHighlightId === item.id}>
+            <TouchableOpacity style={[styles.profileRow, { padding: r.isSmall ? 12 : 14 }]} activeOpacity={0.85} onPress={item.onPress}>
+              <View style={[styles.profileRowIcon, { width: r.fs(40), height: r.fs(40), borderRadius: r.fs(12) }]}>
+                <MaterialCommunityIcons name={item.icon as any} size={r.fs(18)} color="#0d5c4b" />
+              </View>
+              <Text style={[styles.profileRowText, { fontSize: r.fs(14) }]}>{t(item.label)}</Text>
+              <Feather name="chevron-right" size={r.fs(17)} color="#9ca3af" />
+            </TouchableOpacity>
+          </SpeechHighlight>
         ))}
+
+        <SpeechHighlight active={activeHighlightId === 'settings.character'}>
+          <TouchableOpacity
+            style={[styles.backToCharacterBtn, { padding: r.isSmall ? 12 : 14 }]}
+            activeOpacity={0.85}
+            onPress={() => router.replace({ pathname: '/user-type-selection', params: { textLanguage, voiceLanguage } })}
+          >
+            <MaterialCommunityIcons name="account-switch-outline" size={r.fs(18)} color="#ffffff" />
+            <Text style={[styles.backToCharacterText, { fontSize: r.fs(14) }]}>
+              {t({ urdu: 'کردار کے انتخاب پر واپس جائیں', english: 'Back to Character Selection' })}
+            </Text>
+          </TouchableOpacity>
+        </SpeechHighlight>
+
+        <SpeechHighlight active={activeHighlightId === 'settings.language'}>
+          <TouchableOpacity
+            style={[styles.backToCharacterBtn, { padding: r.isSmall ? 12 : 14 }]}
+            activeOpacity={0.85}
+            onPress={() => router.replace({ pathname: '/language-selection', params: { textLanguage, voiceLanguage } })}
+          >
+            <MaterialCommunityIcons name="translate" size={r.fs(18)} color="#ffffff" />
+            <Text style={[styles.backToCharacterText, { fontSize: r.fs(14) }]}>
+              {t({ urdu: 'زبان کے انتخاب پر واپس جائیں', english: 'Back to Language Selection' })}
+            </Text>
+          </TouchableOpacity>
+        </SpeechHighlight>
       </View>
     </ScrollView>
   );
@@ -1729,7 +1855,7 @@ export function FarmerDashboard({
           { id: 'home', label: { urdu: 'ہوم', english: 'Home' }, icon: 'home' },
           { id: 'shop', label: { urdu: 'شاپ', english: 'Shop' }, icon: 'shopping-outline' },
           { id: 'chat', label: { urdu: 'چیٹ', english: 'Chat' }, icon: 'chat-outline' },
-          { id: 'profile', label: { urdu: 'پروفائل', english: 'Profile' }, icon: 'account' },
+          { id: 'profile', label: { urdu: 'ترتیبات', english: 'Settings' }, icon: 'account' },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           const showActiveMarker = isActive && tab.id !== 'chat';
@@ -1751,8 +1877,8 @@ export function FarmerDashboard({
                       urdu: 'چیٹ ٹیب۔ اے آئی فارمنگ اسسٹنٹ سے بات کریں۔',
                     })
                   : tv({
-                      english: 'Profile tab. Manage orders, products, and settings.',
-                      urdu: 'پروفائل ٹیب۔ آرڈرز، مصنوعات، اور سیٹنگز منظم کریں۔',
+                      english: 'Settings tab. Open Help Center and Privacy Policy, or switch character and language.',
+                      urdu: 'ترتیبات ٹیب۔ مدد کا مرکز اور رازداری کی پالیسی کھولیں، یا کردار اور زبان تبدیل کریں۔',
                     });
           return (
             <SpeechHighlight
@@ -1801,6 +1927,12 @@ export function FarmerDashboard({
             bottomInset={chatBottomInset}
             keyboardInset={keyboardInset}
             onInputFocusChange={setIsChatInputFocused}
+            voiceEnabled={voiceGuidanceEnabled}
+            activeHighlightId={activeHighlightId}
+            speakVoice={speakVoiceGuidance}
+            startGuidedSequence={startGuidedSequence}
+            cancelGuidedSequence={cancelGuidedSequence}
+            tv={tv}
           />
         )}
         {activeTab === 'profile' && <ProfileTab />}
@@ -2259,6 +2391,8 @@ const styles = StyleSheet.create({
   dateBadgeText: { color: '#6b7280', fontWeight: '600', letterSpacing: 0.3 },
 
   // Messages
+  msgHighlightWrap: { width: '100%' },
+  composerHighlightWrap: { width: '100%' },
   msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 14 },
   msgRowAi: { justifyContent: 'flex-start' },
   msgRowUser: { justifyContent: 'flex-end' },
@@ -2314,13 +2448,6 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
-  micBtn: {
-    width: 44, height: 44, borderRadius: 14,
-    backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#e8eceb',
-  },
-  micBtnActive: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
-
   // Chat header buttons
   chatHeaderBtn: {
     width: 36,
@@ -2434,6 +2561,22 @@ const styles = StyleSheet.create({
   },
   profileRowIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(13,92,75,0.10)', alignItems: 'center', justifyContent: 'center' },
   profileRowText: { flex: 1, fontWeight: '800', color: '#111827' },
+  backToCharacterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#0d5c4b',
+    padding: 14,
+    borderRadius: 14,
+    marginTop: 8,
+    shadowColor: '#0d5c4b',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  backToCharacterText: { fontWeight: '800', color: '#ffffff' },
 
   tabBarWrap: {
     position: 'absolute',

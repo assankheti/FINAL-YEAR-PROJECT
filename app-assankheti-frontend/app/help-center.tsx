@@ -5,13 +5,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useT } from '@/contexts/LanguageContext';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
 import InfoPage from '@/components/InfoPage';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { usePageVoiceReadout } from '@/hooks/usePageVoiceReadout';
 
 type HelpCategory = {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -20,15 +21,10 @@ type HelpCategory = {
   count: number;
 };
 
-type FAQ = {
-  question: string;
-  questionUrdu: string;
-  answer: string;
-};
-
 export default function HelpCenterPage() {
   const router = useRouter();
   const t = useT();
+  const { voiceLanguage } = useLanguage();
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
@@ -36,9 +32,34 @@ export default function HelpCenterPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const helpCategories = useMemo<HelpCategory[]>(
-    () => [{ icon: 'tool', label: 'Troubleshooting', labelUrdu: 'مسائل حل کریں', count: 12 }],
+    () => [{ icon: 'tool', label: 'Troubleshooting', labelUrdu: 'مسائل حل کریں', count: 14 }],
     []
   );
+
+  // ── Voice guidance: read the page aloud and highlight each block. ──
+  const voiceSteps = useMemo(() => {
+    const v = (english: string, urdu: string) => (voiceLanguage === 'urdu' ? urdu : english);
+    return [
+      { id: 'help.header', text: v('Help Center', 'مدد کا مرکز') },
+      {
+        id: 'help.browse',
+        text: v(
+          `Browse topics. Troubleshooting, ${helpCategories[0].count} articles.`,
+          `موضوعات دیکھیں۔ مسائل حل کریں، ${helpCategories[0].count} مضامین۔`
+        ),
+      },
+      {
+        id: 'help.contact',
+        text: v(
+          'Still need help? Call us at +92 300 1234567, or email support at support@assankheti.pk.',
+          'مزید مدد چاہیے؟ ہمیں +92 300 1234567 پر کال کریں، یا support@assankheti.pk پر ای میل کریں۔'
+        ),
+      },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceLanguage, helpCategories]);
+
+  const { activeHighlightId } = usePageVoiceReadout(voiceSteps);
 
   return (
     <InfoPage
@@ -52,22 +73,24 @@ export default function HelpCenterPage() {
           <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
             <Text style={styles.blockTitle}>{t({ english: 'Browse Topics', urdu: 'موضوعات دیکھیں' })}</Text>
 
-            <View style={styles.grid}>
-              {helpCategories.map((c) => (
-                <TouchableOpacity
-                  key={c.label}
-                  activeOpacity={0.9}
-                  style={styles.gridCard}
-                  onPress={() => router.push('/help-center/troubleshooting')}
-                >
-                  <View style={styles.gridIconBox}>
-                    <Feather name={c.icon as any} size={18} color="#0d5c4b" />
-                  </View>
-                  <Text style={styles.gridLabel}>{t({ english: c.label, urdu: c.labelUrdu })}</Text>
-                  <Text style={styles.gridCount}>{t({ english: `${c.count} articles`, urdu: `${c.count} مضامین` })}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <SpeechHighlight active={activeHighlightId === 'help.browse'}>
+              <View style={styles.grid}>
+                {helpCategories.map((c) => (
+                  <TouchableOpacity
+                    key={c.label}
+                    activeOpacity={0.9}
+                    style={styles.gridCard}
+                    onPress={() => router.push('/help-center/troubleshooting')}
+                  >
+                    <View style={styles.gridIconBox}>
+                      <Feather name={c.icon as any} size={18} color="#0d5c4b" />
+                    </View>
+                    <Text style={styles.gridLabel}>{t({ english: c.label, urdu: c.labelUrdu })}</Text>
+                    <Text style={styles.gridCount}>{t({ english: `${c.count} articles`, urdu: `${c.count} مضامین` })}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </SpeechHighlight>
           </View>
         </View>
 
@@ -75,6 +98,7 @@ export default function HelpCenterPage() {
           <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
             <Text style={styles.blockTitle}>{t({ english: 'Still need help?', urdu: 'مزید مدد چاہیے؟' })}</Text>
 
+            <SpeechHighlight active={activeHighlightId === 'help.contact'}>
             <View style={styles.contactCard}>
               <TouchableOpacity activeOpacity={0.9} style={styles.contactRow}>
                 <View style={[styles.contactIcon, { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
@@ -98,6 +122,7 @@ export default function HelpCenterPage() {
                 <Feather name="chevron-right" size={18} color="#9ca3af" />
               </TouchableOpacity>
             </View>
+            </SpeechHighlight>
           </View>
         </View>
       </ScrollView>

@@ -23,6 +23,48 @@ class VoiceGuidanceService {
   private lastOptions: SpeakOptions | null = null;
   private resolveActive: (() => void) | null = null;
   private speechToken = 0;
+  // Cache of installed voice-language prefixes (e.g. 'en', 'ur'), resolved once.
+  private availableLangsPromise: Promise<Set<string>> | null = null;
+
+  /**
+   * Returns the set of base language codes the device's offline TTS engine can
+   * actually speak (e.g. {'en', 'ur'}). Resolved once and cached. Offline TTS
+   * only works for languages whose voice data is installed on the device.
+   */
+  private getAvailableLanguagePrefixes(): Promise<Set<string>> {
+    if (!this.availableLangsPromise) {
+      this.availableLangsPromise = (async () => {
+        try {
+          const voices = await Speech.getAvailableVoicesAsync();
+          const set = new Set<string>();
+          for (const v of voices) {
+            const lang = (v.language || '').toLowerCase();
+            if (lang) set.add(lang.split(/[-_]/)[0]);
+          }
+          return set;
+        } catch {
+          return new Set<string>();
+        }
+      })();
+    }
+    return this.availableLangsPromise;
+  }
+
+  /**
+   * Picks a BCP-47 tag the device can actually speak. If the requested language
+   * (e.g. Urdu `ur-PK`) has no installed voice, falls back to English so the
+   * voice assistant never silently produces nothing while offline.
+   */
+  private async resolveLanguageTag(language: VoiceLanguage): Promise<string> {
+    const requested = LANGUAGE_MAP[language];
+    const available = await this.getAvailableLanguagePrefixes();
+    // Couldn't enumerate voices — trust the requested tag rather than guess.
+    if (available.size === 0) return requested;
+    const prefix = requested.split('-')[0].toLowerCase();
+    if (available.has(prefix)) return requested;
+    if (available.has('en')) return LANGUAGE_MAP.english;
+    return requested;
+  }
 
   speak(text: string, options: SpeakOptions): Promise<void> {
     const trimmed = text.trim();
@@ -36,29 +78,36 @@ class VoiceGuidanceService {
 
     return new Promise((resolve) => {
       this.resolveActive = resolve;
-      Speech.speak(trimmed, {
-        language: LANGUAGE_MAP[options.language],
-        rate: options.rate,
-        pitch: options.pitch,
-        onStart: options.onStart,
-        onDone: () => {
-          if (token !== this.speechToken) return;
-          this.cleanup(true);
-          options.onDone?.();
+      void this.resolveLanguageTag(options.language).then((language) => {
+        // A newer speak()/stop() superseded us while resolving the voice.
+        if (token !== this.speechToken) {
           resolve();
-        },
-        onStopped: () => {
-          if (token !== this.speechToken) return;
-          this.cleanup(true);
-          options.onDone?.();
-          resolve();
-        },
-        onError: () => {
-          if (token !== this.speechToken) return;
-          this.cleanup(true);
-          options.onError?.();
-          resolve();
-        },
+          return;
+        }
+        Speech.speak(trimmed, {
+          language,
+          rate: options.rate,
+          pitch: options.pitch,
+          onStart: options.onStart,
+          onDone: () => {
+            if (token !== this.speechToken) return;
+            this.cleanup(true);
+            options.onDone?.();
+            resolve();
+          },
+          onStopped: () => {
+            if (token !== this.speechToken) return;
+            this.cleanup(true);
+            options.onDone?.();
+            resolve();
+          },
+          onError: () => {
+            if (token !== this.speechToken) return;
+            this.cleanup(true);
+            options.onError?.();
+            resolve();
+          },
+        });
       });
     });
   }

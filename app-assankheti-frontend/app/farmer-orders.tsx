@@ -1,12 +1,14 @@
 import { Feather } from '@expo/vector-icons';
 import GreenHeader from '@/components/GreenHeader';
 import OrdersList from '@/components/OrdersList';
-import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLanguage, useT } from '@/contexts/LanguageContext';
-import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { usePageVoiceReadout } from '@/hooks/usePageVoiceReadout';
+import { authFetch } from '@/lib/authFetch';
 
 type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered';
 
@@ -21,10 +23,24 @@ type Order = {
   image: string;
 };
 
+function mapStatus(apiStatus: string): OrderStatus {
+  switch (apiStatus) {
+    case 'paid':
+    case 'processing': return 'confirmed';
+    case 'shipped':    return 'shipped';
+    case 'delivered':
+    case 'completed':  return 'delivered';
+    default:           return 'pending';
+  }
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export default function FarmerOrdersPage() {
   const router = useRouter();
   const { textLanguage } = useLanguage();
-  const t = useT();
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.max(16, Math.round(width * 0.06));
   const contentMaxWidth = Math.min(width - horizontalPadding * 2, 520);
@@ -42,15 +58,40 @@ export default function FarmerOrdersPage() {
   );
 
   const [activeFilter, setActiveFilter] = useState<(typeof filters)[number]['key']>('all');
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const orders = useMemo<Order[]>(
-    () => [
-      { id: 'ORD001', productName: pick('Fresh Basmati Rice', 'تازہ باسمتی چاول'), quantity: pick('50 kg', '50 کلو'), price: '₨9,000', buyer: 'Ali Traders', status: 'delivered', date: 'Dec 28, 2024', image: '🌾' },
-      { id: 'ORD002', productName: pick('Premium Rice', 'اعلیٰ معیار کا چاول'), quantity: pick('100 kg', '100 کلو'), price: '₨18,000', buyer: 'Karachi Foods', status: 'shipped', date: 'Dec 29, 2024', image: '🌾' },
-      { id: 'ORD003', productName: pick('Rice Bran', 'چاول کی بھوسی'), quantity: pick('25 kg', '25 کلو'), price: '₨800', buyer: 'Lahore Mills', status: 'confirmed', date: 'Dec 30, 2024', image: '🌾' },
-      { id: 'ORD004', productName: pick('Fresh Rice - 50kg', 'تازہ چاول - 50 کلو'), quantity: pick('50 kg', '50 کلو'), price: '₨2,250', buyer: 'Hassan Store', status: 'pending', date: 'Dec 30, 2024', image: '🌾' },
-    ],
-    [pick]
+  const loadOrders = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Real seller orders — ids here match the order-details endpoint.
+      const res = await authFetch('/api/v1/payments/orders?role=farmer&limit=100');
+      if (res.ok) {
+        const data: any[] = await res.json();
+        setOrders(
+          data.map((o) => ({
+            id: o.order_id,
+            productName: o.product_name,
+            quantity: `${o.quantity} units`,
+            price: `₨${(o.total_pkr ?? 0).toLocaleString()}`,
+            buyer: o.buyer_id,
+            status: mapStatus(o.status),
+            date: formatDate(o.created_at),
+            image: '🌾',
+          }))
+        );
+      }
+    } catch {
+      // network error — keep current list
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadOrders();
+    }, [loadOrders])
   );
 
   const filteredOrders = useMemo(() => {
@@ -58,35 +99,56 @@ export default function FarmerOrdersPage() {
     return orders.filter((o) => o.status === activeFilter);
   }, [activeFilter, orders]);
 
-  usePageVoiceGuidance(
-    { english: 'My orders', urdu: 'میرے آرڈرز' },
-    {
-      english: `You have ${orders.length} orders. Use the filter buttons to review pending, shipped, or delivered orders.`,
-      urdu: `آپ کے ${orders.length} آرڈرز ہیں۔ زیر التواء، بھیجے گئے، یا پہنچائے گئے آرڈرز دیکھنے کے لیے فلٹر بٹن استعمال کریں۔`,
-    }
-  );
+  const stats = useMemo(() => {
+    const count = (s: OrderStatus) => orders.filter((o) => o.status === s).length;
+    return {
+      total: orders.length,
+      pending: count('pending'),
+      shipped: count('shipped'),
+      delivered: count('delivered'),
+    };
+  }, [orders]);
 
-  const statusConfig: Record<OrderStatus, { label: string; labelUrdu: string; bg: string; fg: string; icon: React.ComponentProps<typeof Feather>['name'] }> = {
-    pending: { label: 'Pending', labelUrdu: 'زیر التواء', bg: 'rgba(245,158,11,0.16)', fg: '#f59e0b', icon: 'clock' },
-    confirmed: { label: 'Confirmed', labelUrdu: 'تصدیق شدہ', bg: 'rgba(16,185,129,0.18)', fg: '#10b981', icon: 'check-circle' },
-    shipped: { label: 'Shipped', labelUrdu: 'بھیج دیا', bg: 'rgba(13,92,75,0.14)', fg: '#0d5c4b', icon: 'truck' },
-    delivered: { label: 'Delivered', labelUrdu: 'پہنچا دیا', bg: 'rgba(13,92,75,0.14)', fg: '#0d5c4b', icon: 'package' },
-  };
+  // ── Voice guidance: read the page aloud and highlight each section. ──
+  const { voiceLanguage } = useLanguage();
+  const voiceSteps = useMemo(() => {
+    const v = (english: string, urdu: string) => (voiceLanguage === 'urdu' ? urdu : english);
+    return [
+      { id: 'orders.header', text: v('My Orders.', 'میرے آرڈرز۔') },
+      { id: 'orders.stats', text: v('Order summary. Total, pending, shipped, and delivered counts.', 'آرڈرز کا خلاصہ۔ کل، زیر التواء، بھیجے گئے، اور پہنچائے گئے کی تعداد۔') },
+      { id: 'orders.filters', text: v('Filter buttons. Tap to see all, pending, confirmed, shipped, or delivered orders.', 'فلٹر بٹن۔ تمام، زیر التواء، تصدیق شدہ، بھیجے گئے، یا پہنچائے گئے آرڈرز دیکھنے کے لیے دبائیں۔') },
+      { id: 'orders.list', text: v('Your orders. Tap view details on any order to open it.', 'آپ کے آرڈرز۔ کسی بھی آرڈر کو کھولنے کے لیے تفصیلات دیکھیں دبائیں۔') },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceLanguage]);
+
+  const { activeHighlightId } = usePageVoiceReadout(voiceSteps);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }}>
       <View style={{ flex: 1 }}>
-        <GreenHeader title={{ english: 'My Orders', urdu: 'میرے آرڈرز' }} onBack={() => router.replace({ pathname: '/farmer-dashboard', params: { tab: 'profile' } })} />
+        <SpeechHighlight active={activeHighlightId === 'orders.header'}>
+          <GreenHeader
+            title={{ english: 'My Orders', urdu: 'میرے آرڈرز' }}
+            onBack={() => {
+              // Return to wherever the user came from (e.g. the community
+              // Settings tab), falling back to the farmer dashboard.
+              if (router.canGoBack()) router.back();
+              else router.replace({ pathname: '/farmer-dashboard', params: { tab: 'profile' } });
+            }}
+          />
+        </SpeechHighlight>
 
         <ScrollView contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
           {/* Stats */}
           <View style={{ paddingHorizontal: horizontalPadding, marginTop: -18 }}>
-            <View style={[styles.statsCard, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
+            <SpeechHighlight active={activeHighlightId === 'orders.stats'} style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
+            <View style={styles.statsCard}>
               {[
-                { label: pick('Total', 'کل'), value: '24', color: '#111827' },
-                { label: pick('Pending', 'زیر التواء'), value: '3', color: '#f59e0b' },
-                { label: pick('Shipped', 'بھیج دیا'), value: '5', color: '#10b981' },
-                { label: pick('Delivered', 'پہنچا دیا'), value: '16', color: '#0d5c4b' },
+                { label: pick('Total', 'کل'), value: String(stats.total), color: '#111827' },
+                { label: pick('Pending', 'زیر التواء'), value: String(stats.pending), color: '#f59e0b' },
+                { label: pick('Shipped', 'بھیج دیا'), value: String(stats.shipped), color: '#10b981' },
+                { label: pick('Delivered', 'پہنچا دیا'), value: String(stats.delivered), color: '#0d5c4b' },
               ].map((s) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
@@ -94,10 +156,12 @@ export default function FarmerOrdersPage() {
                 </View>
               ))}
             </View>
+            </SpeechHighlight>
           </View>
 
           {/* Filter Tabs */}
           <View style={{ paddingHorizontal: horizontalPadding, marginTop: 18 }}>
+            <SpeechHighlight active={activeHighlightId === 'orders.filters'}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 {filters.map((f) => {
@@ -117,25 +181,41 @@ export default function FarmerOrdersPage() {
                 })}
               </View>
             </ScrollView>
+            </SpeechHighlight>
           </View>
 
           {/* Orders */}
           <View style={{ paddingHorizontal: horizontalPadding, marginTop: 14 }}>
-            <View style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
-              <OrdersList
-                orders={filteredOrders.map((o) => ({
-                  id: o.id,
-                  productName: o.productName,
-                  quantity: o.quantity,
-                  price: o.price,
-                  counterparty: pick(`Buyer: ${o.buyer}`, `خریدار: ${o.buyer}`),
-                  status: o.status,
-                  date: o.date,
-                  image: o.image,
-                }))}
-                onView={(id) => router.push({ pathname: '/order-details/[orderId]', params: { orderId: id } })}
-              />
+            <SpeechHighlight active={activeHighlightId === 'orders.list'} style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
+            <View>
+              {isLoading ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="large" color="#0d5c4b" />
+                  <Text style={styles.emptySub}>{pick('Loading your orders...', 'آپ کے آرڈرز لوڈ ہو رہے ہیں...')}</Text>
+                </View>
+              ) : filteredOrders.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Feather name="package" size={22} color="#0d5c4b" />
+                  <Text style={styles.emptyTitle}>{pick('No orders', 'کوئی آرڈر نہیں')}</Text>
+                  <Text style={styles.emptySub}>{pick('No orders found in this status.', 'اس حالت میں کوئی آرڈر نہیں ملا۔')}</Text>
+                </View>
+              ) : (
+                <OrdersList
+                  orders={filteredOrders.map((o) => ({
+                    id: o.id,
+                    productName: o.productName,
+                    quantity: o.quantity,
+                    price: o.price,
+                    counterparty: pick(`Buyer: ${o.buyer}`, `خریدار: ${o.buyer}`),
+                    status: o.status,
+                    date: o.date,
+                    image: o.image,
+                  }))}
+                  onView={(id) => router.push({ pathname: '/order-details/[orderId]', params: { orderId: id } })}
+                />
+              )}
             </View>
+            </SpeechHighlight>
           </View>
         </ScrollView>
       </View>
@@ -184,6 +264,10 @@ const styles = StyleSheet.create({
   filterText: { fontWeight: '800', fontSize: 12 },
   filterTextActive: { color: '#ffffff' },
   filterTextIdle: { color: '#6b7280' },
+
+  emptyState: { alignItems: 'center', gap: 8, paddingVertical: 28 },
+  emptyTitle: { fontSize: 16, fontWeight: '900', color: '#111827' },
+  emptySub: { fontSize: 12, color: '#6b7280', lineHeight: 18, textAlign: 'center' },
 
   card: {
     backgroundColor: '#ffffff',

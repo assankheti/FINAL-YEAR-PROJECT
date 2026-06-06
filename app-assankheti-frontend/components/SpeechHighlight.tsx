@@ -6,11 +6,15 @@ export function SpeechHighlight({
   children,
   style,
   highlightStyle,
+  fill,
 }: {
   active: boolean;
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   highlightStyle?: StyleProp<ViewStyle>;
+  /** Make the wrapper (and inner content holder) flex:1 so a flex child like a
+   *  ScrollView keeps its height. Use when wrapping a fill area, not a card. */
+  fill?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const borderOpacity = useRef(new Animated.Value(active ? 1 : 0)).current;
@@ -42,8 +46,8 @@ export function SpeechHighlight({
   );
 
   return (
-    <Animated.View style={[styles.wrapper, style]}>
-      <Animated.View style={{ transform: [{ scale }], zIndex: 1 }}>{children}</Animated.View>
+    <Animated.View style={[styles.wrapper, fill && styles.fill, style]}>
+      <Animated.View style={[{ transform: [{ scale }], zIndex: 1 }, fill && styles.fill]}>{children}</Animated.View>
       <Animated.View pointerEvents="none" style={[resolvedHighlightStyle, { zIndex: 2 }]} />
     </Animated.View>
   );
@@ -53,6 +57,9 @@ const styles = StyleSheet.create({
   wrapper: {
     position: 'relative',
     overflow: 'visible',
+  },
+  fill: {
+    flex: 1,
   },
   highlight: {
     position: 'absolute',

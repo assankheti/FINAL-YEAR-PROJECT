@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,6 +14,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 
 type Props = {
   userType: 'farmer' | 'simple-user' | 'businessman';
@@ -169,6 +172,73 @@ export function Login({
   const phoneStepLabel = isCompact ? t(translations.phoneStep) : t(translations.phoneLabel);
   const otpStepLabel = isCompact ? t(translations.otpStep) : t(translations.verifyTitle);
 
+  // ── Voice guidance: read the login screen aloud and highlight each box as it
+  //    is spoken (offline via on-device TTS). Re-reads when the step changes. ──
+  const { enabled: voiceEnabled, activeHighlightId, startGuidedSequence, cancelGuidedSequence } =
+    useVoiceGuidance();
+  const { voiceLanguage } = useLanguage();
+  const tvVoice = (obj: { english: string; urdu: string }) =>
+    voiceLanguage === 'urdu' ? obj.urdu : obj.english;
+
+  const voiceSteps = useMemo(
+    () =>
+      step === 'phone'
+        ? [
+            {
+              id: 'login.phone',
+              text: tvVoice({
+                english: 'Login screen. In this field, enter your phone number with the country code, for example plus nine two, then your number.',
+                urdu: 'لاگ اِن اسکرین۔ اس خانے میں ملکی کوڈ کے ساتھ اپنا فون نمبر درج کریں، مثلاً پلس نو دو، پھر آپ کا نمبر۔',
+              }),
+            },
+            {
+              id: 'login.action',
+              text: tvVoice({
+                english: 'Send OTP button. Tap it to receive a verification code by SMS.',
+                urdu: 'او ٹی پی بھیجیں بٹن۔ ایس ایم ایس کے ذریعے تصدیقی کوڈ حاصل کرنے کے لیے اسے دبائیں۔',
+              }),
+            },
+          ]
+        : [
+            {
+              id: 'login.otp',
+              text: tvVoice({
+                english: 'Enter the six digit verification code sent to your phone.',
+                urdu: 'اپنے فون پر بھیجا گیا چھ ہندسوں کا تصدیقی کوڈ درج کریں۔',
+              }),
+            },
+            {
+              id: 'login.action',
+              text: tvVoice({
+                english: 'Verify and continue button. Tap it after entering the code.',
+                urdu: 'تصدیق کریں اور آگے بڑھیں بٹن۔ کوڈ درج کرنے کے بعد اسے دبائیں۔',
+              }),
+            },
+          ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [step, voiceLanguage]
+  );
+
+  const startedStepRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!voiceEnabled) {
+      startedStepRef.current = null;
+      cancelGuidedSequence();
+      return;
+    }
+    if (startedStepRef.current === step) return;
+    startedStepRef.current = step;
+    // Defer so it runs after the route-change reset in VoiceGuidanceProvider.
+    const timer = setTimeout(() => startGuidedSequence(voiceSteps), 350);
+    return () => {
+      clearTimeout(timer);
+      cancelGuidedSequence();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceEnabled, step, voiceSteps]);
+
+  const primaryHighlightId = 'login.action';
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -266,6 +336,7 @@ export function Login({
 
             {step === 'phone' ? (
               <>
+                <SpeechHighlight active={activeHighlightId === 'login.phone'}>
                 <View style={styles.card}>
                   <View style={styles.cardHeaderRow}>
                     <View style={styles.cardHeaderCopy}>
@@ -306,6 +377,7 @@ export function Login({
                     <Text style={styles.inlineHintText}>{t(translations.phoneFormat)}</Text>
                   </View>
                 </View>
+                </SpeechHighlight>
 
                 <View style={styles.featureList}>
                   <View style={styles.featureRow}>
@@ -324,6 +396,7 @@ export function Login({
               </>
             ) : (
               <>
+                <SpeechHighlight active={activeHighlightId === 'login.otp'}>
                 <View style={[styles.card, styles.otpCard]}>
                   <View style={styles.otpIntro}>
                     <View style={styles.codeSentPill}>
@@ -375,9 +448,11 @@ export function Login({
                     ) : null}
                   </View>
                 </View>
+                </SpeechHighlight>
               </>
             )}
 
+            <SpeechHighlight active={activeHighlightId === primaryHighlightId}>
             <TouchableOpacity
               activeOpacity={0.9}
               style={[styles.primaryBtn, ((step === 'phone' && !canSendOtp) || (step === 'otp' && !canVerifyOtp) || loading) && styles.primaryBtnDisabled]}
@@ -395,6 +470,7 @@ export function Login({
                 </View>
               )}
             </TouchableOpacity>
+            </SpeechHighlight>
             <Text style={[styles.primaryHint, canSendOtp || canVerifyOtp ? styles.primaryHintReady : null]}>{buttonHelperText}</Text>
           </View>
         </ScrollView>

@@ -311,7 +311,6 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
               />
             </View>
             <View>
-              <Text style={S.welcomeSmall}>{t('Welcome back', 'خوش آمدید')}</Text>
               <Text style={S.welcomeName}>
                 {userType === 'businessman' ? t('Business User', 'بزنس یوزر') : t('User', 'یوزر')}
               </Text>
@@ -363,7 +362,6 @@ export function CommunityDashboard({ userType, textLanguage = 'english' }: Props
       { key: 'grains', label: t('Grains', 'اناج'), icon: '🌾' },
       { key: 'veggies', label: t('Veggies', 'سبزیاں'), icon: '🥬' },
       { key: 'fruits', label: t('Fruits', 'پھل'), icon: '🍎' },
-      { key: 'others', label: t('Others', 'دیگر'), icon: '🌿' },
     ];
     return (
       <ScrollView

@@ -21,6 +21,23 @@ db = get_database()
 
 # ---------- Conversations ----------
 
+def normalize_participant_id(pid: Optional[str]) -> str:
+    """Canonicalize a participant id so the same user cannot spawn duplicate
+    conversations.
+
+    Some client flows pass a ``device:<uuid>`` form (e.g. the product owner id)
+    while others pass the bare ``<uuid>``. Collapsing the optional ``device:``
+    prefix makes both resolve to one identity, so (A, B) only ever has a single
+    conversation document.
+    """
+    if not pid:
+        return pid or ""
+    pid = pid.strip()
+    if pid.startswith("device:"):
+        return pid[len("device:"):]
+    return pid
+
+
 async def get_or_create_dm_conversation(
     user_a: str,
     user_b: str,
@@ -33,6 +50,8 @@ async def get_or_create_dm_conversation(
     Participants are stored as a sorted list so (A, B) and (B, A) collide on
     the same document. Returns the conversation_id.
     """
+    user_a = normalize_participant_id(user_a)
+    user_b = normalize_participant_id(user_b)
     if not user_a or not user_b:
         raise ValueError("both user_a and user_b are required")
 

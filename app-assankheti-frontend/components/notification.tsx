@@ -7,6 +7,7 @@ import { useLanguage, useT } from '@/contexts/LanguageContext';
 import {
   listLocalNotifications,
   markLocalNotificationsRead,
+  setLocalNotificationRead,
   removeLocalNotification,
   subscribeLocalNotifications,
   upsertLocalNotifications,
@@ -218,12 +219,13 @@ export default function Notification({
     setNotifs((p) => p.map((n) => ({ ...n, isRead: true })));
   };
 
-  const handleOpenNotification = (id: string) => {
+  const handleOpenNotification = (id: string, currentlyRead: boolean) => {
+    const nextRead = !currentlyRead;
     if (storageNamespaces?.length) {
-      void markLocalNotificationsRead({ notificationIds: [id] });
+      void setLocalNotificationRead(id, nextRead);
       return;
     }
-    setNotifs((p) => p.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    setNotifs((p) => p.map((n) => (n.id === id ? { ...n, isRead: nextRead } : n)));
   };
 
   const handleDismissNotification = (id: string) => {
@@ -283,7 +285,7 @@ export default function Notification({
                   <SwipeDismissCard
                     key={n.id}
                     isUnread={!n.isRead}
-                    onPress={() => handleOpenNotification(n.id)}
+                    onPress={() => handleOpenNotification(n.id, !!n.isRead)}
                     onDismiss={() => handleDismissNotification(n.id)}
                   >
                     <View style={{ flexDirection: 'row', gap: 12 }}>

@@ -22,11 +22,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import NotificationBell from '@/components/NotificationBell';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 import { showMobileNotificationsOnce } from '@/lib/mobileNotifications';
 import { clearAuthSession } from '@/lib/appFlow';
-import { usePageVoiceGuidance } from '@/hooks/usePageVoiceGuidance';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 import { getProductOwnerId, listFarmerProducts, normalizeProductImageUrl, productFallbackImage } from '@/lib/productsApi';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
@@ -77,9 +79,6 @@ const CATEGORY_MAP: Record<string, { icon: string; label: string; color: string 
   grains:     { icon: '🌾', label: 'Grains',     color: '#fef3c7' },
   veggies:    { icon: '🥬', label: 'Veggies',    color: '#d1fae5' },
   fruits:     { icon: '🍎', label: 'Fruits',     color: '#fce7f3' },
-  dairy:      { icon: '🥛', label: 'Dairy',      color: '#e0f2fe' },
-  meat:       { icon: '🥩', label: 'Meat',       color: '#fee2e2' },
-  others:     { icon: '🌿', label: 'Others',     color: '#f0fdf4' },
 };
 
 function categoryEmoji(cat?: string) {
@@ -214,13 +213,69 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
 
   const t = useCallback((en: string, ur: string) => textLanguage === 'urdu' ? ur : en, [textLanguage]);
 
-  usePageVoiceGuidance(
-    { english: 'Farmer community', urdu: 'کسان کمیونٹی' },
-    {
-      english: 'Browse products, manage your shop, open community chat, or review your profile from here.',
-      urdu: 'یہاں سے پروڈکٹس دیکھیں، اپنی شاپ منظم کریں، کمیونٹی چیٹ کھولیں، یا اپنا پروفائل دیکھیں۔',
-    }
+  // ── Voice guidance: read the community page aloud and highlight each feature
+  //    as it is spoken (offline via on-device TTS). ──
+  const { voiceLanguage } = useLanguage();
+  const { enabled: voiceEnabled, activeHighlightId, startGuidedSequence, cancelGuidedSequence } =
+    useVoiceGuidance();
+  const tv = useCallback(
+    (en: string, ur: string) => (voiceLanguage === 'urdu' ? ur : en),
+    [voiceLanguage]
   );
+
+  const homeVoiceSteps = useMemo(
+    () => [
+      { id: 'fc.search', text: tv('Search bar. Type here to find crops and products.', 'سرچ بار۔ فصلیں اور مصنوعات تلاش کرنے کے لیے یہاں لکھیں۔') },
+      { id: 'fc.stats', text: tv('Your stats. Total products, your listings, and saved items.', 'آپ کے اعداد و شمار۔ کل مصنوعات، آپ کی فہرستیں، اور محفوظ اشیاء۔') },
+      { id: 'fc.categories', text: tv('Categories. Tap a category to browse that type of product.', 'زمرے۔ اس قسم کی مصنوعات دیکھنے کے لیے کسی زمرے پر ٹیپ کریں۔') },
+      { id: 'fc.products', text: tv('All products. Browse and buy products from other farmers.', 'تمام مصنوعات۔ دوسرے کسانوں کی مصنوعات دیکھیں اور خریدیں۔') },
+      { id: 'fc.tab.myshop', text: tv('My Shop tab. Add and manage your own products.', 'مائی شاپ ٹیب۔ اپنی مصنوعات شامل اور منظم کریں۔') },
+      { id: 'fc.tab.favorites', text: tv('Saved tab. View the products you saved.', 'محفوظ ٹیب۔ محفوظ کی گئی مصنوعات دیکھیں۔') },
+      { id: 'fc.tab.community', text: tv('Chat tab. Open community chat with other farmers.', 'چیٹ ٹیب۔ دوسرے کسانوں کے ساتھ کمیونٹی چیٹ کھولیں۔') },
+      { id: 'fc.tab.profile', text: tv('Settings tab. View your profile and manage your sales.', 'ترتیبات ٹیب۔ اپنا پروفائل دیکھیں اور اپنی فروخت منظم کریں۔') },
+    ],
+    [tv]
+  );
+
+  // Only run this screen's voice when it is actually focused — otherwise it
+  // keeps playing under pushed screens (e.g. the Messages inbox).
+  const [screenFocused, setScreenFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, [])
+  );
+
+  const announcedTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!voiceEnabled || !screenFocused) {
+      announcedTabRef.current = null;
+      cancelGuidedSequence();
+      return;
+    }
+    if (announcedTabRef.current === activeTab) return;
+    announcedTabRef.current = activeTab;
+    cancelGuidedSequence();
+
+    const steps =
+      activeTab === 'home'
+        ? homeVoiceSteps
+        : activeTab === 'myshop'
+          ? [{ id: 'fc.tab.myshop', text: tv('My Shop. Add and manage your own products.', 'مائی شاپ۔ اپنی مصنوعات شامل اور منظم کریں۔') }]
+          : activeTab === 'favorites'
+            ? [{ id: 'fc.tab.favorites', text: tv('Saved. View the products you saved.', 'محفوظ۔ محفوظ کی گئی مصنوعات دیکھیں۔') }]
+            : [
+                { id: 'fc.settings.profile', text: tv('Settings. Your farmer profile and verified status.', 'ترتیبات۔ آپ کا کسان پروفائل اور تصدیق شدہ حیثیت۔') },
+                { id: 'fc.settings.sales', text: tv('My Sales. View and manage your orders.', 'میری فروخت۔ اپنے آرڈرز دیکھیں اور منظم کریں۔') },
+                { id: 'fc.settings.signout', text: tv('Sign out button. Tap to log out of your account.', 'سائن آؤٹ بٹن۔ اپنے اکاؤنٹ سے لاگ آؤٹ کرنے کے لیے دبائیں۔') },
+              ];
+
+    // Defer so it runs after the route-change reset in VoiceGuidanceProvider.
+    const timer = setTimeout(() => startGuidedSequence(steps), 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceEnabled, activeTab, homeVoiceSteps, screenFocused]);
 
   // ─── Load browse products ────────────────────────────────────────────────────
 
@@ -386,31 +441,30 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
             </View>
             <View>
               <Text style={styles.headerSub}>{t('Farmer Marketplace', 'کسان بازار')}</Text>
-              <Text style={styles.headerTitle} numberOfLines={1}>
-                {farmerName?.trim() ? farmerName : t('Welcome Back', 'خوش آمدید')} 👋
-              </Text>
             </View>
           </View>
           <NotificationBell onHeader localNamespaces={['farmer-notifications']} />
         </View>
 
         <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Feather name="search" size={17} color={C.textSub} style={{ marginLeft: 14 }} />
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder={t('Search crops, products...', 'فصلیں، مصنوعات تلاش کریں...')}
-              placeholderTextColor="#9ca3af"
-              style={styles.searchInput}
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
-                <Feather name="x" size={14} color={C.textSub} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SpeechHighlight active={activeHighlightId === 'fc.search'} style={{ flex: 1 }}>
+            <View style={styles.searchBox}>
+              <Feather name="search" size={17} color={C.textSub} style={{ marginLeft: 14 }} />
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder={t('Search crops, products...', 'فصلیں، مصنوعات تلاش کریں...')}
+                placeholderTextColor="#9ca3af"
+                style={styles.searchInput}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                  <Feather name="x" size={14} color={C.textSub} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </SpeechHighlight>
         </View>
       </View>
     </LinearGradient>
@@ -419,21 +473,23 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
   // ─── Categories ───────────────────────────────────────────────────────────────
 
   const Categories = () => (
-    <View style={[styles.section, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
-        {Object.entries(CATEGORY_MAP).map(([key, { icon, label, color }]) => (
-          <TouchableOpacity
-            key={key}
-            activeOpacity={0.82}
-            onPress={() => router.push({ pathname: '/category-products/[category]', params: { category: key } })}
-            style={[styles.categoryChip, { backgroundColor: color }]}
-          >
-            <Text style={{ fontSize: 20 }}>{icon}</Text>
-            <Text style={styles.categoryChipLabel}>{label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
+    <SpeechHighlight active={activeHighlightId === 'fc.categories'} style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
+      <View style={styles.section}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
+          {Object.entries(CATEGORY_MAP).map(([key, { icon, label, color }]) => (
+            <TouchableOpacity
+              key={key}
+              activeOpacity={0.82}
+              onPress={() => router.push({ pathname: '/category-products/[category]', params: { category: key } })}
+              style={[styles.categoryChip, { backgroundColor: color }]}
+            >
+              <Text style={{ fontSize: 20 }}>{icon}</Text>
+              <Text style={styles.categoryChipLabel}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </SpeechHighlight>
   );
 
   // ─── Browse grid ─────────────────────────────────────────────────────────────
@@ -485,32 +541,34 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
     }
 
     return (
-      <View style={[styles.section, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {searchQuery.trim()
-              ? t('Search Results', 'تلاش کے نتائج')
-              : t('All Products', 'تمام مصنوعات')}
-          </Text>
-          <Text style={styles.countBadge}>{items.length}</Text>
+      <SpeechHighlight active={activeHighlightId === 'fc.products'} style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {searchQuery.trim()
+                ? t('Search Results', 'تلاش کے نتائج')
+                : t('All Products', 'تمام مصنوعات')}
+            </Text>
+            <Text style={styles.countBadge}>{items.length}</Text>
+          </View>
+          <View style={styles.grid}>
+            {items.map((p) => (
+              <View key={p.id} style={{ width: cardW }}>
+                <ProductCard
+                  item={p}
+                  onBuy={() =>
+                    router.push({ pathname: '/product-buy/[productId]', params: { productId: p.id } })
+                  }
+                  onFav={() => toggleFav(p.id)}
+                  isFav={favorites.has(p.id)}
+                  lang={textLanguage}
+                  compact={isCompactGrid}
+                />
+              </View>
+            ))}
+          </View>
         </View>
-        <View style={styles.grid}>
-          {items.map((p) => (
-            <View key={p.id} style={{ width: cardW }}>
-              <ProductCard
-                item={p}
-                onBuy={() =>
-                  router.push({ pathname: '/product-buy/[productId]', params: { productId: p.id } })
-                }
-                onFav={() => toggleFav(p.id)}
-                isFav={favorites.has(p.id)}
-                lang={textLanguage}
-                compact={isCompactGrid}
-              />
-            </View>
-          ))}
-        </View>
-      </View>
+      </SpeechHighlight>
     );
   };
 
@@ -523,19 +581,21 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
     >
       <Header />
       <View style={{ marginTop: -22 }}>
-        <View style={[styles.statsBar, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-          {[
-            { label: t('Products', 'مصنوعات'), value: browseProducts.length, icon: 'package' as const },
-            { label: t('My Listings', 'میری فہرستیں'), value: myProducts.length, icon: 'tag' as const },
-            { label: t('Saved', 'محفوظ'), value: favorites.size, icon: 'heart' as const },
-          ].map((s) => (
-            <View key={s.label} style={styles.statItem}>
-              <Feather name={s.icon} size={15} color={C.primary} />
-              <Text style={styles.statValue}>{s.value}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
-            </View>
-          ))}
-        </View>
+        <SpeechHighlight active={activeHighlightId === 'fc.stats'} style={{ maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }}>
+          <View style={styles.statsBar}>
+            {[
+              { label: t('Products', 'مصنوعات'), value: browseProducts.length, icon: 'package' as const },
+              { label: t('My Listings', 'میری فہرستیں'), value: myProducts.length, icon: 'tag' as const },
+              { label: t('Saved', 'محفوظ'), value: favorites.size, icon: 'heart' as const },
+            ].map((s) => (
+              <View key={s.label} style={styles.statItem}>
+                <Feather name={s.icon} size={15} color={C.primary} />
+                <Text style={styles.statValue}>{s.value}</Text>
+                <Text style={styles.statLabel}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+        </SpeechHighlight>
       </View>
       <Categories />
       <BrowseGrid />
@@ -779,65 +839,57 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
 
   const ProfileTab = () => (
     <ScrollView contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
-      <LinearGradient colors={['#064e3b', '#0d5c4b']} style={styles.profileHeader}>
-        <View style={{ alignItems: 'center' }}>
-          {farmerAvatarUri
-            ? <Image source={{ uri: farmerAvatarUri }} style={styles.profileAvatar} />
-            : (
-              <LinearGradient colors={['#10b981', '#059669']} style={styles.profileAvatar}>
-                <Text style={{ fontSize: 38 }}>👨‍🌾</Text>
-              </LinearGradient>
-            )}
-          <Text style={styles.profileName}>{farmerName?.trim() ? farmerName : t('Farmer', 'کسان')}</Text>
-          <View style={styles.profileBadge}>
-            <MaterialCommunityIcons name="sprout" size={13} color="#10b981" />
-            <Text style={styles.profileBadgeText}>{t('Verified Farmer', 'تصدیق شدہ کسان')}</Text>
+      <SpeechHighlight active={activeHighlightId === 'fc.settings.profile'}>
+        <LinearGradient colors={['#064e3b', '#0d5c4b']} style={styles.profileHeader}>
+          <View style={{ alignItems: 'center' }}>
+            {farmerAvatarUri
+              ? <Image source={{ uri: farmerAvatarUri }} style={styles.profileAvatar} />
+              : (
+                <LinearGradient colors={['#10b981', '#059669']} style={styles.profileAvatar}>
+                  <Text style={{ fontSize: 38 }}>👨‍🌾</Text>
+                </LinearGradient>
+              )}
+            <Text style={styles.profileName}>{farmerName?.trim() ? farmerName : t('Farmer', 'کسان')}</Text>
+            <View style={styles.profileBadge}>
+              <MaterialCommunityIcons name="sprout" size={13} color="#10b981" />
+              <Text style={styles.profileBadgeText}>{t('Verified Farmer', 'تصدیق شدہ کسان')}</Text>
+            </View>
           </View>
-        </View>
-      </LinearGradient>
+        </LinearGradient>
+      </SpeechHighlight>
 
       <View style={[{ paddingHorizontal: 16, marginTop: 20, gap: 10, maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.profileEditBtn}
-          onPress={() => router.push('/farmer-profile-edit')}
-        >
-          <Feather name="edit-3" size={16} color={C.primary} />
-          <Text style={styles.profileEditText}>{t('Edit Profile', 'پروفائل ترمیم کریں')}</Text>
-        </TouchableOpacity>
-
         {[
-          { label: t('My Sales', 'میری فروخت'), icon: 'shopping-bag' as const, route: '/farmer-orders' },
-          { label: t('Settings', 'ترتیبات'), icon: 'settings' as const, route: '/farmer-settings' },
-          { label: t('Notifications', 'اطلاعات'), icon: 'bell' as const, route: '/farmer-notifications' },
-          { label: t('Privacy Policy', 'پرائیویسی پالیسی'), icon: 'shield' as const, route: '/privacy-policy' },
-          { label: t('Help Center', 'ہیلپ سینٹر'), icon: 'help-circle' as const, route: '/help-center' },
+          { id: 'fc.settings.sales', label: t('My Sales', 'میری فروخت'), icon: 'shopping-bag' as const, route: '/farmer-orders' },
         ].map((item) => (
-          <TouchableOpacity
-            key={item.label}
-            activeOpacity={0.85}
-            style={styles.profileRow}
-            onPress={() => router.push(item.route as any)}
-          >
-            <View style={styles.profileRowIcon}>
-              <Feather name={item.icon} size={18} color={C.primary} />
-            </View>
-            <Text style={styles.profileRowText}>{item.label}</Text>
-            <Feather name="chevron-right" size={16} color={C.textSub} />
-          </TouchableOpacity>
+          <SpeechHighlight key={item.label} active={activeHighlightId === item.id}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={styles.profileRow}
+              onPress={() => router.push(item.route as any)}
+            >
+              <View style={styles.profileRowIcon}>
+                <Feather name={item.icon} size={18} color={C.primary} />
+              </View>
+              <Text style={styles.profileRowText}>{item.label}</Text>
+              <Feather name="chevron-right" size={16} color={C.textSub} />
+            </TouchableOpacity>
+          </SpeechHighlight>
         ))}
 
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.logoutBtn}
-          onPress={async () => {
-            await clearAuthSession();
-            router.replace({ pathname: '/farmer-dashboard', params: { userType: 'farmer' } });
-          }}
-        >
-          <Feather name="log-out" size={16} color="#fff" />
-          <Text style={styles.logoutText}>{t('Sign Out', 'سائن آؤٹ')}</Text>
-        </TouchableOpacity>
+        <SpeechHighlight active={activeHighlightId === 'fc.settings.signout'}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.logoutBtn}
+            onPress={async () => {
+              await clearAuthSession();
+              router.replace({ pathname: '/farmer-dashboard', params: { userType: 'farmer' } });
+            }}
+          >
+            <Feather name="log-out" size={16} color="#fff" />
+            <Text style={styles.logoutText}>{t('Sign Out', 'سائن آؤٹ')}</Text>
+          </TouchableOpacity>
+        </SpeechHighlight>
       </View>
     </ScrollView>
   );
@@ -849,7 +901,7 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
     { id: 'myshop', icon: 'tag', label: t('My Shop', 'دکان') },
     { id: 'favorites', icon: 'heart', label: t('Saved', 'محفوظ') },
     { id: 'community', icon: 'message-circle', label: t('Chat', 'چیٹ'), customPress: () => router.push('/community/inbox' as any), badge: communityUnread },
-    { id: 'profile', icon: 'user', label: t('Profile', 'پروفائل') },
+    { id: 'profile', icon: 'settings', label: t('Settings', 'ترتیبات') },
   ];
 
   // ─── Render ───────────────────────────────────────────────────────────────────
@@ -868,25 +920,30 @@ export function FarmerCommunityDashboard({ textLanguage = 'english' }: Props) {
             {TABS.map((tab) => {
               const isActive = !tab.customPress && activeTab === tab.id;
               return (
-                <TouchableOpacity
+                <SpeechHighlight
                   key={tab.id}
-                  activeOpacity={0.8}
-                  style={styles.tabBtn}
-                  onPress={tab.customPress ?? (() => setActiveTab(tab.id))}
+                  active={activeHighlightId === `fc.tab.${tab.id}`}
+                  style={{ flex: 1 }}
                 >
-                  <View>
-                    <Feather name={tab.icon as any} size={22} color={isActive ? C.primary : C.textSub} />
-                    {tab.badge && tab.badge > 0 ? (
-                      <View style={styles.tabBadge}>
-                        <Text style={styles.tabBadgeText}>{tab.badge > 99 ? '99+' : String(tab.badge)}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={[styles.tabLabel, { color: isActive ? C.primary : C.textSub }]}>
-                    {tab.label}
-                  </Text>
-                  {isActive && <View style={styles.tabDot} />}
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={styles.tabBtn}
+                    onPress={tab.customPress ?? (() => setActiveTab(tab.id))}
+                  >
+                    <View>
+                      <Feather name={tab.icon as any} size={22} color={isActive ? C.primary : C.textSub} />
+                      {tab.badge && tab.badge > 0 ? (
+                        <View style={styles.tabBadge}>
+                          <Text style={styles.tabBadgeText}>{tab.badge > 99 ? '99+' : String(tab.badge)}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={[styles.tabLabel, { color: isActive ? C.primary : C.textSub }]}>
+                      {tab.label}
+                    </Text>
+                    {isActive && <View style={styles.tabDot} />}
+                  </TouchableOpacity>
+                </SpeechHighlight>
               );
             })}
           </View>

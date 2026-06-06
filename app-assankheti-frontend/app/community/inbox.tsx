@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   FlatList,
   RefreshControl,
@@ -15,8 +16,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import ConfirmDialog from '@/components/ConfirmDialog';
+import { SpeechHighlight } from '@/components/SpeechHighlight';
 import PresenceDot from '@/components/community/PresenceDot';
-import { useT } from '@/contexts/LanguageContext';
+import { useLanguage, useT } from '@/contexts/LanguageContext';
+import { useVoiceGuidance } from '@/hooks/useVoiceGuidance';
 import { authFetch } from '@/lib/authFetch';
 import { getOrCreateMobileId } from '@/lib/deviceId';
 
@@ -138,7 +142,15 @@ function SkeletonCard() {
 
 // ─── Conversation card ────────────────────────────────────────────────────────
 
-function ConvCard({ item, onPress }: { item: ConvItem; onPress: () => void }) {
+function ConvCard({
+  item,
+  onPress,
+  onDelete,
+}: {
+  item: ConvItem;
+  onPress: () => void;
+  onDelete?: () => void;
+}) {
   const isDM = item.type === 'dm';
   const hasUnread = item.unreadCount > 0;
   const displayName = isDM ? formatLabel(item.name) : item.name;
@@ -148,6 +160,8 @@ function ConvCard({ item, onPress }: { item: ConvItem; onPress: () => void }) {
     <TouchableOpacity
       activeOpacity={0.72}
       onPress={onPress}
+      onLongPress={onDelete}
+      delayLongPress={300}
       style={[S.card, hasUnread && S.cardUnread]}
       accessibilityRole="button"
     >
@@ -190,6 +204,17 @@ function ConvCard({ item, onPress }: { item: ConvItem; onPress: () => void }) {
           ) : null}
         </View>
       </View>
+
+      {onDelete ? (
+        <TouchableOpacity
+          onPress={onDelete}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={S.deleteBtn}
+          accessibilityRole="button"
+        >
+          <Feather name="trash-2" size={18} color="#9ca3af" />
+        </TouchableOpacity>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -220,7 +245,7 @@ export default function CommunityInbox() {
       const dmData = dmRes.ok ? await dmRes.json() : { conversations: [] };
       const grpData = grpRes.ok ? await grpRes.json() : { groups: [] };
 
-      const dmItems: ConvItem[] = (dmData.conversations ?? []).map((c: any) => ({
+      const rawDmItems: ConvItem[] = (dmData.conversations ?? []).map((c: any) => ({
         id: c.conversation_id,
         type: 'dm' as const,
         name: c.other_participant ?? 'Unknown',
@@ -231,6 +256,27 @@ export default function CommunityInbox() {
         contextType: c.context_type ?? null,
         contextRef: c.context_ref ?? null,
       }));
+
+      // Collapse duplicate DM threads with the same person (e.g. created once as
+      // `device:<id>` and once as `<id>`), preferring the one that actually has
+      // messages / the most recent activity.
+      const normId = (id: string | null) => (id ?? '').replace(/^device:/, '');
+      const dmByPartner = new Map<string, ConvItem>();
+      for (const it of rawDmItems) {
+        const key = normId(it.otherParticipant);
+        const prev = dmByPartner.get(key);
+        if (!prev) {
+          dmByPartner.set(key, it);
+          continue;
+        }
+        const prevTime = prev.lastActiveAt ? new Date(prev.lastActiveAt).getTime() : -1;
+        const curTime = it.lastActiveAt ? new Date(it.lastActiveAt).getTime() : -1;
+        const better = curTime > prevTime ? it : prev;
+        // Keep the combined unread count so nothing is silently dropped.
+        better.unreadCount = (prev.unreadCount ?? 0) + (it.unreadCount ?? 0);
+        dmByPartner.set(key, better);
+      }
+      const dmItems: ConvItem[] = [...dmByPartner.values()];
 
       const grpItems: ConvItem[] = (grpData.groups ?? []).map((g: any) => ({
         id: g.group_id,
@@ -281,6 +327,40 @@ export default function CommunityInbox() {
     }
   }, [router]);
 
+  const [pendingDelete, setPendingDelete] = useState<ConvItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const requestDelete = useCallback((item: ConvItem) => {
+    // Only direct conversations are deletable here (groups use "leave").
+    if (item.type !== 'dm') return;
+    setPendingDelete(item);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    const item = pendingDelete;
+    if (!item) return;
+    setDeleting(true);
+    // Optimistically remove from the list.
+    setItems((prev) => prev.filter((x) => !(x.type === item.type && x.id === item.id)));
+    try {
+      const res = await authFetch(
+        `/api/v1/community/dm/conversations/${encodeURIComponent(item.id)}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      // Restore on failure.
+      load();
+      Alert.alert(
+        t({ english: 'Delete failed', urdu: 'حذف ناکام' }),
+        t({ english: 'Please try again.', urdu: 'دوبارہ کوشش کریں۔' })
+      );
+    } finally {
+      setDeleting(false);
+      setPendingDelete(null);
+    }
+  }, [pendingDelete, load, t]);
+
   const navigateTo = useCallback((item: ConvItem) => {
     if (item.type === 'dm') {
       router.push({
@@ -316,6 +396,44 @@ export default function CommunityInbox() {
         formatPreview(i.preview).toLowerCase().includes(q)
       );
     });
+
+  // ── Voice guidance: read each conversation aloud and highlight its card. ──
+  const { voiceLanguage } = useLanguage();
+  const {
+    enabled: voiceEnabled,
+    activeHighlightId,
+    startGuidedSequence,
+    cancelGuidedSequence,
+  } = useVoiceGuidance();
+  const vv = useCallback(
+    (english: string, urdu: string) => (voiceLanguage === 'urdu' ? urdu : english),
+    [voiceLanguage]
+  );
+  const convStepId = (item: ConvItem) => `inbox.conv.${item.type}.${item.id}`;
+
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!voiceEnabled || loading || startedRef.current) return;
+    startedRef.current = true;
+    const steps = [
+      { id: 'inbox.header', text: vv('Messages. Chat with farmers.', 'پیغامات۔ کسانوں سے گفتگو۔') },
+      { id: 'inbox.search', text: vv('Search bar. Type to find a conversation.', 'سرچ بار۔ گفتگو تلاش کرنے کے لیے لکھیں۔') },
+      ...filtered.map((item) => {
+        const name = item.type === 'dm' ? vv('a farmer', 'ایک کسان') : item.name;
+        const preview = formatPreview(item.preview);
+        return {
+          id: convStepId(item),
+          text: vv(`Chat with ${name}. Last message: ${preview}.`, `${name} کے ساتھ گفتگو۔ آخری پیغام: ${preview}۔`),
+        };
+      }),
+    ];
+    const timer = setTimeout(() => startGuidedSequence(steps), 350);
+    return () => {
+      clearTimeout(timer);
+      cancelGuidedSequence();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceEnabled, loading]);
 
   const totalUnread = items.reduce((s, i) => s + i.unreadCount, 0);
   const dmCount = items.filter(i => i.type === 'dm').length;
@@ -367,6 +485,7 @@ export default function CommunityInbox() {
         </View>
 
         {/* Search bar */}
+        <SpeechHighlight active={activeHighlightId === 'inbox.search'}>
         <View style={S.searchRow}>
           <Feather name="search" size={16} color={C.muted} style={{ marginRight: 8 }} />
           <TextInput
@@ -385,6 +504,7 @@ export default function CommunityInbox() {
             </TouchableOpacity>
           ) : null}
         </View>
+        </SpeechHighlight>
       </LinearGradient>
 
       {/* ── Tab filter ─────────────────────────────────────────────────────── */}
@@ -418,7 +538,13 @@ export default function CommunityInbox() {
             data={filtered}
             keyExtractor={i => `${i.type}-${i.id}`}
             renderItem={({ item }) => (
-              <ConvCard item={item} onPress={() => navigateTo(item)} />
+              <SpeechHighlight active={activeHighlightId === convStepId(item)}>
+                <ConvCard
+                  item={item}
+                  onPress={() => navigateTo(item)}
+                  onDelete={item.type === 'dm' ? () => requestDelete(item) : undefined}
+                />
+              </SpeechHighlight>
             )}
             contentContainerStyle={S.listContent}
             showsVerticalScrollIndicator={false}
@@ -477,6 +603,20 @@ export default function CommunityInbox() {
 
       {/* Bottom safe area */}
       <View style={{ height: insets.bottom, backgroundColor: C.bg }} />
+
+      <ConfirmDialog
+        visible={!!pendingDelete}
+        title={t({ english: 'Delete conversation?', urdu: 'گفتگو حذف کریں؟' })}
+        message={t({
+          english: 'This conversation will be removed from your list.',
+          urdu: 'یہ گفتگو آپ کی فہرست سے ہٹا دی جائے گی۔',
+        })}
+        confirmLabel={t({ english: 'Delete', urdu: 'حذف کریں' })}
+        cancelLabel={t({ english: 'Cancel', urdu: 'منسوخ' })}
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </View>
   );
 }
@@ -628,6 +768,14 @@ const S = StyleSheet.create({
     backgroundColor: '#fafffe',
     shadowOpacity: 0.07,
     elevation: 2,
+  },
+  deleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f9fafb',
   },
 
   // Avatar
